@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { auth } from '../firebase';
 import { useNavigate } from 'react-router-dom';
-import { Lock, Mail, PlayCircle } from 'lucide-react';
+import { Lock, Mail } from 'lucide-react';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -18,12 +18,6 @@ const Login = () => {
     } catch (err) {
       setError('Credenciales inválidas o configuración de Firebase faltante.');
     }
-  };
-
-  const handleDemoLogin = () => {
-    localStorage.setItem('demoMode', 'true');
-    // Force reload to pick up new API mode in App.tsx
-    window.location.reload();
   };
 
   return (
@@ -76,27 +70,6 @@ const Login = () => {
             Ingresar
           </button>
         </form>
-
-        <div className="relative my-6">
-          <div className="absolute inset-0 flex items-center">
-            <div className="w-full border-t border-gray-300"></div>
-          </div>
-          <div className="relative flex justify-center text-sm">
-            <span className="px-2 bg-white text-gray-500">O prueba sin configurar</span>
-          </div>
-        </div>
-
-        <button
-          onClick={handleDemoLogin}
-          className="w-full bg-green-50 text-green-700 border border-green-200 py-2 rounded hover:bg-green-100 transition-colors font-semibold flex items-center justify-center gap-2"
-        >
-          <PlayCircle size={20} />
-          Ingresar en Modo Demo Local
-        </button>
-
-        <div className="mt-4 text-center text-xs text-gray-400">
-          <p>Nota: El modo demo no guarda datos en la nube.</p>
-        </div>
       </div>
     </div>
   );

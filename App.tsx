@@ -14,14 +14,6 @@ const ProtectedRoute = ({ children }: { children?: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // Check for Demo Mode flag
-    const isDemo = localStorage.getItem('demoMode') === 'true';
-    if (isDemo) {
-      setUser({ email: 'demo@local', uid: 'demo123', role: 'admin' });
-      setLoading(false);
-      return;
-    }
-
     // Normal Firebase Auth check
     const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
       setUser(currentUser);

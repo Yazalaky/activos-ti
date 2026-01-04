@@ -20,21 +20,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const [isSidebarOpen, setSidebarOpen] = React.useState(true);
-  
-  // Check if we are in demo mode for UI display
-  const isDemo = localStorage.getItem('demoMode') === 'true';
-  const userEmail = isDemo ? 'demo@local' : auth.currentUser?.email;
+  const userEmail = auth.currentUser?.email;
 
   const handleLogout = async () => {
-    if (isDemo) {
-      localStorage.removeItem('demoMode');
-      navigate('/login');
-      // Force reload to reset API mode
-      window.location.reload();
-    } else {
-      await auth.signOut();
-      navigate('/login');
-    }
+    await auth.signOut();
+    navigate('/login');
   };
 
   const menuItems = [
@@ -91,7 +81,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <Menu size={20} />
           </button>
           <div className="flex items-center space-x-4">
-            {isDemo && <span className="px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-bold">MODO DEMO</span>}
             <span className="text-sm text-gray-600">Usuario: {userEmail}</span>
             <div className="w-8 h-8 bg-blue-500 rounded-full flex items-center justify-center text-white font-bold">
               {userEmail?.charAt(0).toUpperCase()}

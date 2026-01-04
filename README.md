@@ -26,32 +26,40 @@ Sistema de gestión de inventario TI, actividades y costos.
 1.  **Requisitos:** Node.js v18+.
 2.  **Instalar dependencias:**
     ```bash
-    npm install react react-dom react-router-dom firebase lucide-react date-fns recharts clsx tailwind-merge
-    npm install -D typescript vite @vitejs/plugin-react tailwindcss postcss autoprefixer
+    npm install
     ```
-3.  **Configuración Firebase:**
-    *   Crea un proyecto en [Firebase Console](https://console.firebase.google.com/).
+3.  **Configuración Firebase (Producción):**
+    *   Crea un proyecto en Firebase Console.
     *   Habilita **Authentication** (Email/Password).
-    *   Habilita **Firestore Database** (Modo producción).
-    *   Habilita **Storage**.
-    *   Copia las credenciales de tu proyecto.
-    *   Edita el archivo `firebase.ts` y reemplaza el objeto `firebaseConfig` con tus credenciales.
+    *   Habilita **Firestore Database**.
+    *   (Opcional) Habilita **Storage** si vas a subir evidencias (fotos/PDF).
+    *   Crea un archivo `.env.local` (no se versiona) basado en `.env.example` y completa:
+        - `VITE_FIREBASE_API_KEY`
+        - `VITE_FIREBASE_AUTH_DOMAIN`
+        - `VITE_FIREBASE_PROJECT_ID`
+        - `VITE_FIREBASE_STORAGE_BUCKET`
+        - `VITE_FIREBASE_MESSAGING_SENDER_ID`
+        - `VITE_FIREBASE_APP_ID`
 
 4.  **Ejecutar:**
     ```bash
     npm run dev
     ```
 
-## 3. Reglas de Seguridad (Firestore - Ejemplo Básico)
+## 3. Reglas de Seguridad (Firestore/Storage)
 
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null; // En prod, restringir por request.auth.token.role == 'admin'
-    }
-  }
-}
-```
+Este repo incluye reglas listas para usar:
+
+- Firestore: `firestore.rules`
+- Storage: `storage.rules`
+
+### Bootstrap de roles
+Las reglas usan `users/{uid}.role` con valores `admin | tech | auditor`.
+
+1) Crea un usuario en Auth (Email/Password).
+2) En Firestore, crea el documento `users/{uid}` con:
+   - `email`: igual al email del usuario
+   - `name`: nombre visible
+   - `role`: `admin` (para el primer administrador)
+
+> Nota: la app permite que un usuario cree su propio perfil solo como `tech`/`auditor` (no puede auto-asignarse `admin`).
