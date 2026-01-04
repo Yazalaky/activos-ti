@@ -10,13 +10,41 @@ const Login = () => {
   const [error, setError] = useState('');
   const navigate = useNavigate();
 
+  const getAuthErrorMessage = (err: unknown) => {
+    const code = typeof err === 'object' && err !== null && 'code' in err ? String((err as any).code) : '';
+
+    switch (code) {
+      case 'auth/invalid-email':
+        return 'El correo no tiene un formato válido.';
+      case 'auth/user-disabled':
+        return 'Este usuario está deshabilitado.';
+      case 'auth/user-not-found':
+      case 'auth/wrong-password':
+      case 'auth/invalid-credential':
+        return 'Credenciales inválidas.';
+      case 'auth/too-many-requests':
+        return 'Demasiados intentos. Intenta de nuevo más tarde.';
+      case 'auth/network-request-failed':
+        return 'Error de red. Revisa tu conexión o firewall.';
+      case 'auth/operation-not-allowed':
+        return 'Email/Password no está habilitado en Firebase Auth (Sign-in method).';
+      case 'auth/invalid-api-key':
+      case 'auth/api-key-not-valid.-please-pass-a-valid-api-key.':
+        return 'API Key inválida. Revisa tus variables VITE_FIREBASE_* en .env.local.';
+      default:
+        return 'No se pudo iniciar sesión. Revisa la configuración de Firebase y la consola del navegador.';
+    }
+  };
+
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError('');
     try {
       await signInWithEmailAndPassword(auth, email, password);
       navigate('/');
     } catch (err) {
-      setError('Credenciales inválidas o configuración de Firebase faltante.');
+      console.error('Firebase login error:', err);
+      setError(getAuthErrorMessage(err));
     }
   };
 
