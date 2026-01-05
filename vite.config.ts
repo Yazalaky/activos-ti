@@ -55,6 +55,9 @@ export default defineConfig({
           ) {
             return 'react';
           }
+          // React dependencies that must live with React to avoid chunk cycles (vendor <-> react).
+          if (id.includes('/scheduler/') || id.includes('\\scheduler\\')) return 'react';
+          if (id.includes('/use-sync-external-store/') || id.includes('\\use-sync-external-store\\')) return 'react';
 
           return 'vendor';
         },
