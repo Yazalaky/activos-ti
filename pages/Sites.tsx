@@ -43,6 +43,13 @@ const tokenizeName = (name: string) =>
     .filter(Boolean)
     .filter((w) => !STOP_WORDS.has(w));
 
+const normalizePrefix = (value: string) =>
+  value
+    .toUpperCase()
+    .replace(/[^A-Z0-9]/g, '')
+    .padEnd(4, 'X')
+    .slice(0, 4);
+
 const generatePrefix = (name: string) => {
   const tokens = tokenizeName(name);
   if (tokens.length === 0) return 'XXXX';
@@ -60,6 +67,53 @@ const generatePrefix = (name: string) => {
   return (initials + lastPart).slice(0, 4);
 };
 
+const generatePrefixCandidates = (name: string) => {
+  const tokens = tokenizeName(name);
+  if (tokens.length === 0) return ['XXXX'];
+
+  // Default algorithm first (keeps existing behavior for most names)
+  const candidates: string[] = [generatePrefix(name)];
+
+  // For 2-token names (Empresa + Sede), expand letters from Empresa if there's a collision.
+  if (tokens.length === 2) {
+    const company = tokens[0];
+    const site = tokens[1];
+    for (const companyLen of [1, 2, 3, 4]) {
+      const siteLen = Math.max(0, 4 - companyLen);
+      candidates.push(normalizePrefix(company.slice(0, companyLen) + site.slice(0, siteLen)));
+    }
+  } else {
+    // Fallbacks: first token + last token with different splits
+    const first = tokens[0];
+    const last = tokens[tokens.length - 1];
+    for (const companyLen of [1, 2, 3]) {
+      const siteLen = Math.max(0, 4 - companyLen);
+      candidates.push(normalizePrefix(first.slice(0, companyLen) + last.slice(0, siteLen)));
+    }
+  }
+
+  // Unique preserve order
+  return [...new Set(candidates)].filter((p) => /^[A-Z0-9]{4}$/.test(p));
+};
+
+const pickUniquePrefix = (name: string, used: Set<string>) => {
+  const candidates = generatePrefixCandidates(name);
+  const base = candidates[0] || 'XXXX';
+
+  for (const candidate of candidates) {
+    if (!used.has(candidate)) {
+      const note = candidate !== base ? `Prefijo ajustado automáticamente: ${base} ya existe, se usará ${candidate}.` : '';
+      return { prefix: candidate, unique: true, note };
+    }
+  }
+
+  return {
+    prefix: base,
+    unique: false,
+    note: `No se pudo generar un prefijo único (ej: ${base}). Cambia el nombre o contacta al administrador.`,
+  };
+};
+
 const Sites = () => {
   const { role } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
@@ -69,7 +123,7 @@ const Sites = () => {
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<Partial<Site>>({ name: '', city: '', address: '' });
+  const [form, setForm] = useState<Partial<Site>>({ name: '', city: '', address: '', prefix: '' });
   const [saving, setSaving] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -106,24 +160,32 @@ const Sites = () => {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ name: '', city: '', address: '' });
+    setForm({ name: '', city: '', address: '', prefix: '' });
     setEditorOpen(true);
   };
 
   const openEdit = (site: Site) => {
     setEditingId(site.id);
-    setForm({ name: site.name, city: site.city, address: site.address, assetSeq: site.assetSeq });
+    setForm({ name: site.name, city: site.city, address: site.address, prefix: site.prefix, assetSeq: site.assetSeq });
     setEditorOpen(true);
   };
 
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingId(null);
-    setForm({ name: '', city: '', address: '' });
+    setForm({ name: '', city: '', address: '', prefix: '' });
     setSaving(false);
   };
 
-  const computedPrefix = useMemo(() => generatePrefix(String(form.name || '')), [form.name]);
+  const usedPrefixes = useMemo(() => new Set(sites.filter((s) => s.id !== editingId).map((s) => s.prefix)), [sites, editingId]);
+
+  const computedPrefix = useMemo(() => {
+    if (editingId) {
+      const locked = normalizePrefix(String(form.prefix || sites.find((s) => s.id === editingId)?.prefix || 'XXXX'));
+      return { prefix: locked, unique: true, note: 'Prefijo bloqueado: no cambia al editar una sede.' };
+    }
+    return pickUniquePrefix(String(form.name || ''), usedPrefixes);
+  }, [editingId, form.name, form.prefix, sites, usedPrefixes]);
 
   const validate = () => {
     if (!form.name?.trim()) return 'Ingrese el nombre de la sede.';
@@ -131,10 +193,11 @@ const Sites = () => {
     if (!form.address?.trim()) return 'Ingrese la dirección.';
     const tokens = tokenizeName(String(form.name || ''));
     if (tokens.length < 2) return 'El nombre debe incluir empresa y sede (ej: "Medicuc Soacha").';
-    if (!/^[A-Z0-9]{4}$/.test(computedPrefix)) return 'No se pudo generar el prefijo automáticamente.';
+    if (!/^[A-Z0-9]{4}$/.test(computedPrefix.prefix)) return 'No se pudo generar el prefijo automáticamente.';
+    if (!computedPrefix.unique) return computedPrefix.note;
 
-    const duplicated = sites.some((s) => s.id !== editingId && s.prefix === computedPrefix);
-    if (duplicated) return `El prefijo generado (${computedPrefix}) ya existe en otra sede. Cambia el nombre.`;
+    const duplicated = sites.some((s) => s.id !== editingId && s.prefix === computedPrefix.prefix);
+    if (duplicated) return `El prefijo generado (${computedPrefix.prefix}) ya existe en otra sede. Cambia el nombre.`;
     return '';
   };
 
@@ -157,7 +220,7 @@ const Sites = () => {
         name: String(form.name).trim(),
         city: String(form.city).trim(),
         address: String(form.address).trim(),
-        prefix: computedPrefix,
+        prefix: computedPrefix.prefix,
       };
 
       if (editingId) {
@@ -324,17 +387,18 @@ const Sites = () => {
                 disabled={!canWrite || saving}
               />
               <TextField
-                label="Prefijo (automático)"
-                value={computedPrefix}
+                label={editingId ? 'Prefijo (bloqueado)' : 'Prefijo (automático)'}
+                value={computedPrefix.prefix}
                 fullWidth
                 required
-                helperText='Se genera desde el nombre (ej: "Medicuc Soacha" → MSOA, "Salud Familia Sabana" → SFSA).'
+                helperText={
+                  computedPrefix.note ||
+                  'Se genera desde el nombre (ej: "Medicuc Soacha" → MSOA, "Salud Familia Sabana" → SFSA).'
+                }
                 disabled
               />
               <Divider />
-              <Alert severity="warning">
-                Si cambias el nombre, el prefijo puede cambiar. Esto no renombra activos ya creados; solo afecta los futuros consecutivos.
-              </Alert>
+              {!editingId && computedPrefix.note && <Alert severity="info">{computedPrefix.note}</Alert>}
             </Stack>
 
             <DialogActions sx={{ px: 0, mt: 2 }}>
