@@ -1,4 +1,4 @@
-export type Role = 'admin' | 'tech' | 'auditor';
+export type Role = 'admin' | 'tech' | 'auditor' | 'management';
 
 export type Status = 'bodega' | 'asignado' | 'mantenimiento' | 'baja';
 
@@ -53,6 +53,7 @@ export interface Asset {
   monitorSerial?: string;
 
   imageUrl?: string;
+  imagePath?: string;
   notes?: string;
 
   currentAssignment?: Assignment | null;
@@ -93,5 +94,9 @@ export interface Invoice {
   total: number; // Valor
   status: 'paid' | 'pending'; // Nuevo campo de estado
   pdfUrl?: string;
+  pdfPath?: string;
+  pdfName?: string;
+  pdfContentType?: string;
+  pdfSize?: number;
   createdAt: number;
 }

@@ -58,9 +58,14 @@ export const updateAsset = (id: string, data: Partial<Asset>) =>
 
 // ACTIVITIES
 export const getActivities = async () => {
-  const q = query(collection(db, 'activities'), orderBy('date', 'desc'));
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Activity));
+  try {
+    const q = query(collection(db, 'activities'), orderBy('date', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Activity));
+  } catch (error) {
+    console.error('Error fetching activities:', error);
+    return [];
+  }
 };
 
 export const addActivity = (data: Omit<Activity, 'id'>) => addDoc(collection(db, 'activities'), data);
@@ -78,4 +83,3 @@ export const addInvoice = async (data: Omit<Invoice, 'id'>) => {
 
 export const updateInvoice = (id: string, data: Partial<Invoice>) =>
   updateDoc(doc(db, 'invoices', id), data);
-

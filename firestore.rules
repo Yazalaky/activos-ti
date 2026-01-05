@@ -5,37 +5,42 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    function hasProfile() {
+      return isSignedIn() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
     function userDoc() {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
     function role() {
-      return userDoc().data.role;
+      return hasProfile() ? userDoc().data.role : null;
     }
 
     function isAdmin() {
-      return isSignedIn() && role() == 'admin';
+      return role() == 'admin';
     }
 
     function isTech() {
-      return isSignedIn() && role() == 'tech';
+      return role() == 'tech';
     }
 
     function isAuditor() {
-      return isSignedIn() && role() == 'auditor';
+      return role() == 'auditor';
+    }
+
+    function isManagement() {
+      return role() == 'management';
     }
 
     // USERS (perfiles)
     match /users/{uid} {
       allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin());
 
-      // Bootstrap: el usuario puede crear su perfil SOLO para sí mismo,
-      // sin poder auto-asignarse admin (eso se debe hacer con Admin SDK/Console).
-      allow create: if isSignedIn()
-        && uid == request.auth.uid
+      // Solo admin puede crear perfiles.
+      allow create: if isAdmin()
         && request.resource.data.keys().hasOnly(['email', 'name', 'role'])
-        && request.resource.data.email == request.auth.token.email
-        && (request.resource.data.role == 'tech' || request.resource.data.role == 'auditor');
+        && (request.resource.data.role in ['admin', 'tech', 'auditor', 'management']);
 
       // El usuario puede actualizar su nombre; solo admin puede cambiar role/email.
       allow update: if isSignedIn() && (
@@ -84,4 +89,3 @@ service cloud.firestore {
     }
   }
 }
-

@@ -1,19 +1,54 @@
-import React, { useState, useEffect } from 'react';
-import { getActivities, getSites, addActivity, getAssets } from '../services/api';
-import { Activity, Site, Asset } from '../types';
-import { Plus, Calendar, User, Laptop, Filter, X } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  Grid,
+  IconButton,
+  InputLabel,
+  MenuItem,
+  Select,
+  Snackbar,
+  Stack,
+  TextField,
+  Typography,
+} from '@mui/material';
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
+import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
+import ClearOutlinedIcon from '@mui/icons-material/ClearOutlined';
+import CalendarTodayOutlinedIcon from '@mui/icons-material/CalendarTodayOutlined';
+import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined';
+import LaptopMacOutlinedIcon from '@mui/icons-material/LaptopMacOutlined';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
+import { addActivity, getActivities, getAssets, getSites } from '../services/api';
+import type { Activity, Asset, Site } from '../types';
+import { useAuth } from '../auth/AuthContext';
 
 const Activities = () => {
+  const { role } = useAuth();
+  const canWrite = role === 'admin' || role === 'tech';
   const [activities, setActivities] = useState<Activity[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
-  const [showModal, setShowModal] = useState(false);
-  
-  // Filter States
+  const [dialogOpen, setDialogOpen] = useState(false);
+
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({
+    open: false,
+    message: '',
+  });
 
   const [formData, setFormData] = useState<Partial<Activity>>({
     date: new Date().toISOString().split('T')[0],
@@ -21,12 +56,9 @@ const Activities = () => {
     priority: 'media',
     techName: '',
     siteId: '',
-    assetId: ''
+    assetId: '',
+    description: '',
   });
-
-  useEffect(() => {
-    loadData();
-  }, []);
 
   const loadData = async () => {
     const [acts, s, a] = await Promise.all([getActivities(), getSites(), getAssets()]);
@@ -35,246 +67,335 @@ const Activities = () => {
     setAssets(a);
   };
 
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const siteAssets = useMemo(
+    () => assets.filter((a) => a.siteId === formData.siteId && a.status !== 'baja'),
+    [assets, formData.siteId]
+  );
+
+  const filteredActivities = useMemo(() => {
+    return activities.filter((act) => {
+      if (startDate && act.date < startDate) return false;
+      if (endDate && act.date > endDate) return false;
+      return true;
+    });
+  }, [activities, startDate, endDate]);
+
+  const clearFilters = () => {
+    setStartDate('');
+    setEndDate('');
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
+
     if (!formData.siteId) {
-        alert("Seleccione Sede");
-        return;
+      setSnackbar({ open: true, message: 'Seleccione una sede.' });
+      return;
     }
     if (!formData.techName) {
-        alert("Ingrese el nombre del técnico");
-        return;
+      setSnackbar({ open: true, message: 'Ingrese el nombre del técnico.' });
+      return;
+    }
+    if (!formData.description) {
+      setSnackbar({ open: true, message: 'Ingrese una descripción.' });
+      return;
     }
 
-    // Prepare data (remove assetId if empty string to avoid saving empty string in DB)
     const dataToSave = { ...formData };
     if (!dataToSave.assetId) delete dataToSave.assetId;
 
     await addActivity(dataToSave as Omit<Activity, 'id'>);
-    setShowModal(false);
-    
-    // Reset form but keep date/tech
-    setFormData({
-        ...formData,
-        description: '',
-        assetId: '',
-        type: 'Soporte Usuario'
-    });
-    
+    setDialogOpen(false);
+
+    setFormData((prev) => ({
+      ...prev,
+      description: '',
+      assetId: '',
+      type: 'Soporte Usuario',
+      priority: 'media',
+    }));
+
     loadData();
   };
 
-  // Filter assets based on selected site in form
-  const siteAssets = assets.filter(a => a.siteId === formData.siteId && a.status !== 'baja');
-
-  // Filter Activities by Date Range
-  const filteredActivities = activities.filter(act => {
-      if (startDate && act.date < startDate) return false;
-      if (endDate && act.date > endDate) return false;
-      return true;
-  });
-
-  const clearFilters = () => {
-      setStartDate('');
-      setEndDate('');
+  const getPriorityColor = (priority: Activity['priority']) => {
+    if (priority === 'alta') return 'error';
+    if (priority === 'media') return 'warning';
+    return 'success';
   };
 
   return (
-    <div>
-      <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-        <h1 className="text-2xl font-bold text-gray-800">Bitácora de Sistemas</h1>
-        <button 
-          onClick={() => setShowModal(true)}
-          className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 hover:bg-blue-700"
-        >
-          <Plus size={18} /> Nuevo Registro
-        </button>
-      </div>
+    <Stack spacing={2.5}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} justifyContent="space-between">
+        <Box>
+          <Typography variant="h5" sx={{ fontWeight: 900 }}>
+            Bitácora de sistemas
+          </Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Registra y consulta actividades de soporte
+          </Typography>
+        </Box>
 
-      {/* Date Filters */}
-      <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 mb-6 flex flex-wrap items-end gap-4">
-          <div className="flex items-center gap-2 text-gray-600 mb-1">
-              <Filter size={18} /> <span className="font-semibold text-sm">Filtrar periodo:</span>
-          </div>
-          <div>
-              <label className="block text-xs text-gray-500 mb-1">Desde</label>
-              <input 
-                type="date" 
-                className="border p-1.5 rounded text-sm text-gray-700 focus:outline-blue-500"
-                value={startDate}
-                onChange={e => setStartDate(e.target.value)}
-              />
-          </div>
-          <div>
-              <label className="block text-xs text-gray-500 mb-1">Hasta</label>
-              <input 
-                type="date" 
-                className="border p-1.5 rounded text-sm text-gray-700 focus:outline-blue-500"
-                value={endDate}
-                onChange={e => setEndDate(e.target.value)}
-              />
-          </div>
-          {(startDate || endDate) && (
-              <button 
-                onClick={clearFilters}
-                className="text-red-500 hover:text-red-700 text-sm flex items-center gap-1 pb-2"
-              >
-                  <X size={16} /> Limpiar
-              </button>
-          )}
-      </div>
-
-      <div className="space-y-4">
-        {filteredActivities.map(activity => {
-            const assetInfo = activity.assetId ? assets.find(a => a.id === activity.assetId) : null;
-            
-            return (
-          <div key={activity.id} className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 flex flex-col md:flex-row gap-4">
-            <div className="flex flex-col items-center justify-center bg-gray-50 p-2 rounded min-w-[100px] text-center">
-               <Calendar size={20} className="text-gray-400 mb-1"/>
-               <span className="font-bold text-gray-700">{activity.date}</span>
-               <span className="text-xs text-gray-500 uppercase">{format(new Date(activity.date), 'EEEE', {locale: es})}</span>
-            </div>
-            
-            <div className="flex-1">
-                <div className="flex flex-wrap items-center gap-2 mb-2">
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase
-                        ${activity.type === 'Soporte Usuario' ? 'bg-blue-100 text-blue-700' : 
-                          activity.type === 'Requerimiento' ? 'bg-purple-100 text-purple-700' :
-                          activity.type === 'Capacitacion' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>
-                        {activity.type}
-                    </span>
-                    <span className="text-sm text-gray-500 font-medium">
-                        {sites.find(s => s.id === activity.siteId)?.name || 'N/A'}
-                    </span>
-                    {activity.techName && (
-                         <span className="flex items-center text-xs text-gray-500 bg-gray-50 px-2 py-0.5 rounded border">
-                            <User size={10} className="mr-1"/> Tec: {activity.techName}
-                         </span>
-                    )}
-                    <span className={`px-2 py-0.5 rounded text-xs font-bold uppercase border
-                        ${activity.priority === 'alta' ? 'bg-red-50 text-red-700 border-red-200' : 
-                          activity.priority === 'media' ? 'bg-amber-50 text-amber-700 border-amber-200' : 
-                          'bg-green-50 text-green-700 border-green-200'}`}>
-                        {activity.priority}
-                    </span>
-                </div>
-                
-                <p className="text-gray-800 font-medium">{activity.description}</p>
-                
-                <div className="flex flex-wrap items-center gap-4 mt-2 text-xs text-gray-500">
-                    {assetInfo && (
-                        <div className="flex items-center gap-1 text-blue-600">
-                             <Laptop size={12} /> 
-                             Activo: {assetInfo.fixedAssetId} ({assetInfo.brand} {assetInfo.model})
-                        </div>
-                    )}
-                </div>
-            </div>
-          </div>
-        )})}
-        {filteredActivities.length === 0 && (
-            <div className="text-center p-8 text-gray-500 bg-white rounded-lg border border-dashed">
-                No se encontraron actividades en este rango de fechas.
-            </div>
+        {canWrite && (
+          <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={() => setDialogOpen(true)}>
+            Nuevo registro
+          </Button>
         )}
-      </div>
+      </Stack>
 
-      {showModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-          <div className="bg-white rounded-lg p-6 w-full max-w-lg my-8">
-            <h2 className="text-xl font-bold mb-4">Registrar Actividad</h2>
-            <form onSubmit={handleSave} className="space-y-4">
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Fecha</label>
-                        <input type="date" className="w-full border p-2 rounded" required
-                            value={formData.date} onChange={e => setFormData({...formData, date: e.target.value})} />
-                    </div>
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Tipo Actividad</label>
-                        <select className="w-full border p-2 rounded"
-                            value={formData.type} onChange={e => setFormData({...formData, type: e.target.value as any})}>
-                            <option value="Soporte Usuario">Soporte Usuario</option>
-                            <option value="Requerimiento">Requerimiento</option>
-                            <option value="Capacitacion">Capacitación</option>
-                            <option value="Otro">Otro</option>
-                        </select>
-                    </div>
-                </div>
+      <Card>
+        <CardContent>
+          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'flex-end' }}>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 220 }}>
+              <FilterAltOutlinedIcon color="action" />
+              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                Filtrar periodo
+              </Typography>
+            </Stack>
 
-                <div>
-                     <label className="block text-sm font-medium mb-1">Técnico Responsable</label>
-                     <div className="relative">
-                        <User className="absolute left-3 top-2.5 text-gray-400" size={16} />
-                        <input 
-                            type="text" 
-                            className="w-full pl-9 pr-4 py-2 border rounded"
-                            placeholder="Nombre del técnico"
-                            value={formData.techName || ''}
-                            onChange={e => setFormData({...formData, techName: e.target.value})}
-                            required
+            <TextField
+              label="Desde"
+              type="date"
+              value={startDate}
+              onChange={(e) => setStartDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: { xs: '100%', sm: 220 } }}
+            />
+            <TextField
+              label="Hasta"
+              type="date"
+              value={endDate}
+              onChange={(e) => setEndDate(e.target.value)}
+              InputLabelProps={{ shrink: true }}
+              sx={{ width: { xs: '100%', sm: 220 } }}
+            />
+
+            {(startDate || endDate) && (
+              <Button variant="text" color="error" startIcon={<ClearOutlinedIcon />} onClick={clearFilters} sx={{ ml: 'auto' }}>
+                Limpiar
+              </Button>
+            )}
+          </Stack>
+        </CardContent>
+      </Card>
+
+      <Stack spacing={2}>
+        {filteredActivities.map((activity) => {
+          const assetInfo = activity.assetId ? assets.find((a) => a.id === activity.assetId) : null;
+          const siteName = sites.find((s) => s.id === activity.siteId)?.name || 'Sede N/A';
+
+          return (
+            <Card key={activity.id}>
+              <CardContent>
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 3, md: 2 }}>
+                    <Box
+                      sx={{
+                        borderRadius: 3,
+                        p: 1.5,
+                        bgcolor: 'rgba(0,0,0,0.03)',
+                        border: '1px solid rgba(0,0,0,0.06)',
+                      }}
+                    >
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        <CalendarTodayOutlinedIcon color="action" fontSize="small" />
+                        <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                          {activity.date}
+                        </Typography>
+                      </Stack>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                        {format(new Date(activity.date), 'EEEE', { locale: es })}
+                      </Typography>
+                    </Box>
+                  </Grid>
+
+                  <Grid size={{ xs: 12, sm: 9, md: 10 }}>
+                    <Stack spacing={1}>
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                        <Chip label={activity.type} variant="outlined" />
+                        <Chip label={activity.priority.toUpperCase()} color={getPriorityColor(activity.priority)} />
+                        <Chip
+                          icon={<PersonOutlineOutlinedIcon />}
+                          label={`Tec: ${activity.techName}`}
+                          variant="outlined"
                         />
-                     </div>
-                </div>
+                        <Chip label={siteName} variant="outlined" />
+                        {assetInfo && (
+                          <Chip
+                            icon={<LaptopMacOutlinedIcon />}
+                            label={`${assetInfo.fixedAssetId} · ${assetInfo.brand} ${assetInfo.model}`}
+                            variant="outlined"
+                          />
+                        )}
+                      </Stack>
 
-                <div className="grid grid-cols-2 gap-4">
-                    <div>
-                        <label className="block text-sm font-medium mb-1">Sede</label>
-                        <select className="w-full border p-2 rounded" required
-                            value={formData.siteId || ''} 
-                            onChange={e => setFormData({...formData, siteId: e.target.value, assetId: ''})}>
-                            <option value="">Seleccione...</option>
-                            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                        </select>
-                    </div>
-                    <div>
-                         <label className="block text-sm font-medium mb-1">Activo (Opcional)</label>
-                         <select 
-                            className="w-full border p-2 rounded disabled:bg-gray-100 disabled:text-gray-400" 
-                            disabled={!formData.siteId}
-                            value={formData.assetId || ''}
-                            onChange={e => setFormData({...formData, assetId: e.target.value})}
-                         >
-                            <option value="">- Ninguno / General -</option>
-                            {siteAssets.map(asset => (
-                                <option key={asset.id} value={asset.id}>
-                                    {asset.fixedAssetId} - {asset.type} {asset.brand}
-                                </option>
-                            ))}
-                         </select>
-                         {formData.siteId && siteAssets.length === 0 && (
-                             <p className="text-xs text-orange-500 mt-1">No hay activos registrados en esta sede.</p>
-                         )}
-                    </div>
-                </div>
+                      <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                        {activity.description}
+                      </Typography>
+                    </Stack>
+                  </Grid>
+                </Grid>
+              </CardContent>
+            </Card>
+          );
+        })}
 
-                <div>
-                    <label className="block text-sm font-medium mb-1">Descripción Detallada</label>
-                    <textarea className="w-full border p-2 rounded h-24" required
-                        value={formData.description || ''} onChange={e => setFormData({...formData, description: e.target.value})} 
-                        placeholder="Qué sucedió, qué se hizo..." />
-                </div>
+        {filteredActivities.length === 0 && (
+          <Card sx={{ borderStyle: 'dashed' }}>
+            <CardContent>
+              <Typography variant="body2" color="text.secondary" align="center">
+                No se encontraron actividades con los filtros seleccionados.
+              </Typography>
+            </CardContent>
+          </Card>
+        )}
+      </Stack>
 
-                <div>
-                    <label className="block text-sm font-medium mb-1">Prioridad</label>
-                    <select className="w-full border p-2 rounded"
-                        value={formData.priority} onChange={e => setFormData({...formData, priority: e.target.value as any})}>
-                        <option value="baja">Baja</option>
-                        <option value="media">Media</option>
-                        <option value="alta">Alta</option>
-                    </select>
-                </div>
+      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="md">
+        <DialogTitle sx={{ fontWeight: 900 }}>Registrar actividad</DialogTitle>
+        <DialogContent>
+          <Box component="form" onSubmit={handleSave} sx={{ mt: 1, pointerEvents: canWrite ? 'auto' : 'none' }}>
+            {!canWrite && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Modo solo lectura (Gerencia/Auditoría). No puedes crear actividades.
+              </Alert>
+            )}
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <TextField
+                  label="Fecha"
+                  type="date"
+                  value={formData.date}
+                  onChange={(e) => setFormData({ ...formData, date: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <FormControl fullWidth>
+                  <InputLabel id="activity-type-label">Tipo</InputLabel>
+                  <Select
+                    labelId="activity-type-label"
+                    label="Tipo"
+                    value={formData.type}
+                    onChange={(e) => setFormData({ ...formData, type: e.target.value as Activity['type'] })}
+                  >
+                    <MenuItem value="Soporte Usuario">Soporte Usuario</MenuItem>
+                    <MenuItem value="Requerimiento">Requerimiento</MenuItem>
+                    <MenuItem value="Capacitacion">Capacitación</MenuItem>
+                    <MenuItem value="Otro">Otro</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 4 }}>
+                <FormControl fullWidth>
+                  <InputLabel id="activity-priority-label">Prioridad</InputLabel>
+                  <Select
+                    labelId="activity-priority-label"
+                    label="Prioridad"
+                    value={formData.priority}
+                    onChange={(e) => setFormData({ ...formData, priority: e.target.value as Activity['priority'] })}
+                  >
+                    <MenuItem value="baja">Baja</MenuItem>
+                    <MenuItem value="media">Media</MenuItem>
+                    <MenuItem value="alta">Alta</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
 
-                <div className="flex justify-end gap-2 mt-4 pt-4 border-t">
-                    <button type="button" onClick={() => setShowModal(false)} className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancelar</button>
-                    <button type="submit" className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 font-semibold">Guardar Registro</button>
-                </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Técnico responsable"
+                  value={formData.techName || ''}
+                  onChange={(e) => setFormData({ ...formData, techName: e.target.value })}
+                  fullWidth
+                  required
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth required>
+                  <InputLabel id="activity-site-label">Sede</InputLabel>
+                  <Select
+                    labelId="activity-site-label"
+                    label="Sede"
+                    value={formData.siteId || ''}
+                    onChange={(e) => setFormData({ ...formData, siteId: e.target.value, assetId: '' })}
+                  >
+                    <MenuItem value="">Seleccione...</MenuItem>
+                    {sites.map((s) => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+
+              <Grid size={12}>
+                <FormControl fullWidth disabled={!formData.siteId}>
+                  <InputLabel id="activity-asset-label">Activo (opcional)</InputLabel>
+                  <Select
+                    labelId="activity-asset-label"
+                    label="Activo (opcional)"
+                    value={formData.assetId || ''}
+                    onChange={(e) => setFormData({ ...formData, assetId: e.target.value })}
+                  >
+                    <MenuItem value="">Ninguno / General</MenuItem>
+                    {siteAssets.map((asset) => (
+                      <MenuItem key={asset.id} value={asset.id}>
+                        {asset.fixedAssetId} · {asset.type} · {asset.brand}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+                {formData.siteId && siteAssets.length === 0 && (
+                  <Alert severity="info" sx={{ mt: 1 }}>
+                    No hay activos registrados en esta sede.
+                  </Alert>
+                )}
+              </Grid>
+
+              <Grid size={12}>
+                <TextField
+                  label="Descripción detallada"
+                  value={formData.description || ''}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  fullWidth
+                  required
+                  multiline
+                  minRows={4}
+                  placeholder="Qué sucedió, qué se hizo..."
+                />
+              </Grid>
+            </Grid>
+
+            <Divider sx={{ my: 2 }} />
+            <DialogActions sx={{ px: 0 }}>
+              <Button onClick={() => setDialogOpen(false)}>Cancelar</Button>
+              <Button type="submit" variant="contained">
+                Guardar
+              </Button>
+            </DialogActions>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ open: false, message: '' })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert severity="warning" onClose={() => setSnackbar({ open: false, message: '' })}>
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Stack>
   );
 };
 

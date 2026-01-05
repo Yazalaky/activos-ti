@@ -33,13 +33,19 @@ Sistema de gestión de inventario TI, actividades y costos.
     *   Habilita **Authentication** (Email/Password).
     *   Habilita **Firestore Database**.
     *   (Opcional) Habilita **Storage** si vas a subir evidencias (fotos/PDF).
-    *   Crea un archivo `.env.local` (no se versiona) basado en `.env.example` y completa:
-        - `VITE_FIREBASE_API_KEY`
-        - `VITE_FIREBASE_AUTH_DOMAIN`
-        - `VITE_FIREBASE_PROJECT_ID`
-        - `VITE_FIREBASE_STORAGE_BUCKET`
-        - `VITE_FIREBASE_MESSAGING_SENDER_ID`
-        - `VITE_FIREBASE_APP_ID`
+    *   **Flujo de variables de entorno (`.env.example` → `.env.local`):**
+        1) Copia la plantilla:
+           ```bash
+           cp .env.example .env.local
+           ```
+        2) En Firebase Console → Project settings → General → Your apps (Web) → “SDK setup and configuration”, copia los valores y completa `/.env.local`.
+        3) Reglas de formato:
+           - Solo se exponen variables que empiezan por `VITE_`.
+           - Usa `CLAVE=valor` (sin comillas y sin comas al final).
+           - Reinicia `npm run dev` después de cambiar `/.env.local`.
+        4) Versionado:
+           - `/.env.local` **NO** se sube al repo (está ignorado por `*.local` en `.gitignore`).
+           - `/.env.example` **SÍ** se mantiene en el repo (documenta las variables requeridas).
 
 4.  **Ejecutar:**
     ```bash

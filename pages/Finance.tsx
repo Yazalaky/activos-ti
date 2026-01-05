@@ -1,543 +1,866 @@
-import React, { useState, useEffect } from 'react';
-import { getSuppliers, getInvoices, addSupplier, addInvoice, getSites, updateInvoice } from '../services/api';
-import { Supplier, Invoice, Site } from '../types';
-import { Plus, Download, FileText, Building, Calendar, DollarSign, Pencil, Filter, X, CheckCircle, Clock, AlertCircle } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Alert,
+  Box,
+  Button,
+  Card,
+  CardContent,
+  Chip,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
+  Divider,
+  FormControl,
+  Grid,
+  InputLabel,
+  LinearProgress,
+  MenuItem,
+  Select,
+  Snackbar,
+  Stack,
+  Tab,
+  Tabs,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  TextField,
+  Typography,
+} from '@mui/material';
+import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
+import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
+import ClearOutlinedIcon from '@mui/icons-material/ClearOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
+import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
+import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import { addInvoice, addSupplier, getInvoices, getSites, getSuppliers, updateInvoice } from '../services/api';
+import type { Invoice, Site, Supplier } from '../types';
+import { uploadFileToStorage } from '../services/storageUpload';
+import { useAuth } from '../auth/AuthContext';
+
+type TabKey = 'invoices' | 'suppliers' | 'reports';
 
 const Finance = () => {
-  const [activeTab, setActiveTab] = useState<'invoices' | 'suppliers' | 'reports'>('invoices');
+  const { role } = useAuth();
+  const canWrite = role === 'admin' || role === 'tech';
+  const [activeTab, setActiveTab] = useState<TabKey>('invoices');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
-  
-  // Filter states
+
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('');
 
-  // Modal states
-  const [showSupplierModal, setShowSupplierModal] = useState(false);
-  const [showInvoiceModal, setShowInvoiceModal] = useState(false);
-  
-  // Edit states
+  const [showSupplierDialog, setShowSupplierDialog] = useState(false);
+  const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [invoiceUploadPct, setInvoiceUploadPct] = useState<number>(0);
+  const [savingInvoice, setSavingInvoice] = useState(false);
 
-  // Form states
+  const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' | 'warning' }>({
+    open: false,
+    message: '',
+    severity: 'warning',
+  });
+
   const [supplierForm, setSupplierForm] = useState<Partial<Supplier>>({});
-  
+
   const initialInvoiceState: Partial<Invoice> = {
-    date: new Date().toISOString().split('T')[0], // Radicación default hoy
+    date: new Date().toISOString().split('T')[0],
     dueDate: '',
     siteId: '',
     supplierId: '',
     number: '',
     description: '',
     total: 0,
-    status: 'pending'
+    status: 'pending',
   };
   const [invoiceForm, setInvoiceForm] = useState<Partial<Invoice>>(initialInvoiceState);
+
+  const loadData = async () => {
+    const [sup, inv, s] = await Promise.all([getSuppliers(), getInvoices(), getSites()]);
+    setSuppliers(sup);
+    setInvoices([...inv]);
+    setSites(s);
+  };
 
   useEffect(() => {
     loadData();
   }, []);
 
-  const loadData = async () => {
-    const [sup, inv, s] = await Promise.all([getSuppliers(), getInvoices(), getSites()]);
-    setSuppliers(sup);
-    // Aseguramos una nueva referencia del array para forzar el re-render en React
-    setInvoices([...inv]);
-    setSites(s);
-  };
-
-  const handleSaveSupplier = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await addSupplier(supplierForm as Omit<Supplier, 'id'>);
-    setShowSupplierModal(false);
-    loadData();
-  };
-
-  const handleEditInvoice = (inv: Invoice) => {
-    setInvoiceForm(inv);
-    setEditingInvoiceId(inv.id);
-    setShowInvoiceModal(true);
-  };
-
-  const handleSaveInvoice = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!invoiceForm.supplierId || !invoiceForm.siteId) {
-        alert("Por favor complete todos los campos requeridos");
-        return;
-    }
-
-    if (editingInvoiceId) {
-        await updateInvoice(editingInvoiceId, invoiceForm);
-    } else {
-        // Enforce pending on creation unless specified otherwise (in logic default is pending)
-        const newInvoice = { ...invoiceForm, status: invoiceForm.status || 'pending' };
-        await addInvoice(newInvoice as Omit<Invoice, 'id'>);
-    }
-    
-    closeInvoiceModal();
-    loadData();
-  };
-
-  const toggleInvoiceStatus = async (inv: Invoice) => {
-      const newStatus = inv.status === 'paid' ? 'pending' : 'paid';
-      
-      // Actualización Optimista: Actualizamos la UI inmediatamente sin esperar al backend
-      setInvoices(prevInvoices => prevInvoices.map(item => 
-        item.id === inv.id ? { ...item, status: newStatus } : item
-      ));
-
-      // Enviamos el cambio al backend (o mockDB)
-      await updateInvoice(inv.id, { status: newStatus });
-      
-      // No es estrictamente necesario llamar a loadData() si confiamos en la actualización local,
-      // pero si hay otros usuarios concurrentes o reglas de backend, podríamos hacerlo.
-      // Para este caso, la actualización local es suficiente y evita parpadeos.
-  };
-
-  const closeInvoiceModal = () => {
-      setShowInvoiceModal(false);
-      setInvoiceForm(initialInvoiceState);
-      setEditingInvoiceId(null);
-  }
-
   const clearFilters = () => {
-      setStartDate('');
-      setEndDate('');
-      setSelectedSiteFilter('');
-      setSelectedSupplierFilter('');
-  }
-
-  // --- LOGIC FOR DERIVED STATUS ---
-  const getDisplayStatus = (inv: Invoice) => {
-      if (inv.status === 'paid') return { label: 'Pagado', color: 'bg-green-100 text-green-700', icon: CheckCircle };
-      
-      const today = new Date().toISOString().split('T')[0];
-      if (inv.dueDate && inv.dueDate < today) {
-          return { label: 'Vencido', color: 'bg-red-100 text-red-700', icon: AlertCircle };
-      }
-      
-      return { label: 'Pendiente', color: 'bg-yellow-100 text-yellow-700', icon: Clock };
+    setStartDate('');
+    setEndDate('');
+    setSelectedSiteFilter('');
+    setSelectedSupplierFilter('');
   };
 
-  // Filter Logic
-  const filteredInvoices = invoices.filter(inv => {
+  const getDisplayStatus = (inv: Invoice) => {
+    if (inv.status === 'paid') {
+      return { label: 'Pagado', color: 'success' as const, icon: <CheckCircleOutlinedIcon fontSize="small" /> };
+    }
+
+    const today = new Date().toISOString().split('T')[0];
+    if (inv.dueDate && inv.dueDate < today) {
+      return { label: 'Vencido', color: 'error' as const, icon: <ErrorOutlineOutlinedIcon fontSize="small" /> };
+    }
+
+    return { label: 'Pendiente', color: 'warning' as const, icon: <ScheduleOutlinedIcon fontSize="small" /> };
+  };
+
+  const filteredInvoices = useMemo(() => {
+    return invoices.filter((inv) => {
       if (startDate && inv.date < startDate) return false;
       if (endDate && inv.date > endDate) return false;
       if (selectedSiteFilter && inv.siteId !== selectedSiteFilter) return false;
       if (selectedSupplierFilter && inv.supplierId !== selectedSupplierFilter) return false;
       return true;
-  });
+    });
+  }, [invoices, startDate, endDate, selectedSiteFilter, selectedSupplierFilter]);
 
-  // Calculate Report Totals
-  const totalInvoiced = filteredInvoices.reduce((sum, inv) => sum + Number(inv.total), 0);
-  const totalPaid = filteredInvoices
-        .filter(inv => inv.status === 'paid')
-        .reduce((sum, inv) => sum + Number(inv.total), 0);
-  const totalPending = filteredInvoices
-        .filter(inv => inv.status === 'pending')
-        .reduce((sum, inv) => sum + Number(inv.total), 0);
+  const totals = useMemo(() => {
+    const totalInvoiced = filteredInvoices.reduce((sum, inv) => sum + Number(inv.total || 0), 0);
+    const totalPaid = filteredInvoices.filter((inv) => inv.status === 'paid').reduce((sum, inv) => sum + Number(inv.total || 0), 0);
+    const totalPending = filteredInvoices.filter((inv) => inv.status === 'pending').reduce((sum, inv) => sum + Number(inv.total || 0), 0);
+    return { totalInvoiced, totalPaid, totalPending };
+  }, [filteredInvoices]);
 
+  const openCreateInvoice = () => {
+    setEditingInvoiceId(null);
+    setInvoiceForm(initialInvoiceState);
+    setShowInvoiceDialog(true);
+  };
+
+  const openEditInvoice = (inv: Invoice) => {
+    setInvoiceForm(inv);
+    setEditingInvoiceId(inv.id);
+    setShowInvoiceDialog(true);
+  };
+
+  const closeInvoiceDialog = () => {
+    setShowInvoiceDialog(false);
+    setInvoiceForm(initialInvoiceState);
+    setEditingInvoiceId(null);
+    setInvoiceFile(null);
+    setInvoiceUploadPct(0);
+    setSavingInvoice(false);
+  };
+
+  const handleSaveSupplier = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!supplierForm.name || !supplierForm.nit) {
+      setSnackbar({ open: true, message: 'Complete al menos nombre y NIT.', severity: 'warning' });
+      return;
+    }
+    await addSupplier(supplierForm as Omit<Supplier, 'id'>);
+    setShowSupplierDialog(false);
+    setSupplierForm({});
+    setSnackbar({ open: true, message: 'Proveedor guardado.', severity: 'success' });
+    loadData();
+  };
+
+  const handleSaveInvoice = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!invoiceForm.supplierId || !invoiceForm.siteId || !invoiceForm.number || !invoiceForm.description) {
+      setSnackbar({ open: true, message: 'Complete los campos requeridos.', severity: 'warning' });
+      return;
+    }
+
+    try {
+      setSavingInvoice(true);
+
+      if (editingInvoiceId) {
+        const { id, createdAt, ...toUpdate } = invoiceForm as any;
+
+        if (invoiceFile) {
+          const ts = Date.now();
+          const result = await uploadFileToStorage(
+            `invoices/${editingInvoiceId}/attachments/${ts}-${invoiceFile.name}`,
+            invoiceFile,
+            setInvoiceUploadPct
+          );
+          toUpdate.pdfUrl = result.url;
+          toUpdate.pdfPath = result.path;
+          toUpdate.pdfName = result.name;
+          toUpdate.pdfContentType = result.contentType;
+          toUpdate.pdfSize = result.size;
+        }
+
+        await updateInvoice(editingInvoiceId, toUpdate);
+        setSnackbar({ open: true, message: 'Factura actualizada.', severity: 'success' });
+      } else {
+        const { id, createdAt, pdfUrl, pdfPath, pdfName, pdfContentType, pdfSize, ...createPayload } = invoiceForm as any;
+        const newInvoice = { ...createPayload, status: invoiceForm.status || 'pending' };
+        const docRef: any = await addInvoice(newInvoice as Omit<Invoice, 'id'>);
+
+        if (invoiceFile) {
+          const ts = Date.now();
+          const result = await uploadFileToStorage(
+            `invoices/${docRef.id}/attachments/${ts}-${invoiceFile.name}`,
+            invoiceFile,
+            setInvoiceUploadPct
+          );
+          await updateInvoice(docRef.id, {
+            pdfUrl: result.url,
+            pdfPath: result.path,
+            pdfName: result.name,
+            pdfContentType: result.contentType,
+            pdfSize: result.size,
+          });
+        }
+
+        setSnackbar({ open: true, message: 'Factura guardada.', severity: 'success' });
+      }
+
+      closeInvoiceDialog();
+      loadData();
+    } catch (error) {
+      console.error('Error saving invoice:', error);
+      setSnackbar({ open: true, message: 'No se pudo guardar la factura.', severity: 'error' });
+    } finally {
+      setSavingInvoice(false);
+    }
+  };
+
+  const toggleInvoiceStatus = async (inv: Invoice) => {
+    if (!canWrite) return;
+    const newStatus: Invoice['status'] = inv.status === 'paid' ? 'pending' : 'paid';
+    setInvoices((prev) => prev.map((item) => (item.id === inv.id ? { ...item, status: newStatus } : item)));
+    await updateInvoice(inv.id, { status: newStatus });
+  };
 
   return (
-    <div>
-      <h1 className="text-2xl font-bold text-gray-800 mb-6">Gestión Financiera</h1>
+    <Stack spacing={2.5}>
+      <Box>
+        <Typography variant="h5" sx={{ fontWeight: 900 }}>
+          Gestión financiera
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+          Facturas, proveedores y reporte de costos
+        </Typography>
+      </Box>
 
-      {/* Tabs */}
-      <div className="flex border-b border-gray-200 mb-6">
-        <button 
-          onClick={() => setActiveTab('invoices')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 ${activeTab === 'invoices' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-        >
-          Facturas
-        </button>
-        <button 
-          onClick={() => setActiveTab('suppliers')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 ${activeTab === 'suppliers' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-        >
-          Proveedores
-        </button>
-        <button 
-          onClick={() => setActiveTab('reports')}
-          className={`px-6 py-3 font-medium text-sm border-b-2 ${activeTab === 'reports' ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-gray-700'}`}
-        >
-          Reporte de Costos
-        </button>
-      </div>
+      <Tabs
+        value={activeTab}
+        onChange={(_, v) => setActiveTab(v)}
+        sx={{ '& .MuiTab-root': { fontWeight: 800 } }}
+      >
+        <Tab value="invoices" label="Facturas" />
+        <Tab value="suppliers" label="Proveedores" />
+        <Tab value="reports" label="Reporte de costos" />
+      </Tabs>
 
-      {/* Common Filter Bar (Used in Invoices and Reports) */}
       {(activeTab === 'invoices' || activeTab === 'reports') && (
-        <div className="bg-white p-4 rounded-lg shadow-sm border border-gray-100 mb-6">
-            <div className="flex items-center gap-2 text-gray-600 mb-3 border-b pb-2">
-                <Filter size={18} /> <span className="font-semibold text-sm">Filtros de Búsqueda</span>
-            </div>
-            
-            <div className="flex flex-wrap items-end gap-4">
-                {/* Site Filter */}
-                <div>
-                    <label className="block text-xs text-gray-500 mb-1">Sede</label>
-                    <select 
-                        className="border p-2 rounded text-sm text-gray-700 focus:outline-blue-500 bg-white min-w-[150px]"
-                        value={selectedSiteFilter}
-                        onChange={e => setSelectedSiteFilter(e.target.value)}
-                    >
-                        <option value="">Todas las Sedes</option>
-                        {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                </div>
+        <Card>
+          <CardContent>
+            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'flex-end' }}>
+              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 220 }}>
+                <FilterAltOutlinedIcon color="action" />
+                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
+                  Filtros
+                </Typography>
+              </Stack>
 
-                {/* Supplier Filter */}
-                <div>
-                    <label className="block text-xs text-gray-500 mb-1">Proveedor</label>
-                    <select 
-                        className="border p-2 rounded text-sm text-gray-700 focus:outline-blue-500 bg-white min-w-[150px]"
-                        value={selectedSupplierFilter}
-                        onChange={e => setSelectedSupplierFilter(e.target.value)}
-                    >
-                        <option value="">Todos los Proveedores</option>
-                        {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                    </select>
-                </div>
+              <TextField
+                label="Desde"
+                type="date"
+                value={startDate}
+                onChange={(e) => setStartDate(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ width: { xs: '100%', sm: 220 } }}
+              />
+              <TextField
+                label="Hasta"
+                type="date"
+                value={endDate}
+                onChange={(e) => setEndDate(e.target.value)}
+                InputLabelProps={{ shrink: true }}
+                sx={{ width: { xs: '100%', sm: 220 } }}
+              />
 
-                <div>
-                    <label className="block text-xs text-gray-500 mb-1">Desde</label>
-                    <input 
-                    type="date" 
-                    className="border p-2 rounded text-sm text-gray-700 focus:outline-blue-500"
-                    value={startDate}
-                    onChange={e => setStartDate(e.target.value)}
-                    />
-                </div>
-                <div>
-                    <label className="block text-xs text-gray-500 mb-1">Hasta</label>
-                    <input 
-                    type="date" 
-                    className="border p-2 rounded text-sm text-gray-700 focus:outline-blue-500"
-                    value={endDate}
-                    onChange={e => setEndDate(e.target.value)}
-                    />
-                </div>
-                
-                {(startDate || endDate || selectedSiteFilter || selectedSupplierFilter) && (
-                    <button 
-                    onClick={clearFilters}
-                    className="text-red-500 hover:text-red-700 text-sm flex items-center gap-1 pb-1 ml-auto"
-                    >
-                        <X size={16} /> Limpiar Filtros
-                    </button>
-                )}
-            </div>
-        </div>
+              <FormControl sx={{ width: { xs: '100%', sm: 260 } }}>
+                <InputLabel id="filter-site-label">Sede</InputLabel>
+                <Select
+                  labelId="filter-site-label"
+                  label="Sede"
+                  value={selectedSiteFilter}
+                  onChange={(e) => setSelectedSiteFilter(String(e.target.value))}
+                >
+                  <MenuItem value="">Todas</MenuItem>
+                  {sites.map((s) => (
+                    <MenuItem key={s.id} value={s.id}>
+                      {s.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              <FormControl sx={{ width: { xs: '100%', sm: 260 } }}>
+                <InputLabel id="filter-supplier-label">Proveedor</InputLabel>
+                <Select
+                  labelId="filter-supplier-label"
+                  label="Proveedor"
+                  value={selectedSupplierFilter}
+                  onChange={(e) => setSelectedSupplierFilter(String(e.target.value))}
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  {suppliers.map((s) => (
+                    <MenuItem key={s.id} value={s.id}>
+                      {s.name}
+                    </MenuItem>
+                  ))}
+                </Select>
+              </FormControl>
+
+              {(startDate || endDate || selectedSiteFilter || selectedSupplierFilter) && (
+                <Button
+                  variant="text"
+                  color="error"
+                  startIcon={<ClearOutlinedIcon />}
+                  onClick={clearFilters}
+                  sx={{ ml: 'auto' }}
+                >
+                  Limpiar
+                </Button>
+              )}
+            </Stack>
+          </CardContent>
+        </Card>
       )}
 
-      {/* INVOICES TAB */}
       {activeTab === 'invoices' && (
-        <div>
-          <div className="flex justify-end mb-4">
-            <button onClick={() => { setEditingInvoiceId(null); setInvoiceForm(initialInvoiceState); setShowInvoiceModal(true); }} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 text-sm shadow-sm hover:bg-blue-700">
-                <Plus size={16} /> Nueva Factura
-            </button>
-          </div>
-          <div className="bg-white rounded-lg shadow overflow-hidden">
-             <table className="w-full text-left text-sm">
-                 <thead className="bg-gray-50 text-gray-600 uppercase border-b">
-                     <tr>
-                         <th className="p-4">Info Factura</th>
-                         <th className="p-4">Detalle / Sede</th>
-                         <th className="p-4">Estado</th>
-                         <th className="p-4">Fechas</th>
-                         <th className="p-4">Valor</th>
-                         <th className="p-4">Acciones</th>
-                     </tr>
-                 </thead>
-                 <tbody className="divide-y divide-gray-100">
-                     {filteredInvoices.map(inv => {
-                         const statusInfo = getDisplayStatus(inv);
-                         const StatusIcon = statusInfo.icon;
-                         
-                         return (
-                         <tr key={inv.id} className="hover:bg-gray-50 transition-colors">
-                             <td className="p-4">
-                                <div className="font-bold text-gray-800 text-base">{inv.number}</div>
-                                <div className="text-xs text-gray-500 mt-1">{suppliers.find(s => s.id === inv.supplierId)?.name || 'N/A'}</div>
-                             </td>
-                             <td className="p-4">
-                                <div className="font-medium text-gray-700 truncate max-w-[200px]" title={inv.description}>{inv.description}</div>
-                                <div className="text-xs text-blue-600 flex items-center gap-1 mt-1">
-                                    <Building size={12} />
-                                    {sites.find(s => s.id === inv.siteId)?.name || 'Sede N/A'}
-                                </div>
-                             </td>
-                             <td className="p-4">
-                                 <button 
-                                     onClick={() => toggleInvoiceStatus(inv)}
-                                     className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium ${statusInfo.color} hover:ring-2 hover:ring-offset-1 hover:ring-opacity-50 focus:outline-none transition-all cursor-pointer`}
-                                     title="Clic para alternar estado (Pagado/Pendiente)"
-                                 >
-                                     <StatusIcon size={12} /> {statusInfo.label}
-                                 </button>
-                             </td>
-                             <td className="p-4 text-gray-600">
-                                <div className="text-xs">Rad: {inv.date}</div>
-                                {inv.dueDate && <div className={`text-xs mt-1 ${statusInfo.label === 'Vencido' ? 'text-red-600 font-bold' : 'text-gray-500'}`}>Venc: {inv.dueDate}</div>}
-                             </td>
-                             <td className="p-4 font-bold text-gray-700 text-base">
-                                ${Number(inv.total).toLocaleString()}
-                             </td>
-                             <td className="p-4 flex items-center gap-2">
-                                 <button onClick={() => handleEditInvoice(inv)} className="p-1.5 text-blue-600 hover:bg-blue-50 rounded" title="Editar">
-                                    <Pencil size={18}/>
-                                 </button>
-                                 <button className="p-1.5 text-gray-500 hover:text-gray-700 hover:bg-gray-100 rounded" title="Ver PDF">
-                                    <FileText size={18}/>
-                                 </button>
-                             </td>
-                         </tr>
-                     )})}
-                     {filteredInvoices.length === 0 && (
-                         <tr><td colSpan={6} className="p-8 text-center text-gray-500">No hay facturas registradas con los filtros seleccionados.</td></tr>
-                     )}
-                 </tbody>
-             </table>
-          </div>
-        </div>
+        <Stack spacing={2}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {canWrite && (
+              <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreateInvoice}>
+                Nueva factura
+              </Button>
+            )}
+          </Box>
+
+          <Card>
+            <CardContent sx={{ p: 0 }}>
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 800 }}>Factura</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Detalle / Sede</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Estado</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Fechas</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }} align="right">
+                      Valor
+                    </TableCell>
+                    <TableCell sx={{ fontWeight: 800 }} align="right">
+                      Acciones
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredInvoices.map((inv) => {
+                    const statusInfo = getDisplayStatus(inv);
+                    const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || 'N/A';
+                    const siteName = sites.find((s) => s.id === inv.siteId)?.name || 'Sede N/A';
+
+                  return (
+                      <TableRow key={inv.id} hover>
+                        <TableCell>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                            {inv.number}
+                          </Typography>
+                          <Typography variant="caption" color="text.secondary">
+                            {supplierName}
+                          </Typography>
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                            {inv.description}
+                          </Typography>
+                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                            <BusinessOutlinedIcon fontSize="small" color="action" />
+                            <Typography variant="caption" color="primary">
+                              {siteName}
+                            </Typography>
+                          </Stack>
+                        </TableCell>
+                        <TableCell>
+                          <Chip
+                            icon={statusInfo.icon}
+                            label={statusInfo.label}
+                            color={statusInfo.color}
+                            onClick={() => toggleInvoiceStatus(inv)}
+                            sx={{ fontWeight: 800 }}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                            Rad: {inv.date}
+                          </Typography>
+                          {inv.dueDate && (
+                            <Typography variant="caption" color={statusInfo.label === 'Vencido' ? 'error.main' : 'text.secondary'}>
+                              Venc: {inv.dueDate}
+                            </Typography>
+                          )}
+                        </TableCell>
+                        <TableCell align="right">
+                          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                            ${Number(inv.total || 0).toLocaleString()}
+                          </Typography>
+                        </TableCell>
+                        <TableCell align="right">
+                          <Stack direction="row" spacing={1} justifyContent="flex-end">
+                            {canWrite && (
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<EditOutlinedIcon />}
+                                onClick={() => openEditInvoice(inv)}
+                              >
+                                Editar
+                              </Button>
+                            )}
+                            <Button
+                              size="small"
+                              variant="text"
+                              startIcon={<DescriptionOutlinedIcon />}
+                              disabled={!inv.pdfUrl}
+                              onClick={() => {
+                                if (!inv.pdfUrl) return;
+                                window.open(inv.pdfUrl, '_blank', 'noopener,noreferrer');
+                              }}
+                            >
+                              PDF
+                            </Button>
+                          </Stack>
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+
+                  {filteredInvoices.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ py: 6 }}>
+                        <Typography variant="body2" color="text.secondary" align="center">
+                          No hay facturas registradas con los filtros seleccionados.
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </Stack>
       )}
 
-      {/* SUPPLIERS TAB */}
       {activeTab === 'suppliers' && (
-        <div>
-             <div className="flex justify-end mb-4">
-            <button onClick={() => setShowSupplierModal(true)} className="bg-blue-600 text-white px-4 py-2 rounded flex items-center gap-2 text-sm">
-                <Plus size={16} /> Nuevo Proveedor
-            </button>
-          </div>
-           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-               {suppliers.map(sup => (
-                   <div key={sup.id} className="bg-white p-4 rounded shadow border border-gray-100">
-                       <h3 className="font-bold text-gray-800">{sup.name}</h3>
-                       <p className="text-xs text-gray-500 mb-2">NIT: {sup.nit}</p>
-                       <p className="text-sm">📞 {sup.phone}</p>
-                       <p className="text-sm">✉️ {sup.email}</p>
-                       <span className="inline-block mt-2 bg-gray-100 px-2 py-1 rounded text-xs">{sup.category}</span>
-                   </div>
-               ))}
-           </div>
-        </div>
+        <Stack spacing={2}>
+          <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+            {canWrite && (
+              <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={() => setShowSupplierDialog(true)}>
+                Nuevo proveedor
+              </Button>
+            )}
+          </Box>
+
+          <Grid container spacing={2}>
+            {suppliers.map((sup) => (
+              <Grid key={sup.id} size={{ xs: 12, sm: 6, md: 4 }}>
+                <Card>
+                  <CardContent>
+                    <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                      {sup.name}
+                    </Typography>
+                    <Typography variant="caption" color="text.secondary">
+                      NIT: {sup.nit}
+                    </Typography>
+                    <Divider sx={{ my: 1.5 }} />
+                    <Typography variant="body2">Tel: {sup.phone || '—'}</Typography>
+                    <Typography variant="body2">Email: {sup.email || '—'}</Typography>
+                    <Box sx={{ mt: 1.5 }}>
+                      <Chip label={sup.category || '—'} variant="outlined" />
+                    </Box>
+                  </CardContent>
+                </Card>
+              </Grid>
+            ))}
+
+            {suppliers.length === 0 && (
+              <Grid size={12}>
+                <Card sx={{ borderStyle: 'dashed' }}>
+                  <CardContent>
+                    <Typography variant="body2" color="text.secondary" align="center">
+                      No hay proveedores registrados.
+                    </Typography>
+                  </CardContent>
+                </Card>
+              </Grid>
+            )}
+          </Grid>
+        </Stack>
       )}
 
-      {/* REPORTS TAB */}
       {activeTab === 'reports' && (
-        <div className="space-y-6">
-            
-            {/* KPI Cards */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 border-l-4 border-l-blue-500">
-                    <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider">Total Facturado</h3>
-                    <div className="mt-2 flex items-baseline gap-2">
-                        <span className="text-2xl font-bold text-gray-800">${totalInvoiced.toLocaleString()}</span>
-                        <span className="text-xs text-gray-400">en periodo</span>
-                    </div>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 border-l-4 border-l-green-500">
-                    <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider">Total Pagado</h3>
-                    <div className="mt-2 flex items-baseline gap-2">
-                        <span className="text-2xl font-bold text-green-700">${totalPaid.toLocaleString()}</span>
-                        <span className="text-xs text-gray-400">({filteredInvoices.length > 0 ? Math.round((totalPaid/totalInvoiced)*100) : 0}%)</span>
-                    </div>
-                </div>
-                <div className="bg-white p-6 rounded-lg shadow-sm border border-gray-100 border-l-4 border-l-red-500">
-                    <h3 className="text-gray-500 text-sm font-semibold uppercase tracking-wider">Total Pendiente / Vencido</h3>
-                    <div className="mt-2 flex items-baseline gap-2">
-                        <span className="text-2xl font-bold text-red-700">${totalPending.toLocaleString()}</span>
-                        <span className="text-xs text-gray-400">por pagar</span>
-                    </div>
-                </div>
-            </div>
+        <Stack spacing={2}>
+          <Grid container spacing={2}>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 900, letterSpacing: 0.6 }}>
+                    TOTAL FACTURADO
+                  </Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 900, mt: 0.5 }}>
+                    ${totals.totalInvoiced.toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    en el periodo
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 900, letterSpacing: 0.6 }}>
+                    TOTAL PAGADO
+                  </Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 900, mt: 0.5, color: 'success.main' }}>
+                    ${totals.totalPaid.toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    {totals.totalInvoiced > 0 ? Math.round((totals.totalPaid / totals.totalInvoiced) * 100) : 0}% del total
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+            <Grid size={{ xs: 12, md: 4 }}>
+              <Card>
+                <CardContent>
+                  <Typography variant="subtitle2" color="text.secondary" sx={{ fontWeight: 900, letterSpacing: 0.6 }}>
+                    PENDIENTE / VENCIDO
+                  </Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 900, mt: 0.5, color: 'error.main' }}>
+                    ${totals.totalPending.toLocaleString()}
+                  </Typography>
+                  <Typography variant="caption" color="text.secondary">
+                    por pagar
+                  </Typography>
+                </CardContent>
+              </Card>
+            </Grid>
+          </Grid>
 
-            {/* Detailed Table */}
-            <div className="bg-white rounded-lg shadow-sm border border-gray-100 overflow-hidden">
-                <div className="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
-                    <h3 className="font-bold text-gray-800">Detalle de Costos</h3>
-                    <button className="flex items-center gap-2 text-gray-600 hover:text-blue-600 text-sm font-medium transition-colors">
-                        <Download size={16} /> Exportar
-                    </button>
-                </div>
-                <table className="w-full text-left text-sm">
-                    <thead className="bg-white text-gray-500 uppercase border-b border-gray-100">
-                        <tr>
-                            <th className="px-6 py-3 font-medium">Fecha</th>
-                            <th className="px-6 py-3 font-medium">Factura</th>
-                            <th className="px-6 py-3 font-medium">Proveedor</th>
-                            <th className="px-6 py-3 font-medium">Sede</th>
-                            <th className="px-6 py-3 font-medium">Estado</th>
-                            <th className="px-6 py-3 font-medium text-right">Total</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-50">
-                        {filteredInvoices.map(inv => {
-                            const statusInfo = getDisplayStatus(inv);
-                            return (
-                                <tr key={inv.id} className="hover:bg-gray-50">
-                                    <td className="px-6 py-3 text-gray-600">{inv.date}</td>
-                                    <td className="px-6 py-3 font-medium text-gray-800">{inv.number}</td>
-                                    <td className="px-6 py-3 text-gray-600">{suppliers.find(s => s.id === inv.supplierId)?.name}</td>
-                                    <td className="px-6 py-3 text-gray-600">{sites.find(s => s.id === inv.siteId)?.name}</td>
-                                    <td className="px-6 py-3">
-                                        <span className={`inline-flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold ${statusInfo.color}`}>
-                                            {statusInfo.label}
-                                        </span>
-                                    </td>
-                                    <td className="px-6 py-3 text-right font-mono font-medium text-gray-700">
-                                        ${Number(inv.total).toLocaleString()}
-                                    </td>
-                                </tr>
-                            );
-                        })}
-                        {filteredInvoices.length === 0 && (
-                            <tr><td colSpan={6} className="p-8 text-center text-gray-400">No hay datos para mostrar</td></tr>
-                        )}
-                    </tbody>
-                    {filteredInvoices.length > 0 && (
-                        <tfoot className="bg-gray-50 font-bold text-gray-800">
-                            <tr>
-                                <td colSpan={5} className="px-6 py-3 text-right uppercase text-xs tracking-wider">Total Periodo</td>
-                                <td className="px-6 py-3 text-right font-mono text-base border-t-2 border-gray-200">
-                                    ${totalInvoiced.toLocaleString()}
-                                </td>
-                            </tr>
-                        </tfoot>
-                    )}
-                </table>
-            </div>
-        </div>
+          <Card>
+            <CardContent sx={{ p: 0 }}>
+              <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  Detalle de costos
+                </Typography>
+                <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} disabled>
+                  Exportar
+                </Button>
+              </Box>
+              <Divider />
+              <Table size="small">
+                <TableHead>
+                  <TableRow>
+                    <TableCell sx={{ fontWeight: 800 }}>Fecha</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Factura</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Proveedor</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Sede</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }}>Estado</TableCell>
+                    <TableCell sx={{ fontWeight: 800 }} align="right">
+                      Total
+                    </TableCell>
+                  </TableRow>
+                </TableHead>
+                <TableBody>
+                  {filteredInvoices.map((inv) => {
+                    const statusInfo = getDisplayStatus(inv);
+                    const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || 'N/A';
+                    const siteName = sites.find((s) => s.id === inv.siteId)?.name || 'Sede N/A';
+
+                    return (
+                      <TableRow key={inv.id} hover>
+                        <TableCell>{inv.date}</TableCell>
+                        <TableCell sx={{ fontWeight: 700 }}>{inv.number}</TableCell>
+                        <TableCell>{supplierName}</TableCell>
+                        <TableCell>{siteName}</TableCell>
+                        <TableCell>
+                          <Chip icon={statusInfo.icon} label={statusInfo.label} color={statusInfo.color} size="small" />
+                        </TableCell>
+                        <TableCell align="right" sx={{ fontWeight: 900 }}>
+                          ${Number(inv.total || 0).toLocaleString()}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+
+                  {filteredInvoices.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={6} sx={{ py: 6 }}>
+                        <Typography variant="body2" color="text.secondary" align="center">
+                          No hay datos para el periodo seleccionado.
+                        </Typography>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </Stack>
       )}
 
-      {/* MODALS */}
-      {showSupplierModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-             <div className="bg-white p-6 rounded w-full max-w-md">
-                 <h2 className="text-lg font-bold mb-4">Crear Proveedor</h2>
-                 <form onSubmit={handleSaveSupplier} className="space-y-3">
-                     <input className="w-full border p-2 rounded" placeholder="Nombre" onChange={e => setSupplierForm({...supplierForm, name: e.target.value})} required />
-                     <input className="w-full border p-2 rounded" placeholder="NIT" onChange={e => setSupplierForm({...supplierForm, nit: e.target.value})} required />
-                     <input className="w-full border p-2 rounded" placeholder="Contacto" onChange={e => setSupplierForm({...supplierForm, contactName: e.target.value})} />
-                     <input className="w-full border p-2 rounded" placeholder="Teléfono" onChange={e => setSupplierForm({...supplierForm, phone: e.target.value})} />
-                     <input className="w-full border p-2 rounded" placeholder="Email" onChange={e => setSupplierForm({...supplierForm, email: e.target.value})} />
-                     <button className="w-full bg-blue-600 text-white py-2 rounded mt-2">Guardar</button>
-                     <button type="button" onClick={() => setShowSupplierModal(false)} className="w-full text-gray-500 py-2">Cancelar</button>
-                 </form>
-             </div>
-          </div>
-      )}
-      
-       {showInvoiceModal && (
-          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50 overflow-y-auto">
-             <div className="bg-white p-6 rounded-lg w-full max-w-lg my-8 shadow-xl">
-                 <h2 className="text-xl font-bold mb-6 text-gray-800 border-b pb-2">
-                     {editingInvoiceId ? 'Editar Factura' : 'Registrar Factura'}
-                 </h2>
-                 <form onSubmit={handleSaveInvoice} className="space-y-4">
-                     
-                     {/* Proveedor y Sede */}
-                     <div className="grid grid-cols-2 gap-4">
-                         <div>
-                             <label className="block text-sm font-medium mb-1">Proveedor</label>
-                             <select className="w-full border p-2 rounded bg-white" 
-                                value={invoiceForm.supplierId}
-                                onChange={e => setInvoiceForm({...invoiceForm, supplierId: e.target.value})} required>
-                                 <option value="">Seleccione Proveedor...</option>
-                                 {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                             </select>
-                         </div>
-                         <div>
-                             <label className="block text-sm font-medium mb-1">Sede</label>
-                             <select className="w-full border p-2 rounded bg-white" 
-                                value={invoiceForm.siteId}
-                                onChange={e => setInvoiceForm({...invoiceForm, siteId: e.target.value})} required>
-                                 <option value="">Seleccione Sede...</option>
-                                 {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                             </select>
-                         </div>
-                     </div>
+      <Dialog open={showSupplierDialog} onClose={() => setShowSupplierDialog(false)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Nuevo proveedor</DialogTitle>
+        <DialogContent>
+          <Box component="form" onSubmit={handleSaveSupplier} sx={{ mt: 1, pointerEvents: canWrite ? 'auto' : 'none' }}>
+            {!canWrite && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Modo solo lectura (Gerencia/Auditoría). No puedes crear proveedores.
+              </Alert>
+            )}
+            <Stack spacing={2}>
+              <TextField
+                label="Nombre"
+                value={supplierForm.name || ''}
+                onChange={(e) => setSupplierForm({ ...supplierForm, name: e.target.value })}
+                required
+                fullWidth
+              />
+              <TextField
+                label="NIT"
+                value={supplierForm.nit || ''}
+                onChange={(e) => setSupplierForm({ ...supplierForm, nit: e.target.value })}
+                required
+                fullWidth
+              />
+              <TextField
+                label="Contacto"
+                value={supplierForm.contactName || ''}
+                onChange={(e) => setSupplierForm({ ...supplierForm, contactName: e.target.value })}
+                fullWidth
+              />
+              <TextField
+                label="Teléfono"
+                value={supplierForm.phone || ''}
+                onChange={(e) => setSupplierForm({ ...supplierForm, phone: e.target.value })}
+                fullWidth
+              />
+              <TextField
+                label="Email"
+                value={supplierForm.email || ''}
+                onChange={(e) => setSupplierForm({ ...supplierForm, email: e.target.value })}
+                fullWidth
+              />
+              <TextField
+                label="Categoría"
+                value={supplierForm.category || ''}
+                onChange={(e) => setSupplierForm({ ...supplierForm, category: e.target.value })}
+                fullWidth
+              />
+            </Stack>
 
-                     {/* Numero y Valor */}
-                     <div className="grid grid-cols-2 gap-4">
-                         <div>
-                             <label className="block text-sm font-medium mb-1">No. Factura</label>
-                             <input className="w-full border p-2 rounded" placeholder="Ej: FE-1020" 
-                                value={invoiceForm.number}
-                                onChange={e => setInvoiceForm({...invoiceForm, number: e.target.value})} required />
-                         </div>
-                         <div>
-                             <label className="block text-sm font-medium mb-1">Valor Total</label>
-                             <div className="relative">
-                                <DollarSign className="absolute left-2 top-2.5 text-gray-400" size={16} />
-                                <input type="number" className="w-full pl-8 pr-4 py-2 border rounded" placeholder="0" 
-                                    value={invoiceForm.total || ''}
-                                    onChange={e => setInvoiceForm({...invoiceForm, total: Number(e.target.value)})} required />
-                             </div>
-                         </div>
-                     </div>
+            <DialogActions sx={{ px: 0, mt: 2 }}>
+              <Button onClick={() => setShowSupplierDialog(false)}>Cancelar</Button>
+              <Button type="submit" variant="contained" disabled={!canWrite}>
+                Guardar
+              </Button>
+            </DialogActions>
+          </Box>
+        </DialogContent>
+      </Dialog>
 
-                     {/* Fechas */}
-                     <div className="grid grid-cols-2 gap-4">
-                        <div>
-                             <label className="block text-sm font-medium mb-1">Fecha Radicación</label>
-                             <input type="date" className="w-full border p-2 rounded" 
-                                value={invoiceForm.date} 
-                                onChange={e => setInvoiceForm({...invoiceForm, date: e.target.value})} required />
-                        </div>
-                        <div>
-                             <label className="block text-sm font-medium mb-1">Fecha Vencimiento</label>
-                             <input type="date" className="w-full border p-2 rounded" 
-                                value={invoiceForm.dueDate} 
-                                onChange={e => setInvoiceForm({...invoiceForm, dueDate: e.target.value})} />
-                        </div>
-                     </div>
+      <Dialog open={showInvoiceDialog} onClose={closeInvoiceDialog} fullWidth maxWidth="md">
+        <DialogTitle sx={{ fontWeight: 900 }}>
+          {editingInvoiceId ? 'Editar factura' : 'Nueva factura'}
+        </DialogTitle>
+        <DialogContent>
+          <Box component="form" onSubmit={handleSaveInvoice} sx={{ mt: 1, pointerEvents: canWrite ? 'auto' : 'none' }}>
+            {!canWrite && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar facturas.
+              </Alert>
+            )}
+            {(savingInvoice && invoiceFile) && (
+              <Box sx={{ mb: 2 }}>
+                <Typography variant="caption" color="text.secondary">
+                  Subiendo adjunto… {invoiceUploadPct}%
+                </Typography>
+                <LinearProgress variant="determinate" value={invoiceUploadPct} sx={{ mt: 0.5, borderRadius: 99 }} />
+              </Box>
+            )}
 
-                     {/* Estado (Solo edición o creación manual si se requiere) */}
-                     <div>
-                        <label className="block text-sm font-medium mb-1">Estado</label>
-                        <select className="w-full border p-2 rounded bg-white"
-                            value={invoiceForm.status || 'pending'}
-                            onChange={e => setInvoiceForm({...invoiceForm, status: e.target.value as 'paid' | 'pending'})}
-                        >
-                            <option value="pending">Pendiente</option>
-                            <option value="paid">Pagado</option>
-                        </select>
-                     </div>
+            {invoiceFile && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Archivo seleccionado: <strong>{invoiceFile.name}</strong>
+              </Alert>
+            )}
 
-                     {/* Descripcion */}
-                     <div>
-                         <label className="block text-sm font-medium mb-1">Servicio o Descripción</label>
-                         <textarea className="w-full border p-2 rounded h-20" 
-                            placeholder="Detalle de los servicios o productos facturados..."
-                            value={invoiceForm.description}
-                            onChange={e => setInvoiceForm({...invoiceForm, description: e.target.value})} required />
-                     </div>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth required>
+                  <InputLabel id="invoice-supplier-label">Proveedor</InputLabel>
+                  <Select
+                    labelId="invoice-supplier-label"
+                    label="Proveedor"
+                    value={invoiceForm.supplierId || ''}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, supplierId: String(e.target.value) })}
+                  >
+                    <MenuItem value="">Seleccione...</MenuItem>
+                    {suppliers.map((s) => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth required>
+                  <InputLabel id="invoice-site-label">Sede</InputLabel>
+                  <Select
+                    labelId="invoice-site-label"
+                    label="Sede"
+                    value={invoiceForm.siteId || ''}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, siteId: String(e.target.value) })}
+                  >
+                    <MenuItem value="">Seleccione...</MenuItem>
+                    {sites.map((s) => (
+                      <MenuItem key={s.id} value={s.id}>
+                        {s.name}
+                      </MenuItem>
+                    ))}
+                  </Select>
+                </FormControl>
+              </Grid>
 
-                     {/* Archivo */}
-                     <div>
-                        <label className="block text-sm font-medium mb-1">Cargar Factura (PDF/Imagen)</label>
-                        <div className="flex items-center gap-2">
-                             <input type="file" className="w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100" />
-                        </div>
-                     </div>
-                     
-                     <div className="flex gap-3 pt-4 border-t mt-4">
-                        <button type="button" onClick={closeInvoiceModal} className="flex-1 py-2 border rounded text-gray-600 hover:bg-gray-50">Cancelar</button>
-                        <button type="submit" className="flex-1 bg-blue-600 text-white py-2 rounded hover:bg-blue-700 font-semibold">
-                            {editingInvoiceId ? 'Actualizar Factura' : 'Guardar Factura'}
-                        </button>
-                     </div>
-                 </form>
-             </div>
-          </div>
-      )}
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="No. Factura"
+                  value={invoiceForm.number || ''}
+                  onChange={(e) => setInvoiceForm({ ...invoiceForm, number: e.target.value })}
+                  required
+                  fullWidth
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Valor total"
+                  type="number"
+                  value={invoiceForm.total ?? ''}
+                  onChange={(e) => setInvoiceForm({ ...invoiceForm, total: Number(e.target.value) })}
+                  required
+                  fullWidth
+                />
+              </Grid>
 
-    </div>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Fecha radicación"
+                  type="date"
+                  value={invoiceForm.date || ''}
+                  onChange={(e) => setInvoiceForm({ ...invoiceForm, date: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                  required
+                  fullWidth
+                />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <TextField
+                  label="Fecha vencimiento"
+                  type="date"
+                  value={invoiceForm.dueDate || ''}
+                  onChange={(e) => setInvoiceForm({ ...invoiceForm, dueDate: e.target.value })}
+                  InputLabelProps={{ shrink: true }}
+                  fullWidth
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <FormControl fullWidth>
+                  <InputLabel id="invoice-status-label">Estado</InputLabel>
+                  <Select
+                    labelId="invoice-status-label"
+                    label="Estado"
+                    value={invoiceForm.status || 'pending'}
+                    onChange={(e) => setInvoiceForm({ ...invoiceForm, status: e.target.value as Invoice['status'] })}
+                  >
+                    <MenuItem value="pending">Pendiente</MenuItem>
+                    <MenuItem value="paid">Pagado</MenuItem>
+                  </Select>
+                </FormControl>
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6 }}>
+                <Button
+                  component="label"
+                  variant="outlined"
+                  startIcon={<DescriptionOutlinedIcon />}
+                  fullWidth
+                  sx={{ height: 56 }}
+                  disabled={savingInvoice}
+                >
+                  Cargar factura (PDF/imagen)
+                  <input
+                    hidden
+                    type="file"
+                    accept="application/pdf,image/*"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0] || null;
+                      setInvoiceFile(file);
+                      setInvoiceUploadPct(0);
+                    }}
+                  />
+                </Button>
+              </Grid>
+
+              <Grid size={12}>
+                <TextField
+                  label="Servicio o descripción"
+                  value={invoiceForm.description || ''}
+                  onChange={(e) => setInvoiceForm({ ...invoiceForm, description: e.target.value })}
+                  required
+                  fullWidth
+                  multiline
+                  minRows={3}
+                />
+              </Grid>
+            </Grid>
+
+            <Divider sx={{ my: 2 }} />
+            <DialogActions sx={{ px: 0 }}>
+              <Button onClick={closeInvoiceDialog}>Cancelar</Button>
+              <Button type="submit" variant="contained" disabled={savingInvoice || !canWrite}>
+                {editingInvoiceId ? 'Actualizar' : 'Guardar'}
+              </Button>
+            </DialogActions>
+          </Box>
+        </DialogContent>
+      </Dialog>
+
+      <Snackbar
+        open={snackbar.open}
+        autoHideDuration={4000}
+        onClose={() => setSnackbar({ open: false, message: '', severity: 'warning' })}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          severity={snackbar.severity}
+          onClose={() => setSnackbar({ open: false, message: '', severity: 'warning' })}
+        >
+          {snackbar.message}
+        </Alert>
+      </Snackbar>
+    </Stack>
   );
 };
 

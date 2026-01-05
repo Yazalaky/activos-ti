@@ -1,30 +1,50 @@
-import React, { useEffect, useState } from 'react';
+import React from 'react';
+import { Alert, Box, CircularProgress } from '@mui/material';
 import { HashRouter, Routes, Route, Navigate } from 'react-router-dom';
-import { onAuthStateChanged } from 'firebase/auth';
-import { auth } from './firebase';
 import Layout from './components/Layout';
 import Login from './pages/Login';
 import Dashboard from './pages/Dashboard';
 import Assets from './pages/Assets';
 import Activities from './pages/Activities';
 import Finance from './pages/Finance';
+import AdminUsers from './pages/AdminUsers';
+import { useAuth } from './auth/AuthContext';
 
-const ProtectedRoute = ({ children }: { children?: React.ReactNode }) => {
-  const [user, setUser] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+const RequireAuth = ({ children }: { children?: React.ReactNode }) => {
+  const { user, profile, loading } = useAuth();
 
-  useEffect(() => {
-    // Normal Firebase Auth check
-    const unsubscribe = onAuthStateChanged(auth, (currentUser) => {
-      setUser(currentUser);
-      setLoading(false);
-    });
-    return () => unsubscribe();
-  }, []);
+  if (loading) {
+    return (
+      <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
+        <CircularProgress />
+      </Box>
+    );
+  }
 
-  if (loading) return <div className="h-screen flex items-center justify-center">Cargando sistema...</div>;
   if (!user) return <Navigate to="/login" replace />;
 
+  if (!profile) {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="warning">
+          Tu usuario no tiene perfil asignado en Firestore (`users/{'{uid}'}`). Contacta al administrador para asignar un rol.
+        </Alert>
+      </Box>
+    );
+  }
+
+  return <>{children}</>;
+};
+
+const RequireAdmin = ({ children }: { children?: React.ReactNode }) => {
+  const { role } = useAuth();
+  if (role !== 'admin') {
+    return (
+      <Box sx={{ p: 3 }}>
+        <Alert severity="error">No tienes permisos para acceder a esta sección.</Alert>
+      </Box>
+    );
+  }
   return <>{children}</>;
 };
 
@@ -35,36 +55,49 @@ function App() {
         <Route path="/login" element={<Login />} />
         
         <Route path="/" element={
-          <ProtectedRoute>
+          <RequireAuth>
             <Layout>
               <Dashboard />
             </Layout>
-          </ProtectedRoute>
+          </RequireAuth>
         } />
         
         <Route path="/assets" element={
-          <ProtectedRoute>
+          <RequireAuth>
             <Layout>
               <Assets />
             </Layout>
-          </ProtectedRoute>
+          </RequireAuth>
         } />
 
         <Route path="/activities" element={
-          <ProtectedRoute>
+          <RequireAuth>
             <Layout>
               <Activities />
             </Layout>
-          </ProtectedRoute>
+          </RequireAuth>
         } />
 
         <Route path="/finance" element={
-          <ProtectedRoute>
+          <RequireAuth>
             <Layout>
               <Finance />
             </Layout>
-          </ProtectedRoute>
+          </RequireAuth>
         } />
+
+        <Route
+          path="/admin/users"
+          element={
+            <RequireAuth>
+              <RequireAdmin>
+                <Layout>
+                  <AdminUsers />
+                </Layout>
+              </RequireAdmin>
+            </RequireAuth>
+          }
+        />
 
       </Routes>
     </HashRouter>

@@ -5,11 +5,45 @@ service firebase.storage {
       return request.auth != null;
     }
 
-    match /{allPaths=**} {
-      // MVP: requiere autenticación; ajusta por carpetas/roles cuando subas evidencias.
+    function hasProfile() {
+      return isSignedIn() && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function role() {
+      return hasProfile()
+        ? firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role
+        : null;
+    }
+
+    function canWrite() {
+      return role() == 'admin' || role() == 'tech';
+    }
+
+    function isImage() {
+      return request.resource.contentType.matches('image/.*');
+    }
+
+    function isPdfOrImage() {
+      return request.resource.contentType.matches('application/pdf') || isImage();
+    }
+
+    function underLimit(maxBytes) {
+      return request.resource.size < maxBytes;
+    }
+
+    match /assets/{assetId}/photos/{fileName} {
       allow read: if isSignedIn();
-      allow write: if isSignedIn();
+      allow write: if canWrite() && isImage() && underLimit(5 * 1024 * 1024);
+    }
+
+    match /invoices/{invoiceId}/attachments/{fileName} {
+      allow read: if isSignedIn();
+      allow write: if canWrite() && isPdfOrImage() && underLimit(10 * 1024 * 1024);
+    }
+
+    // Deny all other paths by default
+    match /{allPaths=**} {
+      allow read, write: if false;
     }
   }
 }
-
