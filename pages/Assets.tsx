@@ -28,12 +28,14 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import PersonAddAltOutlinedIcon from '@mui/icons-material/PersonAddAltOutlined';
 import KeyboardReturnOutlinedIcon from '@mui/icons-material/KeyboardReturnOutlined';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
@@ -78,6 +80,7 @@ const Assets = () => {
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [editorMode, setEditorMode] = useState<'create' | 'edit' | 'view'>('create');
 
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignAsset, setAssignAsset] = useState<Asset | null>(null);
@@ -154,9 +157,12 @@ const Assets = () => {
 
   const isComputer = formData.type === 'laptop' || formData.type === 'desktop';
   const isDesktop = formData.type === 'desktop';
+  const isViewMode = editorMode === 'view';
+  const readOnly = !canWrite || isViewMode;
 
   const openCreate = () => {
     setEditingId(null);
+    setEditorMode('create');
     setFormData(initialFormState);
     setPreviewImage(null);
     setImageFile(null);
@@ -166,6 +172,17 @@ const Assets = () => {
 
   const openEdit = (asset: Asset) => {
     setEditingId(asset.id);
+    setEditorMode('edit');
+    setFormData(asset);
+    setPreviewImage(asset.imageUrl || null);
+    setImageFile(null);
+    setImageUploadPct(0);
+    setEditorOpen(true);
+  };
+
+  const openView = (asset: Asset) => {
+    setEditingId(asset.id);
+    setEditorMode('view');
     setFormData(asset);
     setPreviewImage(asset.imageUrl || null);
     setImageFile(null);
@@ -179,6 +196,7 @@ const Assets = () => {
     }
     setEditorOpen(false);
     setEditingId(null);
+    setEditorMode('create');
     setFormData(initialFormState);
     setPreviewImage(null);
     setImageFile(null);
@@ -236,6 +254,7 @@ const Assets = () => {
 
   const handleSaveAsset = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (readOnly) return;
 
     if (!formData.siteId) {
       setSnackbar({ open: true, message: 'Seleccione una sede.', severity: 'warning' });
@@ -493,20 +512,31 @@ const Assets = () => {
                     </TableCell>
                     <TableCell align="right">
                       <Stack direction="row" spacing={1} justifyContent="flex-end">
+                        <Tooltip title="Ver detalle">
+                          <IconButton onClick={() => openView(asset)} aria-label="Ver" size="small">
+                            <VisibilityOutlinedIcon />
+                          </IconButton>
+                        </Tooltip>
                         {canWrite && (
                           <>
-                            <IconButton onClick={() => openEdit(asset)} aria-label="Editar" size="small">
-                              <EditOutlinedIcon />
-                            </IconButton>
-                            {asset.status === 'bodega' && (
-                              <IconButton onClick={() => openAssign(asset)} aria-label="Asignar" size="small">
-                                <PersonAddAltOutlinedIcon />
+                            <Tooltip title="Editar">
+                              <IconButton onClick={() => openEdit(asset)} aria-label="Editar" size="small">
+                                <EditOutlinedIcon />
                               </IconButton>
+                            </Tooltip>
+                            {asset.status === 'bodega' && (
+                              <Tooltip title="Asignar">
+                                <IconButton onClick={() => openAssign(asset)} aria-label="Asignar" size="small">
+                                  <PersonAddAltOutlinedIcon />
+                                </IconButton>
+                              </Tooltip>
                             )}
                             {asset.status === 'asignado' && (
-                              <IconButton onClick={() => confirmReturn(asset)} aria-label="Retornar" size="small">
-                                <KeyboardReturnOutlinedIcon />
-                              </IconButton>
+                              <Tooltip title="Retornar a bodega">
+                                <IconButton onClick={() => confirmReturn(asset)} aria-label="Retornar" size="small">
+                                  <KeyboardReturnOutlinedIcon />
+                                </IconButton>
+                              </Tooltip>
                             )}
                           </>
                         )}
@@ -531,12 +561,19 @@ const Assets = () => {
       </Card>
 
       <Dialog open={editorOpen} onClose={closeEditor} fullWidth maxWidth="lg">
-        <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar activo' : 'Registrar nuevo activo'}</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 900 }}>
+          {isViewMode ? 'Detalle del activo' : editingId ? 'Editar activo' : 'Registrar nuevo activo'}
+        </DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSaveAsset} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar activos.
+              </Alert>
+            )}
+            {isViewMode && canWrite && (
+              <Alert severity="info" sx={{ mb: 2 }}>
+                Vista rápida (solo lectura). Para modificar, usa el botón Editar en la tabla.
               </Alert>
             )}
 
@@ -553,7 +590,7 @@ const Assets = () => {
                     label="Sede"
                     value={formData.siteId || ''}
                     onChange={(e) => setFormData({ ...formData, siteId: String(e.target.value) })}
-                    disabled={!!editingId}
+                    disabled={readOnly || !!editingId}
                   >
                     <MenuItem value="">Seleccione...</MenuItem>
                     {sites.map((s) => (
@@ -577,6 +614,7 @@ const Assets = () => {
                     label="Tipo"
                     value={formData.type || 'laptop'}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value as AssetType })}
+                    disabled={readOnly}
                   >
                     <MenuItem value="laptop">Laptop</MenuItem>
                     <MenuItem value="desktop">Desktop</MenuItem>
@@ -597,6 +635,7 @@ const Assets = () => {
                     label="Estado"
                     value={formData.status || 'bodega'}
                     onChange={(e) => setFormData({ ...formData, status: e.target.value as Status })}
+                    disabled={readOnly}
                   >
                     <MenuItem value="bodega">Bodega</MenuItem>
                     <MenuItem value="asignado">Asignado</MenuItem>
@@ -611,6 +650,7 @@ const Assets = () => {
                   onChange={(e) => setFormData({ ...formData, brand: e.target.value })}
                   required
                   fullWidth
+                  disabled={readOnly}
                   sx={{ mb: 2 }}
                 />
                 <TextField
@@ -619,6 +659,7 @@ const Assets = () => {
                   onChange={(e) => setFormData({ ...formData, model: e.target.value })}
                   required
                   fullWidth
+                  disabled={readOnly}
                   sx={{ mb: 2 }}
                 />
                 <TextField
@@ -627,6 +668,7 @@ const Assets = () => {
                   onChange={(e) => setFormData({ ...formData, serial: e.target.value })}
                   required
                   fullWidth
+                  disabled={readOnly}
                   sx={{ mb: 2 }}
                 />
               </Grid>
@@ -641,6 +683,7 @@ const Assets = () => {
                   value={formData.purchaseDate || ''}
                   onChange={(e) => setFormData({ ...formData, purchaseDate: e.target.value })}
                   InputLabelProps={{ shrink: true }}
+                  disabled={readOnly}
                   fullWidth
                   sx={{ mb: 2 }}
                 />
@@ -649,6 +692,7 @@ const Assets = () => {
                   type="number"
                   value={formData.cost ?? ''}
                   onChange={(e) => setFormData({ ...formData, cost: Number(e.target.value) })}
+                  disabled={readOnly}
                   fullWidth
                   sx={{ mb: 2 }}
                 />
@@ -663,7 +707,7 @@ const Assets = () => {
                   value={formData.processor || ''}
                   onChange={(e) => setFormData({ ...formData, processor: e.target.value })}
                   fullWidth
-                  disabled={!isComputer}
+                  disabled={readOnly || !isComputer}
                   sx={{ mb: 2 }}
                 />
                 <TextField
@@ -671,7 +715,7 @@ const Assets = () => {
                   value={formData.ram || ''}
                   onChange={(e) => setFormData({ ...formData, ram: e.target.value })}
                   fullWidth
-                  disabled={!isComputer}
+                  disabled={readOnly || !isComputer}
                   sx={{ mb: 2 }}
                 />
                 <TextField
@@ -679,7 +723,7 @@ const Assets = () => {
                   value={formData.storage || ''}
                   onChange={(e) => setFormData({ ...formData, storage: e.target.value })}
                   fullWidth
-                  disabled={!isComputer}
+                  disabled={readOnly || !isComputer}
                   sx={{ mb: 2 }}
                 />
                 <TextField
@@ -687,7 +731,7 @@ const Assets = () => {
                   value={formData.os || ''}
                   onChange={(e) => setFormData({ ...formData, os: e.target.value })}
                   fullWidth
-                  disabled={!isComputer}
+                  disabled={readOnly || !isComputer}
                 />
 
                 <Divider sx={{ my: 2 }} />
@@ -702,7 +746,7 @@ const Assets = () => {
                       value={formData.monitorBrand || ''}
                       onChange={(e) => setFormData({ ...formData, monitorBrand: e.target.value })}
                       fullWidth
-                      disabled={!isDesktop}
+                      disabled={readOnly || !isDesktop}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 4 }}>
@@ -711,7 +755,7 @@ const Assets = () => {
                       value={formData.monitorSize || ''}
                       onChange={(e) => setFormData({ ...formData, monitorSize: e.target.value })}
                       fullWidth
-                      disabled={!isDesktop}
+                      disabled={readOnly || !isDesktop}
                     />
                   </Grid>
                   <Grid size={{ xs: 12, sm: 4 }}>
@@ -720,7 +764,7 @@ const Assets = () => {
                       value={formData.monitorSerial || ''}
                       onChange={(e) => setFormData({ ...formData, monitorSerial: e.target.value })}
                       fullWidth
-                      disabled={!isDesktop}
+                      disabled={readOnly || !isDesktop}
                     />
                   </Grid>
                 </Grid>
@@ -740,44 +784,51 @@ const Assets = () => {
                   </Box>
                 )}
 
-                <Stack direction="row" spacing={2} alignItems="center">
+                <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }}>
                   <Avatar
                     variant="rounded"
                     src={previewImage || undefined}
                     sx={{ width: 96, height: 96, borderRadius: 3, bgcolor: 'rgba(0,0,0,0.06)' }}
                   />
-                  <Stack spacing={1} direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }}>
-                    <Button
-                      component="label"
-                      variant="outlined"
-                      startIcon={<PhotoCameraOutlinedIcon />}
-                      disabled={!canWrite || saving}
-                    >
-                      {formData.imageUrl || imageFile ? 'Reemplazar foto' : 'Cargar foto'}
-                      <input hidden type="file" accept="image/*" onChange={(e) => handleImageChange(e.target.files?.[0])} />
-                    </Button>
-                    {(formData.imageUrl || previewImage) && (
-                      <Button
-                        variant="text"
-                        startIcon={<OpenInNewOutlinedIcon />}
-                        onClick={() => {
-                          const url = previewImage || formData.imageUrl;
-                          if (url) window.open(url, '_blank', 'noopener,noreferrer');
-                        }}
-                      >
-                        Ver
+                  <Stack
+                    direction="row"
+                    spacing={1}
+                    alignItems="center"
+                    flexWrap="wrap"
+                    sx={{ minWidth: 0, width: { xs: '100%', sm: 'auto' } }}
+                  >
+                    {!readOnly && (
+                      <Button component="label" variant="outlined" startIcon={<PhotoCameraOutlinedIcon />} disabled={saving}>
+                        {formData.imageUrl || imageFile ? 'Reemplazar foto' : 'Cargar foto'}
+                        <input hidden type="file" accept="image/*" onChange={(e) => handleImageChange(e.target.files?.[0])} />
                       </Button>
                     )}
-                    {(formData.imageUrl || imageFile) && (
-                      <Button
-                        variant="text"
-                        color="error"
-                        startIcon={<DeleteOutlineOutlinedIcon />}
-                        disabled={!canWrite || saving}
-                        onClick={() => setDeleteImageOpen(true)}
-                      >
-                        Eliminar
-                      </Button>
+
+                    {(formData.imageUrl || previewImage) && (
+                      <Tooltip title="Ver foto">
+                        <IconButton
+                          aria-label="Ver foto"
+                          onClick={() => {
+                            const url = previewImage || formData.imageUrl;
+                            if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                          }}
+                        >
+                          <OpenInNewOutlinedIcon />
+                        </IconButton>
+                      </Tooltip>
+                    )}
+
+                    {!readOnly && (formData.imageUrl || imageFile) && (
+                      <Tooltip title="Eliminar foto">
+                        <IconButton
+                          aria-label="Eliminar foto"
+                          color="error"
+                          disabled={saving}
+                          onClick={() => setDeleteImageOpen(true)}
+                        >
+                          <DeleteOutlineOutlinedIcon />
+                        </IconButton>
+                      </Tooltip>
                     )}
                   </Stack>
                 </Stack>
@@ -789,6 +840,7 @@ const Assets = () => {
                   fullWidth
                   multiline
                   minRows={4}
+                  disabled={readOnly}
                   sx={{ mt: 2 }}
                 />
               </Grid>
@@ -796,10 +848,12 @@ const Assets = () => {
 
             <Divider sx={{ my: 2 }} />
             <DialogActions sx={{ px: 0 }}>
-              <Button onClick={closeEditor}>Cancelar</Button>
-              <Button type="submit" variant="contained" startIcon={<SaveOutlinedIcon />} disabled={saving || !canWrite}>
-                {editingId ? 'Actualizar' : 'Guardar'}
-              </Button>
+              <Button onClick={closeEditor}>{readOnly ? 'Cerrar' : 'Cancelar'}</Button>
+              {!readOnly && (
+                <Button type="submit" variant="contained" startIcon={<SaveOutlinedIcon />} disabled={saving}>
+                  {editingId ? 'Actualizar' : 'Guardar'}
+                </Button>
+              )}
             </DialogActions>
           </Box>
         </DialogContent>
