@@ -258,7 +258,7 @@ const Activities = () => {
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="md">
         <DialogTitle sx={{ fontWeight: 900 }}>Registrar actividad</DialogTitle>
         <DialogContent>
-          <Box component="form" onSubmit={handleSave} sx={{ mt: 1, pointerEvents: canWrite ? 'auto' : 'none' }}>
+          <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Modo solo lectura (Gerencia/Auditoría). No puedes crear actividades.
@@ -377,7 +377,7 @@ const Activities = () => {
             <Divider sx={{ my: 2 }} />
             <DialogActions sx={{ px: 0 }}>
               <Button onClick={() => setDialogOpen(false)}>Cancelar</Button>
-              <Button type="submit" variant="contained">
+              <Button type="submit" variant="contained" disabled={!canWrite}>
                 Guardar
               </Button>
             </DialogActions>

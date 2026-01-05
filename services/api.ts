@@ -10,7 +10,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db } from '../firebaseDb';
 import type { Activity, Asset, Invoice, Site, Supplier } from '../types';
 
 const fetchCollection = async <T>(collectionName: string): Promise<T[]> => {
@@ -28,6 +28,7 @@ const fetchCollection = async <T>(collectionName: string): Promise<T[]> => {
 export const getSites = () => fetchCollection<Site>('sites');
 export const addSite = (data: Omit<Site, 'id'>) => addDoc(collection(db, 'sites'), data);
 export const deleteSite = (id: string) => deleteDoc(doc(db, 'sites', id));
+export const updateSite = (id: string, data: Partial<Site>) => updateDoc(doc(db, 'sites', id), data);
 
 // ASSETS
 export const getAssets = () => fetchCollection<Asset>('assets');

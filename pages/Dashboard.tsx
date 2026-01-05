@@ -21,6 +21,7 @@ import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import { Pie, PieChart, Cell, Legend, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { Link as RouterLink } from 'react-router-dom';
+import { useAuth } from '../auth/AuthContext';
 import { getActivities, getAssets } from '../services/api';
 import type { Activity, Asset } from '../types';
 
@@ -63,6 +64,8 @@ const StatCard = ({
 );
 
 const Dashboard = () => {
+  const { role } = useAuth();
+  const canWrite = role === 'admin' || role === 'tech';
   const [assets, setAssets] = useState<Asset[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
   const [loading, setLoading] = useState(true);
@@ -172,6 +175,7 @@ const Dashboard = () => {
                 variant="contained"
                 startIcon={<AddOutlinedIcon />}
                 endIcon={<ArrowForwardOutlinedIcon />}
+                disabled={!canWrite}
               >
                 Nuevo activo
               </Button>
@@ -181,6 +185,7 @@ const Dashboard = () => {
                 variant="outlined"
                 startIcon={<ListAltOutlinedIcon />}
                 endIcon={<ArrowForwardOutlinedIcon />}
+                disabled={!canWrite}
               >
                 Nueva actividad
               </Button>
@@ -190,6 +195,7 @@ const Dashboard = () => {
                 variant="outlined"
                 startIcon={<ReceiptLongOutlinedIcon />}
                 endIcon={<ArrowForwardOutlinedIcon />}
+                disabled={!canWrite}
               >
                 Nueva factura
               </Button>
@@ -221,6 +227,7 @@ const Dashboard = () => {
                       variant="contained"
                       startIcon={<AddOutlinedIcon />}
                       endIcon={<ArrowForwardOutlinedIcon />}
+                      disabled={!canWrite}
                     >
                       Registrar activo
                     </Button>
@@ -275,6 +282,7 @@ const Dashboard = () => {
                       variant="contained"
                       startIcon={<ListAltOutlinedIcon />}
                       endIcon={<ArrowForwardOutlinedIcon />}
+                      disabled={!canWrite}
                     >
                       Registrar actividad
                     </Button>

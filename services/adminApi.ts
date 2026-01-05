@@ -1,5 +1,5 @@
 import { httpsCallable } from 'firebase/functions';
-import { functions } from '../firebase';
+import { functions } from '../firebaseFunctions';
 import type { Role } from '../types';
 
 export type CreateUserInput = {
@@ -18,4 +18,3 @@ export const createUserAccount = async (input: CreateUserInput) => {
   const result = await callable(input);
   return result.data;
 };
-

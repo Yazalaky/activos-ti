@@ -1,5 +1,5 @@
 import { getDownloadURL, ref, uploadBytesResumable } from 'firebase/storage';
-import { storage } from '../firebase';
+import { storage } from '../firebaseStorage';
 
 export type UploadResult = {
   url: string;
@@ -51,4 +51,3 @@ export const uploadFileToStorage = (
       }
     );
   });
-

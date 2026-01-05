@@ -33,6 +33,79 @@ service cloud.firestore {
       return role() == 'management';
     }
 
+    function canWrite() {
+      return isAdmin() || isTech();
+    }
+
+    function isNullOrString(value) {
+      return value == null || (value is string);
+    }
+
+    function isNullOrShortString(value, maxLen) {
+      return value == null || (value is string && value.size() <= maxLen);
+    }
+
+    function isNullOrIntOrFloat(value) {
+      return value == null || (value is int) || (value is float);
+    }
+
+    function isValidAssetImagePath(assetId, value) {
+      return value is string
+        && value.matches('assets/' + assetId + '/photos/[^/]+');
+    }
+
+    function isValidInvoiceAttachmentPath(invoiceId, value) {
+      return value is string
+        && value.matches('invoices/' + invoiceId + '/attachments/[^/]+');
+    }
+
+    function isValidInvoiceContentType(value) {
+      return value is string
+        && (value.matches('application/pdf') || value.matches('image/.*'));
+    }
+
+    function assetAttachmentValid(assetId) {
+      let data = request.resource.data;
+
+      // imagePath: must be null or match `assets/{assetId}/photos/{file}`
+      let imagePathOk = !data.keys().hasAny(['imagePath'])
+        || data.imagePath == null
+        || isValidAssetImagePath(assetId, data.imagePath);
+
+      // imageUrl: allow null or any string (can be a downloadURL)
+      // We keep this intentionally permissive to avoid breaking existing URLs.
+      let imageUrlOk = !data.keys().hasAny(['imageUrl'])
+        || isNullOrShortString(data.imageUrl, 2048);
+
+      return imagePathOk && imageUrlOk;
+    }
+
+    function invoiceAttachmentValid(invoiceId) {
+      let data = request.resource.data;
+
+      let pdfPathOk = !data.keys().hasAny(['pdfPath'])
+        || data.pdfPath == null
+        || isValidInvoiceAttachmentPath(invoiceId, data.pdfPath);
+
+      let pdfUrlOk = !data.keys().hasAny(['pdfUrl'])
+        || isNullOrShortString(data.pdfUrl, 2048);
+
+      let pdfNameOk = !data.keys().hasAny(['pdfName'])
+        || isNullOrShortString(data.pdfName, 256);
+
+      let pdfContentTypeOk = !data.keys().hasAny(['pdfContentType'])
+        || data.pdfContentType == null
+        || isValidInvoiceContentType(data.pdfContentType);
+
+      let pdfSizeOk = !data.keys().hasAny(['pdfSize'])
+        || (
+          isNullOrIntOrFloat(data.pdfSize)
+          && (data.pdfSize == null || (data.pdfSize >= 0 && data.pdfSize <= 10 * 1024 * 1024))
+        );
+
+      return pdfPathOk && pdfUrlOk && pdfNameOk && pdfContentTypeOk && pdfSizeOk;
+    }
+
     // USERS (perfiles)
     match /users/{uid} {
       allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin());
@@ -55,15 +128,16 @@ service cloud.firestore {
     // SITES
     match /sites/{siteId} {
       allow read: if isSignedIn();
-      allow create: if isAdmin() || isTech();
-      allow update: if isAdmin() || isTech(); // incluye assetSeq
-      allow delete: if isAdmin();
+      allow create: if canWrite();
+      allow update: if canWrite(); // incluye assetSeq
+      allow delete: if isAdmin() || isTech();
     }
 
     // ASSETS
     match /assets/{assetId} {
       allow read: if isSignedIn();
-      allow create, update: if isAdmin() || isTech();
+      allow create: if canWrite() && assetAttachmentValid(assetId);
+      allow update: if canWrite() && assetAttachmentValid(assetId);
       allow delete: if isAdmin();
     }
 
@@ -84,7 +158,8 @@ service cloud.firestore {
     // INVOICES
     match /invoices/{invoiceId} {
       allow read: if isSignedIn();
-      allow create, update: if isAdmin() || isTech();
+      allow create: if canWrite() && invoiceAttachmentValid(invoiceId);
+      allow update: if canWrite() && invoiceAttachmentValid(invoiceId);
       allow delete: if isAdmin();
     }
   }

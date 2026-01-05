@@ -17,6 +17,7 @@ export interface Site {
   city: string;
   address: string;
   prefix: string; // Nuevo: Ejemplo MBOG, MMED, MCAL
+  assetSeq?: number; // Secuencia para generar fixedAssetId
 }
 
 export interface Assignment {

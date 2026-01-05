@@ -38,10 +38,13 @@ import PersonAddAltOutlinedIcon from '@mui/icons-material/PersonAddAltOutlined';
 import KeyboardReturnOutlinedIcon from '@mui/icons-material/KeyboardReturnOutlined';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
+import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import { addAsset, getAssets, getSites, updateAsset } from '../services/api';
 import type { Asset, AssetType, Assignment, Site, Status } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
+import { deleteStoragePath } from '../services/storageFiles';
 
 const statusLabel: Record<Status, string> = {
   bodega: 'Bodega',
@@ -81,6 +84,8 @@ const Assets = () => {
 
   const [returnOpen, setReturnOpen] = useState(false);
   const [returnAsset, setReturnAsset] = useState<Asset | null>(null);
+
+  const [deleteImageOpen, setDeleteImageOpen] = useState(false);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'warning' | 'error' }>({
     open: false,
@@ -139,6 +144,14 @@ const Assets = () => {
     });
   }, [assets, filterText, selectedSiteFilter]);
 
+  const nextFixedIdPreview = useMemo(() => {
+    if (!formData.siteId) return '';
+    const site = sites.find((s) => s.id === formData.siteId);
+    if (!site) return '';
+    const nextSeq = (site.assetSeq ?? 0) + 1;
+    return `${site.prefix}-${String(nextSeq).padStart(3, '0')}`;
+  }, [formData.siteId, sites]);
+
   const isComputer = formData.type === 'laptop' || formData.type === 'desktop';
   const isDesktop = formData.type === 'desktop';
 
@@ -183,6 +196,44 @@ const Assets = () => {
     setPreviewImage(URL.createObjectURL(file));
   };
 
+  const clearSelectedImage = () => {
+    if (previewImage?.startsWith('blob:')) {
+      URL.revokeObjectURL(previewImage);
+    }
+    setImageFile(null);
+    setImageUploadPct(0);
+    setPreviewImage(formData.imageUrl || null);
+  };
+
+  const handleDeleteImage = async () => {
+    if (!canWrite) return;
+    if (!editingId) {
+      clearSelectedImage();
+      setFormData((prev) => ({ ...prev, imageUrl: '', imagePath: '' }));
+      setDeleteImageOpen(false);
+      return;
+    }
+
+    try {
+      setSaving(true);
+      const path = String(formData.imagePath || '').trim();
+      if (path) {
+        await deleteStoragePath(path);
+      }
+      await updateAsset(editingId, { imageUrl: null, imagePath: null } as any);
+      setFormData((prev) => ({ ...prev, imageUrl: '', imagePath: '' }));
+      setPreviewImage(null);
+      setImageFile(null);
+      setSnackbar({ open: true, message: 'Imagen eliminada.', severity: 'success' });
+    } catch (error) {
+      console.error('Delete asset image error:', error);
+      setSnackbar({ open: true, message: 'No se pudo eliminar la imagen.', severity: 'error' });
+    } finally {
+      setSaving(false);
+      setDeleteImageOpen(false);
+    }
+  };
+
   const handleSaveAsset = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -216,6 +267,7 @@ const Assets = () => {
         const { id, fixedAssetId, createdAt, ...updatePayload } = dataToSave;
 
         if (imageFile) {
+          const prevPath = String(formData.imagePath || '').trim();
           const ts = Date.now();
           const result = await uploadFileToStorage(
             `assets/${editingId}/photos/${ts}-${imageFile.name}`,
@@ -224,6 +276,11 @@ const Assets = () => {
           );
           updatePayload.imageUrl = result.url;
           updatePayload.imagePath = result.path;
+
+          // Best-effort cleanup of previous image
+          if (prevPath && prevPath !== result.path) {
+            deleteStoragePath(prevPath).catch(() => undefined);
+          }
         }
 
         await updateAsset(editingId, updatePayload);
@@ -476,7 +533,7 @@ const Assets = () => {
       <Dialog open={editorOpen} onClose={closeEditor} fullWidth maxWidth="lg">
         <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar activo' : 'Registrar nuevo activo'}</DialogTitle>
         <DialogContent>
-          <Box component="form" onSubmit={handleSaveAsset} sx={{ mt: 1, pointerEvents: canWrite ? 'auto' : 'none' }}>
+          <Box component="form" onSubmit={handleSaveAsset} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar activos.
@@ -509,7 +566,7 @@ const Assets = () => {
 
                 {!editingId && formData.siteId && (
                   <Alert severity="info" sx={{ mb: 2 }}>
-                    Se generará código: <strong>{sites.find((s) => s.id === formData.siteId)?.prefix}-XXX</strong>
+                    Se generará código: <strong>{nextFixedIdPreview || '—'}</strong>
                   </Alert>
                 )}
 
@@ -689,10 +746,40 @@ const Assets = () => {
                     src={previewImage || undefined}
                     sx={{ width: 96, height: 96, borderRadius: 3, bgcolor: 'rgba(0,0,0,0.06)' }}
                   />
-                  <Button component="label" variant="outlined" startIcon={<PhotoCameraOutlinedIcon />}>
-                    Cargar foto
-                    <input hidden type="file" accept="image/*" onChange={(e) => handleImageChange(e.target.files?.[0])} />
-                  </Button>
+                  <Stack spacing={1} direction={{ xs: 'column', sm: 'row' }} alignItems={{ sm: 'center' }}>
+                    <Button
+                      component="label"
+                      variant="outlined"
+                      startIcon={<PhotoCameraOutlinedIcon />}
+                      disabled={!canWrite || saving}
+                    >
+                      {formData.imageUrl || imageFile ? 'Reemplazar foto' : 'Cargar foto'}
+                      <input hidden type="file" accept="image/*" onChange={(e) => handleImageChange(e.target.files?.[0])} />
+                    </Button>
+                    {(formData.imageUrl || previewImage) && (
+                      <Button
+                        variant="text"
+                        startIcon={<OpenInNewOutlinedIcon />}
+                        onClick={() => {
+                          const url = previewImage || formData.imageUrl;
+                          if (url) window.open(url, '_blank', 'noopener,noreferrer');
+                        }}
+                      >
+                        Ver
+                      </Button>
+                    )}
+                    {(formData.imageUrl || imageFile) && (
+                      <Button
+                        variant="text"
+                        color="error"
+                        startIcon={<DeleteOutlineOutlinedIcon />}
+                        disabled={!canWrite || saving}
+                        onClick={() => setDeleteImageOpen(true)}
+                      >
+                        Eliminar
+                      </Button>
+                    )}
+                  </Stack>
                 </Stack>
 
                 <TextField
@@ -710,7 +797,7 @@ const Assets = () => {
             <Divider sx={{ my: 2 }} />
             <DialogActions sx={{ px: 0 }}>
               <Button onClick={closeEditor}>Cancelar</Button>
-              <Button type="submit" variant="contained" startIcon={<SaveOutlinedIcon />} disabled={saving}>
+              <Button type="submit" variant="contained" startIcon={<SaveOutlinedIcon />} disabled={saving || !canWrite}>
                 {editingId ? 'Actualizar' : 'Guardar'}
               </Button>
             </DialogActions>
@@ -777,6 +864,21 @@ const Assets = () => {
           <Button onClick={() => setReturnOpen(false)}>Cancelar</Button>
           <Button variant="contained" color="warning" onClick={handleReturn} startIcon={<KeyboardReturnOutlinedIcon />}>
             Retornar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteImageOpen} onClose={() => setDeleteImageOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 900 }}>Eliminar foto</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            ¿Confirmas eliminar la foto del activo?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteImageOpen(false)}>Cancelar</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteImage} disabled={!canWrite || saving}>
+            Eliminar
           </Button>
         </DialogActions>
       </Dialog>

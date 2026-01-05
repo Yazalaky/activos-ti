@@ -39,10 +39,13 @@ import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
 import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
+import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import { addInvoice, addSupplier, getInvoices, getSites, getSuppliers, updateInvoice } from '../services/api';
 import type { Invoice, Site, Supplier } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
+import { deleteStoragePath } from '../services/storageFiles';
 
 type TabKey = 'invoices' | 'suppliers' | 'reports';
 
@@ -65,6 +68,7 @@ const Finance = () => {
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [invoiceUploadPct, setInvoiceUploadPct] = useState<number>(0);
   const [savingInvoice, setSavingInvoice] = useState(false);
+  const [deleteAttachmentOpen, setDeleteAttachmentOpen] = useState(false);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' | 'warning' }>({
     open: false,
@@ -138,12 +142,18 @@ const Finance = () => {
     setEditingInvoiceId(null);
     setInvoiceForm(initialInvoiceState);
     setShowInvoiceDialog(true);
+    setInvoiceFile(null);
+    setInvoiceUploadPct(0);
+    setDeleteAttachmentOpen(false);
   };
 
   const openEditInvoice = (inv: Invoice) => {
     setInvoiceForm(inv);
     setEditingInvoiceId(inv.id);
     setShowInvoiceDialog(true);
+    setInvoiceFile(null);
+    setInvoiceUploadPct(0);
+    setDeleteAttachmentOpen(false);
   };
 
   const closeInvoiceDialog = () => {
@@ -153,6 +163,58 @@ const Finance = () => {
     setInvoiceFile(null);
     setInvoiceUploadPct(0);
     setSavingInvoice(false);
+    setDeleteAttachmentOpen(false);
+  };
+
+  const clearSelectedInvoiceFile = () => {
+    setInvoiceFile(null);
+    setInvoiceUploadPct(0);
+  };
+
+  const handleDeleteInvoiceAttachment = async () => {
+    if (!canWrite) return;
+    if (!editingInvoiceId) {
+      setInvoiceForm((prev) => ({
+        ...prev,
+        pdfUrl: undefined,
+        pdfPath: undefined,
+        pdfName: undefined,
+        pdfContentType: undefined,
+        pdfSize: undefined,
+      }));
+      clearSelectedInvoiceFile();
+      setDeleteAttachmentOpen(false);
+      return;
+    }
+
+    try {
+      setSavingInvoice(true);
+      const path = String(invoiceForm.pdfPath || '').trim();
+      if (path) await deleteStoragePath(path);
+      await updateInvoice(editingInvoiceId, {
+        pdfUrl: null,
+        pdfPath: null,
+        pdfName: null,
+        pdfContentType: null,
+        pdfSize: null,
+      } as any);
+      setInvoiceForm((prev) => ({
+        ...prev,
+        pdfUrl: undefined,
+        pdfPath: undefined,
+        pdfName: undefined,
+        pdfContentType: undefined,
+        pdfSize: undefined,
+      }));
+      clearSelectedInvoiceFile();
+      setSnackbar({ open: true, message: 'Adjunto eliminado.', severity: 'success' });
+    } catch (error) {
+      console.error('Delete invoice attachment error:', error);
+      setSnackbar({ open: true, message: 'No se pudo eliminar el adjunto.', severity: 'error' });
+    } finally {
+      setSavingInvoice(false);
+      setDeleteAttachmentOpen(false);
+    }
   };
 
   const handleSaveSupplier = async (e: React.FormEvent) => {
@@ -182,6 +244,7 @@ const Finance = () => {
         const { id, createdAt, ...toUpdate } = invoiceForm as any;
 
         if (invoiceFile) {
+          const prevPath = String(invoiceForm.pdfPath || '').trim();
           const ts = Date.now();
           const result = await uploadFileToStorage(
             `invoices/${editingInvoiceId}/attachments/${ts}-${invoiceFile.name}`,
@@ -193,6 +256,10 @@ const Finance = () => {
           toUpdate.pdfName = result.name;
           toUpdate.pdfContentType = result.contentType;
           toUpdate.pdfSize = result.size;
+
+          if (prevPath && prevPath !== result.path) {
+            deleteStoragePath(prevPath).catch(() => undefined);
+          }
         }
 
         await updateInvoice(editingInvoiceId, toUpdate);
@@ -396,7 +463,7 @@ const Finance = () => {
                             icon={statusInfo.icon}
                             label={statusInfo.label}
                             color={statusInfo.color}
-                            onClick={() => toggleInvoiceStatus(inv)}
+                            onClick={canWrite ? () => toggleInvoiceStatus(inv) : undefined}
                             sx={{ fontWeight: 800 }}
                           />
                         </TableCell>
@@ -623,7 +690,7 @@ const Finance = () => {
       <Dialog open={showSupplierDialog} onClose={() => setShowSupplierDialog(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>Nuevo proveedor</DialogTitle>
         <DialogContent>
-          <Box component="form" onSubmit={handleSaveSupplier} sx={{ mt: 1, pointerEvents: canWrite ? 'auto' : 'none' }}>
+          <Box component="form" onSubmit={handleSaveSupplier} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Modo solo lectura (Gerencia/Auditoría). No puedes crear proveedores.
@@ -685,7 +752,7 @@ const Finance = () => {
           {editingInvoiceId ? 'Editar factura' : 'Nueva factura'}
         </DialogTitle>
         <DialogContent>
-          <Box component="form" onSubmit={handleSaveInvoice} sx={{ mt: 1, pointerEvents: canWrite ? 'auto' : 'none' }}>
+          <Box component="form" onSubmit={handleSaveInvoice} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar facturas.
@@ -809,7 +876,7 @@ const Finance = () => {
                   sx={{ height: 56 }}
                   disabled={savingInvoice}
                 >
-                  Cargar factura (PDF/imagen)
+                  {invoiceForm.pdfUrl || invoiceFile ? 'Reemplazar adjunto' : 'Cargar factura (PDF/imagen)'}
                   <input
                     hidden
                     type="file"
@@ -838,6 +905,33 @@ const Finance = () => {
 
             <Divider sx={{ my: 2 }} />
             <DialogActions sx={{ px: 0 }}>
+              {invoiceForm.pdfUrl && (
+                <Button
+                  startIcon={<OpenInNewOutlinedIcon />}
+                  onClick={() => window.open(String(invoiceForm.pdfUrl), '_blank', 'noopener,noreferrer')}
+                >
+                  Ver adjunto
+                </Button>
+              )}
+              {invoiceFile && (
+                <Button
+                  startIcon={<ClearOutlinedIcon />}
+                  disabled={savingInvoice}
+                  onClick={clearSelectedInvoiceFile}
+                >
+                  Quitar selección
+                </Button>
+              )}
+              {invoiceForm.pdfUrl && (
+                <Button
+                  color="error"
+                  startIcon={<DeleteOutlineOutlinedIcon />}
+                  disabled={!canWrite || savingInvoice}
+                  onClick={() => setDeleteAttachmentOpen(true)}
+                >
+                  Eliminar adjunto
+                </Button>
+              )}
               <Button onClick={closeInvoiceDialog}>Cancelar</Button>
               <Button type="submit" variant="contained" disabled={savingInvoice || !canWrite}>
                 {editingInvoiceId ? 'Actualizar' : 'Guardar'}
@@ -845,6 +939,21 @@ const Finance = () => {
             </DialogActions>
           </Box>
         </DialogContent>
+      </Dialog>
+
+      <Dialog open={deleteAttachmentOpen} onClose={() => setDeleteAttachmentOpen(false)} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 900 }}>Eliminar adjunto</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            ¿Confirmas eliminar el adjunto de esta factura?
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setDeleteAttachmentOpen(false)}>Cancelar</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteInvoiceAttachment} disabled={!canWrite || savingInvoice}>
+            Eliminar
+          </Button>
+        </DialogActions>
       </Dialog>
 
       <Snackbar

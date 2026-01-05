@@ -33,12 +33,14 @@ service firebase.storage {
 
     match /assets/{assetId}/photos/{fileName} {
       allow read: if isSignedIn();
-      allow write: if canWrite() && isImage() && underLimit(5 * 1024 * 1024);
+      allow create, update: if canWrite() && isImage() && underLimit(5 * 1024 * 1024);
+      allow delete: if canWrite();
     }
 
     match /invoices/{invoiceId}/attachments/{fileName} {
       allow read: if isSignedIn();
-      allow write: if canWrite() && isPdfOrImage() && underLimit(10 * 1024 * 1024);
+      allow create, update: if canWrite() && isPdfOrImage() && underLimit(10 * 1024 * 1024);
+      allow delete: if canWrite();
     }
 
     // Deny all other paths by default

@@ -1,5 +1,5 @@
 import { collection, getDocs, updateDoc, doc } from 'firebase/firestore';
-import { db } from '../firebase';
+import { db } from '../firebaseDb';
 import type { Role, UserProfile } from '../types';
 
 export const listUsers = async (): Promise<UserProfile[]> => {
@@ -10,4 +10,3 @@ export const listUsers = async (): Promise<UserProfile[]> => {
 export const updateUserRole = async (uid: string, role: Role) => {
   await updateDoc(doc(db, 'users', uid), { role });
 };
-
