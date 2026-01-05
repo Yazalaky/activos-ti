@@ -22,9 +22,9 @@ export interface Site {
 
 export interface Assignment {
   assignedToName: string;
-  assignedToDoc: string; // Cédula
   assignedToPosition: string;
   assignedAt: number; // Timestamp
+  assignedToDoc?: string; // Opcional (legacy)
 }
 
 export interface Asset {

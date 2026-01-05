@@ -122,7 +122,8 @@ const Assets = () => {
   const [imageUploadPct, setImageUploadPct] = useState<number>(0);
   const [saving, setSaving] = useState(false);
 
-  const [assignmentData, setAssignmentData] = useState({ name: '', doc: '', position: '' });
+  const [assignmentData, setAssignmentData] = useState({ name: '', position: '' });
+  const [inlineAssignment, setInlineAssignment] = useState({ name: '', position: '' });
 
   const loadData = async () => {
     const [a, s] = await Promise.all([getAssets(), getSites()]);
@@ -164,6 +165,7 @@ const Assets = () => {
     setEditingId(null);
     setEditorMode('create');
     setFormData(initialFormState);
+    setInlineAssignment({ name: '', position: '' });
     setPreviewImage(null);
     setImageFile(null);
     setImageUploadPct(0);
@@ -174,6 +176,10 @@ const Assets = () => {
     setEditingId(asset.id);
     setEditorMode('edit');
     setFormData(asset);
+    setInlineAssignment({
+      name: asset.currentAssignment?.assignedToName ?? '',
+      position: asset.currentAssignment?.assignedToPosition ?? '',
+    });
     setPreviewImage(asset.imageUrl || null);
     setImageFile(null);
     setImageUploadPct(0);
@@ -184,6 +190,10 @@ const Assets = () => {
     setEditingId(asset.id);
     setEditorMode('view');
     setFormData(asset);
+    setInlineAssignment({
+      name: asset.currentAssignment?.assignedToName ?? '',
+      position: asset.currentAssignment?.assignedToPosition ?? '',
+    });
     setPreviewImage(asset.imageUrl || null);
     setImageFile(null);
     setImageUploadPct(0);
@@ -198,6 +208,7 @@ const Assets = () => {
     setEditingId(null);
     setEditorMode('create');
     setFormData(initialFormState);
+    setInlineAssignment({ name: '', position: '' });
     setPreviewImage(null);
     setImageFile(null);
     setImageUploadPct(0);
@@ -264,6 +275,12 @@ const Assets = () => {
       setSnackbar({ open: true, message: 'Complete marca, modelo y serial.', severity: 'warning' });
       return;
     }
+    if (formData.status === 'asignado') {
+      if (!inlineAssignment.name.trim() || !inlineAssignment.position.trim()) {
+        setSnackbar({ open: true, message: 'Para estado Asignado, complete Nombre completo y Cargo.', severity: 'warning' });
+        return;
+      }
+    }
 
     const dataToSave: any = { ...formData };
 
@@ -277,6 +294,17 @@ const Assets = () => {
       delete dataToSave.ram;
       delete dataToSave.storage;
       delete dataToSave.os;
+    }
+
+    if (dataToSave.status === 'asignado') {
+      const existingAssignedAt = dataToSave.currentAssignment?.assignedAt;
+      dataToSave.currentAssignment = {
+        assignedToName: inlineAssignment.name.trim(),
+        assignedToPosition: inlineAssignment.position.trim(),
+        assignedAt: typeof existingAssignedAt === 'number' ? existingAssignedAt : Date.now(),
+      };
+    } else {
+      dataToSave.currentAssignment = null;
     }
 
     try {
@@ -332,7 +360,7 @@ const Assets = () => {
 
   const openAssign = (asset: Asset) => {
     setAssignAsset(asset);
-    setAssignmentData({ name: '', doc: '', position: '' });
+    setAssignmentData({ name: '', position: '' });
     setAssignOpen(true);
   };
 
@@ -340,14 +368,13 @@ const Assets = () => {
     e.preventDefault();
     if (!assignAsset) return;
 
-    if (!assignmentData.name || !assignmentData.doc || !assignmentData.position) {
-      setSnackbar({ open: true, message: 'Complete nombre, documento y cargo.', severity: 'warning' });
+    if (!assignmentData.name || !assignmentData.position) {
+      setSnackbar({ open: true, message: 'Complete nombre completo y cargo.', severity: 'warning' });
       return;
     }
 
     const newAssignment: Assignment = {
       assignedToName: assignmentData.name,
-      assignedToDoc: assignmentData.doc,
       assignedToPosition: assignmentData.position,
       assignedAt: Date.now(),
     };
@@ -634,7 +661,17 @@ const Assets = () => {
                     labelId="asset-status-label"
                     label="Estado"
                     value={formData.status || 'bodega'}
-                    onChange={(e) => setFormData({ ...formData, status: e.target.value as Status })}
+                    onChange={(e) => {
+                      const nextStatus = e.target.value as Status;
+                      setFormData((prev) => ({
+                        ...prev,
+                        status: nextStatus,
+                        ...(nextStatus !== 'asignado' ? { currentAssignment: null } : {}),
+                      }));
+                      if (nextStatus !== 'asignado') {
+                        setInlineAssignment({ name: '', position: '' });
+                      }
+                    }}
                     disabled={readOnly}
                   >
                     <MenuItem value="bodega">Bodega</MenuItem>
@@ -643,6 +680,40 @@ const Assets = () => {
                     <MenuItem value="baja">De baja</MenuItem>
                   </Select>
                 </FormControl>
+
+                {formData.status === 'asignado' && (
+                  <Box
+                    sx={{
+                      mb: 2,
+                      p: 2,
+                      borderRadius: 4,
+                      bgcolor: 'rgba(0,0,0,0.02)',
+                      border: '1px solid rgba(0,0,0,0.06)',
+                    }}
+                  >
+                    <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>
+                      Asignación
+                    </Typography>
+                    <Stack spacing={2}>
+                      <TextField
+                        label="Nombre completo"
+                        value={inlineAssignment.name}
+                        onChange={(e) => setInlineAssignment((prev) => ({ ...prev, name: e.target.value }))}
+                        required
+                        fullWidth
+                        disabled={readOnly}
+                      />
+                      <TextField
+                        label="Cargo"
+                        value={inlineAssignment.position}
+                        onChange={(e) => setInlineAssignment((prev) => ({ ...prev, position: e.target.value }))}
+                        required
+                        fullWidth
+                        disabled={readOnly}
+                      />
+                    </Stack>
+                  </Box>
+                )}
 
                 <TextField
                   label="Marca"
@@ -867,30 +938,23 @@ const Assets = () => {
               {assignAsset.brand} {assignAsset.model} ({assignAsset.fixedAssetId})
             </Alert>
           )}
-          <Box component="form" onSubmit={handleAssignment}>
-            <Stack spacing={2} sx={{ mt: 1 }}>
-              <TextField
-                label="Nombre funcionario"
-                value={assignmentData.name}
-                onChange={(e) => setAssignmentData({ ...assignmentData, name: e.target.value })}
-                required
-                fullWidth
-              />
-              <TextField
-                label="Documento (CC)"
-                value={assignmentData.doc}
-                onChange={(e) => setAssignmentData({ ...assignmentData, doc: e.target.value })}
-                required
-                fullWidth
-              />
-              <TextField
-                label="Cargo"
-                value={assignmentData.position}
-                onChange={(e) => setAssignmentData({ ...assignmentData, position: e.target.value })}
-                required
-                fullWidth
-              />
-            </Stack>
+	          <Box component="form" onSubmit={handleAssignment}>
+	            <Stack spacing={2} sx={{ mt: 1 }}>
+	              <TextField
+	                label="Nombre completo"
+	                value={assignmentData.name}
+	                onChange={(e) => setAssignmentData({ ...assignmentData, name: e.target.value })}
+	                required
+	                fullWidth
+	              />
+	              <TextField
+	                label="Cargo"
+	                value={assignmentData.position}
+	                onChange={(e) => setAssignmentData({ ...assignmentData, position: e.target.value })}
+	                required
+	                fullWidth
+	              />
+	            </Stack>
 
             <DialogActions sx={{ px: 0, mt: 2 }}>
               <Button onClick={() => setAssignOpen(false)}>Cancelar</Button>
