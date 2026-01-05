@@ -241,16 +241,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <Box sx={{ flex: 1 }} />
 
-          <Box sx={{ textAlign: 'right', display: { xs: 'none', sm: 'block' } }}>
-            <Typography variant="body2" color="text.secondary">
-              Usuario: {profile?.name || userEmail}
-            </Typography>
-            {role && (
-              <Typography variant="caption" color="text.secondary">
-                Rol: {roleLabel[role]}
-              </Typography>
-            )}
-          </Box>
           <Tooltip title={userEmail || 'Usuario'}>
             <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>{userInitial}</Avatar>
           </Tooltip>
