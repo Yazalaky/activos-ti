@@ -105,3 +105,31 @@ export interface Invoice {
   pdfSize?: number;
   createdAt: number;
 }
+
+export type ActStatus = 'draft' | 'issued' | 'signed' | 'void';
+
+export interface Act {
+  id: string;
+  assetId: string;
+  siteId: string;
+  companyId: string;
+  templateId: string; // Por ahora igual a companyId
+  fixedAssetIdSnapshot: string;
+  assetSnapshot: Pick<Asset, 'type' | 'brand' | 'model' | 'serial' | 'processor' | 'ram' | 'storage' | 'os'>;
+  recipient: {
+    fullName: string;
+    position: string;
+    email?: string;
+  };
+  observations?: string;
+  status: ActStatus;
+  pdfUrl?: string;
+  pdfPath?: string;
+  pdfName?: string;
+  pdfContentType?: string;
+  pdfSize?: number;
+  createdAt: number;
+  createdByUid?: string;
+  issuedAt?: number;
+  signedAt?: number;
+}

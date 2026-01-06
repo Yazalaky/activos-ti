@@ -59,6 +59,11 @@ service cloud.firestore {
         && value.matches('invoices/' + invoiceId + '/attachments/[^/]+');
     }
 
+    function isValidActPdfPath(actId, value) {
+      return value is string
+        && value.matches('acts/' + actId + '/pdf/[^/]+');
+    }
+
     function isValidInvoiceContentType(value) {
       return value is string
         && (value.matches('application/pdf') || value.matches('image/.*'));
@@ -96,6 +101,32 @@ service cloud.firestore {
       let pdfContentTypeOk = !data.keys().hasAny(['pdfContentType'])
         || data.pdfContentType == null
         || isValidInvoiceContentType(data.pdfContentType);
+
+      let pdfSizeOk = !data.keys().hasAny(['pdfSize'])
+        || (
+          isNullOrIntOrFloat(data.pdfSize)
+          && (data.pdfSize == null || (data.pdfSize >= 0 && data.pdfSize <= 10 * 1024 * 1024))
+        );
+
+      return pdfPathOk && pdfUrlOk && pdfNameOk && pdfContentTypeOk && pdfSizeOk;
+    }
+
+    function actAttachmentValid(actId) {
+      let data = request.resource.data;
+
+      let pdfPathOk = !data.keys().hasAny(['pdfPath'])
+        || data.pdfPath == null
+        || isValidActPdfPath(actId, data.pdfPath);
+
+      let pdfUrlOk = !data.keys().hasAny(['pdfUrl'])
+        || isNullOrShortString(data.pdfUrl, 2048);
+
+      let pdfNameOk = !data.keys().hasAny(['pdfName'])
+        || isNullOrShortString(data.pdfName, 256);
+
+      let pdfContentTypeOk = !data.keys().hasAny(['pdfContentType'])
+        || data.pdfContentType == null
+        || (data.pdfContentType is string && data.pdfContentType.matches('application/pdf'));
 
       let pdfSizeOk = !data.keys().hasAny(['pdfSize'])
         || (
@@ -160,6 +191,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && invoiceAttachmentValid(invoiceId);
       allow update: if canWrite() && invoiceAttachmentValid(invoiceId);
+      allow delete: if isAdmin();
+    }
+
+    // ACTS (Actas de entrega)
+    match /acts/{actId} {
+      allow read: if isSignedIn();
+      allow create: if canWrite() && actAttachmentValid(actId);
+      allow update: if canWrite() && actAttachmentValid(actId);
       allow delete: if isAdmin();
     }
   }

@@ -11,7 +11,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from '../firebaseDb';
-import type { Activity, Asset, Invoice, Site, Supplier } from '../types';
+import type { Act, Activity, Asset, Invoice, Site, Supplier } from '../types';
 
 const fetchCollection = async <T>(collectionName: string): Promise<T[]> => {
   try {
@@ -127,3 +127,19 @@ export const addInvoice = async (data: Omit<Invoice, 'id'>) => {
 
 export const updateInvoice = (id: string, data: Partial<Invoice>) =>
   updateDoc(doc(db, 'invoices', id), data);
+
+// ACTS (Actas)
+export const getActs = async () => {
+  try {
+    const q = query(collection(db, 'acts'), orderBy('createdAt', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Act));
+  } catch (error) {
+    console.error('Error fetching acts:', error);
+    return [];
+  }
+};
+
+export const addAct = (data: Omit<Act, 'id'>) => addDoc(collection(db, 'acts'), data);
+export const updateAct = (id: string, data: Partial<Act>) => updateDoc(doc(db, 'acts', id), data);
+export const deleteAct = (id: string) => deleteDoc(doc(db, 'acts', id));

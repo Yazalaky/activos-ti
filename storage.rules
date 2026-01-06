@@ -27,6 +27,10 @@ service firebase.storage {
       return request.resource.contentType.matches('application/pdf') || isImage();
     }
 
+    function isPdf() {
+      return request.resource.contentType.matches('application/pdf');
+    }
+
     function underLimit(maxBytes) {
       return request.resource.size < maxBytes;
     }
@@ -40,6 +44,12 @@ service firebase.storage {
     match /invoices/{invoiceId}/attachments/{fileName} {
       allow read: if isSignedIn();
       allow create, update: if canWrite() && isPdfOrImage() && underLimit(10 * 1024 * 1024);
+      allow delete: if canWrite();
+    }
+
+    match /acts/{actId}/pdf/{fileName} {
+      allow read: if isSignedIn();
+      allow create, update: if canWrite() && isPdf() && underLimit(10 * 1024 * 1024);
       allow delete: if canWrite();
     }
 

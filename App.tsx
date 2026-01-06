@@ -8,6 +8,7 @@ const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Assets = lazy(() => import('./pages/Assets'));
 const Activities = lazy(() => import('./pages/Activities'));
+const Acts = lazy(() => import('./pages/Acts'));
 const Finance = lazy(() => import('./pages/Finance'));
 const Sites = lazy(() => import('./pages/Sites'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers'));
@@ -99,6 +100,17 @@ function App() {
             <RequireAuth>
               <AppLayout>
                 <Activities />
+              </AppLayout>
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/acts"
+          element={
+            <RequireAuth>
+              <AppLayout>
+                <Acts />
               </AppLayout>
             </RequireAuth>
           }

@@ -22,6 +22,7 @@ import MenuIcon from '@mui/icons-material/Menu';
 import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
+import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import LocationCityOutlinedIcon from '@mui/icons-material/LocationCityOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
@@ -47,6 +48,7 @@ const routeMeta: Record<string, { title: string; subtitle: string }> = {
   '/': { title: 'Dashboard', subtitle: 'KPIs y actividad reciente' },
   '/assets': { title: 'Inventario', subtitle: 'Gestión de activos' },
   '/activities': { title: 'Bitácora', subtitle: 'Registro de actividades' },
+  '/acts': { title: 'Actas', subtitle: 'Actas de entrega por activo' },
   '/sites': { title: 'Sedes', subtitle: 'Administración y prefijos' },
   '/finance': { title: 'Finanzas', subtitle: 'Facturas, proveedores y costos' },
   '/admin/users': { title: 'Usuarios', subtitle: 'Gestión de accesos y roles' },
@@ -75,6 +77,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         { path: '/', label: 'Dashboard', icon: <DashboardOutlinedIcon /> },
         { path: '/assets', label: 'Inventario', icon: <Inventory2OutlinedIcon /> },
         { path: '/activities', label: 'Bitácora', icon: <ListAltOutlinedIcon /> },
+        { path: '/acts', label: 'Actas', icon: <AssignmentOutlinedIcon /> },
       ],
     },
     {
