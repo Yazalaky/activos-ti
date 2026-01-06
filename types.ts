@@ -58,6 +58,9 @@ export interface Asset {
   notes?: string;
 
   currentAssignment?: Assignment | null;
+  previousFixedAssetIds?: string[]; // Historial cuando se cambia de sede/código
+  movedAt?: number; // Timestamp del último cambio de sede
+  movedFromSiteId?: string | null;
   createdAt: number;
 }
 

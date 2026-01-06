@@ -57,6 +57,49 @@ export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>) => {
 export const updateAsset = (id: string, data: Partial<Asset>) =>
   updateDoc(doc(db, 'assets', id), data);
 
+export const moveAssetToSite = async (assetId: string, newSiteId: string) => {
+  const assetRef = doc(db, 'assets', assetId);
+  const siteRef = doc(db, 'sites', newSiteId);
+
+  return runTransaction(db, async (tx) => {
+    const assetSnap = await tx.get(assetRef);
+    if (!assetSnap.exists()) {
+      throw new Error('Activo no encontrado.');
+    }
+    const asset = assetSnap.data() as Partial<Asset>;
+    const currentSiteId = String(asset.siteId || '');
+    if (!newSiteId || newSiteId === currentSiteId) {
+      return { changed: false, fixedAssetId: String(asset.fixedAssetId || ''), siteId: currentSiteId };
+    }
+
+    const siteSnap = await tx.get(siteRef);
+    if (!siteSnap.exists()) {
+      throw new Error('Sede no encontrada.');
+    }
+    const site = siteSnap.data() as Partial<Site> & { assetSeq?: number };
+    const prefix = String(site.prefix || 'GEN');
+    const nextSeq = (site.assetSeq ?? 0) + 1;
+    tx.update(siteRef, { assetSeq: nextSeq });
+
+    const newFixedAssetId = `${prefix}-${String(nextSeq).padStart(3, '0')}`;
+    const prevFixedAssetId = String(asset.fixedAssetId || '').trim();
+    const prevList = Array.isArray((asset as any).previousFixedAssetIds) ? ((asset as any).previousFixedAssetIds as string[]) : [];
+    const nextPrevList = prevFixedAssetId
+      ? [...prevList.filter((x) => x !== prevFixedAssetId), prevFixedAssetId].slice(-10)
+      : prevList;
+
+    tx.update(assetRef, {
+      siteId: newSiteId,
+      fixedAssetId: newFixedAssetId,
+      previousFixedAssetIds: nextPrevList,
+      movedAt: Date.now(),
+      movedFromSiteId: currentSiteId || null,
+    } as any);
+
+    return { changed: true, fixedAssetId: newFixedAssetId, siteId: newSiteId };
+  });
+};
+
 // ACTIVITIES
 export const getActivities = async () => {
   try {

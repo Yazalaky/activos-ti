@@ -42,7 +42,7 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import { addAsset, getAssets, getSites, updateAsset } from '../services/api';
+import { addAsset, getAssets, getSites, moveAssetToSite, updateAsset } from '../services/api';
 import type { Asset, AssetType, Assignment, Site, Status } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
@@ -81,6 +81,9 @@ const Assets = () => {
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editorMode, setEditorMode] = useState<'create' | 'edit' | 'view'>('create');
+  const [moveSiteOpen, setMoveSiteOpen] = useState(false);
+  const [moveSiteId, setMoveSiteId] = useState('');
+  const [movingSite, setMovingSite] = useState(false);
 
   const [assignOpen, setAssignOpen] = useState(false);
   const [assignAsset, setAssignAsset] = useState<Asset | null>(null);
@@ -180,6 +183,7 @@ const Assets = () => {
       name: asset.currentAssignment?.assignedToName ?? '',
       position: asset.currentAssignment?.assignedToPosition ?? '',
     });
+    setMoveSiteId(asset.siteId);
     setPreviewImage(asset.imageUrl || null);
     setImageFile(null);
     setImageUploadPct(0);
@@ -194,6 +198,7 @@ const Assets = () => {
       name: asset.currentAssignment?.assignedToName ?? '',
       position: asset.currentAssignment?.assignedToPosition ?? '',
     });
+    setMoveSiteId(asset.siteId);
     setPreviewImage(asset.imageUrl || null);
     setImageFile(null);
     setImageUploadPct(0);
@@ -209,10 +214,52 @@ const Assets = () => {
     setEditorMode('create');
     setFormData(initialFormState);
     setInlineAssignment({ name: '', position: '' });
+    setMoveSiteOpen(false);
+    setMoveSiteId('');
+    setMovingSite(false);
     setPreviewImage(null);
     setImageFile(null);
     setImageUploadPct(0);
     setSaving(false);
+  };
+
+  const openMoveSite = () => {
+    if (!editingId) return;
+    setMoveSiteId(String(formData.siteId || ''));
+    setMoveSiteOpen(true);
+  };
+
+  const handleConfirmMoveSite = async () => {
+    if (!editingId) return;
+    const nextSiteId = String(moveSiteId || '').trim();
+    if (!nextSiteId) {
+      setSnackbar({ open: true, message: 'Seleccione una sede.', severity: 'warning' });
+      return;
+    }
+    if (nextSiteId === String(formData.siteId || '')) {
+      setMoveSiteOpen(false);
+      return;
+    }
+
+    try {
+      setMovingSite(true);
+      const result = await moveAssetToSite(editingId, nextSiteId);
+      if (result.changed) {
+        setFormData((prev) => ({
+          ...prev,
+          siteId: result.siteId,
+          fixedAssetId: result.fixedAssetId,
+        }));
+        setSnackbar({ open: true, message: `Sede actualizada. Nuevo código: ${result.fixedAssetId}`, severity: 'success' });
+        loadData();
+      }
+      setMoveSiteOpen(false);
+    } catch (error) {
+      console.error('Move site error:', error);
+      setSnackbar({ open: true, message: 'No se pudo cambiar la sede del activo.', severity: 'error' });
+    } finally {
+      setMovingSite(false);
+    }
   };
 
   const handleImageChange = (file?: File) => {
@@ -628,6 +675,12 @@ const Assets = () => {
                   </Select>
                 </FormControl>
 
+                {editingId && !readOnly && (
+                  <Button variant="text" size="small" onClick={openMoveSite} sx={{ mb: 2, alignSelf: 'flex-start' }}>
+                    Cambiar sede…
+                  </Button>
+                )}
+
                 {!editingId && formData.siteId && (
                   <Alert severity="info" sx={{ mb: 2 }}>
                     Se generará código: <strong>{nextFixedIdPreview || '—'}</strong>
@@ -997,6 +1050,42 @@ const Assets = () => {
           <Button onClick={() => setDeleteImageOpen(false)}>Cancelar</Button>
           <Button variant="contained" color="error" onClick={handleDeleteImage} disabled={!canWrite || saving}>
             Eliminar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={moveSiteOpen} onClose={() => setMoveSiteOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Cambiar sede</DialogTitle>
+        <DialogContent>
+          <Alert severity="warning" sx={{ mb: 2 }}>
+            Cambiar la sede genera un nuevo consecutivo (código de activo fijo) para la sede destino. El código anterior se conserva como historial.
+          </Alert>
+          <FormControl fullWidth>
+            <InputLabel id="move-site-label">Nueva sede</InputLabel>
+            <Select
+              labelId="move-site-label"
+              label="Nueva sede"
+              value={moveSiteId}
+              onChange={(e) => setMoveSiteId(String(e.target.value))}
+              disabled={movingSite}
+            >
+              {sites.map((s) => (
+                <MenuItem key={s.id} value={s.id}>
+                  {s.name} ({s.prefix})
+                </MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+          <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1.5 }}>
+            Actual: {String(formData.siteId || '—')} · Código: {String((formData as any).fixedAssetId || '—')}
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setMoveSiteOpen(false)} disabled={movingSite}>
+            Cancelar
+          </Button>
+          <Button variant="contained" onClick={handleConfirmMoveSite} disabled={movingSite}>
+            Confirmar
           </Button>
         </DialogActions>
       </Dialog>
