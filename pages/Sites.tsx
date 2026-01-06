@@ -13,6 +13,10 @@ import {
   Divider,
   IconButton,
   InputAdornment,
+  FormControl,
+  InputLabel,
+  MenuItem,
+  Select,
   Snackbar,
   Stack,
   Table,
@@ -30,6 +34,18 @@ import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { addSite, deleteSite, getSites, updateSite } from '../services/api';
 import type { Site } from '../types';
+
+const COMPANY_OPTIONS = [
+  { id: 'medicuc', label: 'Medicuc' },
+  { id: 'redinsalud', label: 'Redinsalud' },
+  { id: 'saludfamilia', label: 'Salud Familia' },
+  { id: 'gestionbienestar', label: 'Gestionar Bienestar' },
+] as const;
+
+const companyLabel = (companyId?: string) => {
+  const found = COMPANY_OPTIONS.find((c) => c.id === companyId);
+  return found?.label || (companyId ? companyId : 'Sin asignar');
+};
 
 const STOP_WORDS = new Set(['DE', 'DEL', 'LA', 'LAS', 'LOS', 'Y', 'E', 'EN', 'EL', 'AL']);
 
@@ -123,7 +139,7 @@ const Sites = () => {
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-  const [form, setForm] = useState<Partial<Site>>({ name: '', city: '', address: '', prefix: '' });
+  const [form, setForm] = useState<Partial<Site>>({ name: '', city: '', address: '', prefix: '', companyId: '' });
   const [saving, setSaving] = useState(false);
 
   const [deleteOpen, setDeleteOpen] = useState(false);
@@ -151,6 +167,7 @@ const Sites = () => {
     return sites.filter((s) => {
       return (
         s.name.toLowerCase().includes(q) ||
+        companyLabel(s.companyId).toLowerCase().includes(q) ||
         s.city.toLowerCase().includes(q) ||
         s.address.toLowerCase().includes(q) ||
         s.prefix.toLowerCase().includes(q)
@@ -160,20 +177,27 @@ const Sites = () => {
 
   const openCreate = () => {
     setEditingId(null);
-    setForm({ name: '', city: '', address: '', prefix: '' });
+    setForm({ name: '', city: '', address: '', prefix: '', companyId: '' });
     setEditorOpen(true);
   };
 
   const openEdit = (site: Site) => {
     setEditingId(site.id);
-    setForm({ name: site.name, city: site.city, address: site.address, prefix: site.prefix, assetSeq: site.assetSeq });
+    setForm({
+      name: site.name,
+      city: site.city,
+      address: site.address,
+      prefix: site.prefix,
+      assetSeq: site.assetSeq,
+      companyId: site.companyId || '',
+    });
     setEditorOpen(true);
   };
 
   const closeEditor = () => {
     setEditorOpen(false);
     setEditingId(null);
-    setForm({ name: '', city: '', address: '', prefix: '' });
+    setForm({ name: '', city: '', address: '', prefix: '', companyId: '' });
     setSaving(false);
   };
 
@@ -191,6 +215,7 @@ const Sites = () => {
     if (!form.name?.trim()) return 'Ingrese el nombre de la sede.';
     if (!form.city?.trim()) return 'Ingrese la ciudad.';
     if (!form.address?.trim()) return 'Ingrese la dirección.';
+    if (!String(form.companyId || '').trim()) return 'Seleccione la empresa (para plantilla del acta).';
     const tokens = tokenizeName(String(form.name || ''));
     if (tokens.length < 2) return 'El nombre debe incluir empresa y sede (ej: "Medicuc Soacha").';
     if (!/^[A-Z0-9]{4}$/.test(computedPrefix.prefix)) return 'No se pudo generar el prefijo automáticamente.';
@@ -221,6 +246,7 @@ const Sites = () => {
         city: String(form.city).trim(),
         address: String(form.address).trim(),
         prefix: computedPrefix.prefix,
+        companyId: String(form.companyId || '').trim(),
       };
 
       if (editingId) {
@@ -289,7 +315,7 @@ const Sites = () => {
             label="Buscar"
             value={filterText}
             onChange={(e) => setFilterText(e.target.value)}
-            placeholder="Nombre, ciudad, prefijo..."
+            placeholder="Nombre, empresa, ciudad, prefijo..."
             fullWidth
             InputProps={{
               startAdornment: (
@@ -308,6 +334,7 @@ const Sites = () => {
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 800 }}>Nombre</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Empresa</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>Ciudad</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>Dirección</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>Prefijo</TableCell>
@@ -321,6 +348,9 @@ const Sites = () => {
               {filteredSites.map((s) => (
                 <TableRow key={s.id} hover>
                   <TableCell sx={{ fontWeight: 800 }}>{s.name}</TableCell>
+                  <TableCell>
+                    <Chip label={companyLabel(s.companyId)} variant={s.companyId ? 'filled' : 'outlined'} />
+                  </TableCell>
                   <TableCell>{s.city}</TableCell>
                   <TableCell>{s.address}</TableCell>
                   <TableCell>
@@ -344,7 +374,7 @@ const Sites = () => {
 
               {filteredSites.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={6} sx={{ py: 6 }}>
+                  <TableCell colSpan={7} sx={{ py: 6 }}>
                     <Typography variant="body2" color="text.secondary" align="center">
                       No hay sedes.
                     </Typography>
@@ -359,17 +389,38 @@ const Sites = () => {
       <Dialog open={editorOpen} onClose={closeEditor} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar sede' : 'Nueva sede'}</DialogTitle>
         <DialogContent>
-          <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
-            <Stack spacing={2}>
-              <TextField
-                label="Nombre"
-                value={form.name || ''}
-                onChange={(e) => setForm({ ...form, name: e.target.value })}
-                fullWidth
-                required
-                disabled={!canWrite || saving}
-                helperText='Formato esperado: "Empresa Sede" (ej: "Medicuc Soacha").'
-              />
+	          <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
+	            <Stack spacing={2}>
+	              <FormControl fullWidth required disabled={!canWrite || saving}>
+	                <InputLabel id="site-company-label">Empresa (plantilla acta)</InputLabel>
+	                <Select
+	                  labelId="site-company-label"
+	                  label="Empresa (plantilla acta)"
+	                  value={String(form.companyId || '')}
+	                  onChange={(e) => setForm({ ...form, companyId: String(e.target.value) })}
+	                >
+	                  <MenuItem value="">Seleccione...</MenuItem>
+	                  {COMPANY_OPTIONS.map((c) => (
+	                    <MenuItem key={c.id} value={c.id}>
+	                      {c.label}
+	                    </MenuItem>
+	                  ))}
+	                </Select>
+	              </FormControl>
+	              {editingId && !form.companyId && (
+	                <Alert severity="warning">
+	                  Esta sede no tiene empresa asignada. Es necesario para generar actas con el logo/plantilla correcta.
+	                </Alert>
+	              )}
+	              <TextField
+	                label="Nombre"
+	                value={form.name || ''}
+	                onChange={(e) => setForm({ ...form, name: e.target.value })}
+	                fullWidth
+	                required
+	                disabled={!canWrite || saving}
+	                helperText='Formato esperado: "Empresa Sede" (ej: "Medicuc Soacha").'
+	              />
               <TextField
                 label="Ciudad"
                 value={form.city || ''}

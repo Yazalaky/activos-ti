@@ -18,6 +18,7 @@ export interface Site {
   address: string;
   prefix: string; // Nuevo: Ejemplo MBOG, MMED, MCAL
   assetSeq?: number; // Secuencia para generar fixedAssetId
+  companyId?: string; // Para seleccionar plantilla/logo del acta
 }
 
 export interface Assignment {
