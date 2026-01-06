@@ -141,11 +141,13 @@ const Assets = () => {
   const filteredAssets = useMemo(() => {
     const search = filterText.trim().toLowerCase();
     return assets.filter((a) => {
+      const assignedTo = a.currentAssignment?.assignedToName?.toLowerCase?.() || '';
       const matchesText =
         !search ||
         a.serial.toLowerCase().includes(search) ||
         a.model.toLowerCase().includes(search) ||
-        (a.fixedAssetId && a.fixedAssetId.toLowerCase().includes(search));
+        (a.fixedAssetId && a.fixedAssetId.toLowerCase().includes(search)) ||
+        (assignedTo && assignedTo.includes(search));
       const matchesSite = selectedSiteFilter ? a.siteId === selectedSiteFilter : true;
       return matchesText && matchesSite;
     });
