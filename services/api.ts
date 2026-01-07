@@ -117,6 +117,7 @@ export const addActivity = (data: Omit<Activity, 'id'>) => addDoc(collection(db,
 // SUPPLIERS
 export const getSuppliers = () => fetchCollection<Supplier>('suppliers');
 export const addSupplier = (data: Omit<Supplier, 'id'>) => addDoc(collection(db, 'suppliers'), data);
+export const updateSupplier = (id: string, data: Partial<Supplier>) => updateDoc(doc(db, 'suppliers', id), data);
 
 // INVOICES
 export const getInvoices = () => fetchCollection<Invoice>('invoices');

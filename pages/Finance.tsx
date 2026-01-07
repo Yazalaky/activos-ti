@@ -41,7 +41,7 @@ import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import { addInvoice, addSupplier, getInvoices, getSites, getSuppliers, updateInvoice } from '../services/api';
+import { addInvoice, addSupplier, getInvoices, getSites, getSuppliers, updateInvoice, updateSupplier } from '../services/api';
 import type { Invoice, Site, Supplier } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
@@ -63,6 +63,7 @@ const Finance = () => {
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('');
 
   const [showSupplierDialog, setShowSupplierDialog] = useState(false);
+  const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
   const [showInvoiceDialog, setShowInvoiceDialog] = useState(false);
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
@@ -77,6 +78,16 @@ const Finance = () => {
   });
 
   const [supplierForm, setSupplierForm] = useState<Partial<Supplier>>({});
+  const [invoiceTotalText, setInvoiceTotalText] = useState<string>('');
+
+  const parseCopAmount = (input: string): number => {
+    const raw = input.trim();
+    if (!raw) return 0;
+    const digits = raw.replace(/[^\d]/g, '');
+    if (!digits) return 0;
+    const num = Number.parseInt(digits, 10);
+    return Number.isFinite(num) ? num : 0;
+  };
 
   const initialInvoiceState: Partial<Invoice> = {
     date: new Date().toISOString().split('T')[0],
@@ -89,6 +100,16 @@ const Finance = () => {
     status: 'pending',
   };
   const [invoiceForm, setInvoiceForm] = useState<Partial<Invoice>>(initialInvoiceState);
+
+  const sortedSuppliers = useMemo(
+    () => suppliers.slice().sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })),
+    [suppliers]
+  );
+
+  const sortedSites = useMemo(
+    () => sites.slice().sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })),
+    [sites]
+  );
 
   const loadData = async () => {
     const [sup, inv, s] = await Promise.all([getSuppliers(), getInvoices(), getSites()]);
@@ -122,13 +143,16 @@ const Finance = () => {
   };
 
   const filteredInvoices = useMemo(() => {
-    return invoices.filter((inv) => {
+    const filtered = invoices.filter((inv) => {
       if (startDate && inv.date < startDate) return false;
       if (endDate && inv.date > endDate) return false;
       if (selectedSiteFilter && inv.siteId !== selectedSiteFilter) return false;
       if (selectedSupplierFilter && inv.supplierId !== selectedSupplierFilter) return false;
       return true;
     });
+    return filtered
+      .slice()
+      .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   }, [invoices, startDate, endDate, selectedSiteFilter, selectedSupplierFilter]);
 
   const totals = useMemo(() => {
@@ -141,6 +165,7 @@ const Finance = () => {
   const openCreateInvoice = () => {
     setEditingInvoiceId(null);
     setInvoiceForm(initialInvoiceState);
+    setInvoiceTotalText('');
     setShowInvoiceDialog(true);
     setInvoiceFile(null);
     setInvoiceUploadPct(0);
@@ -150,6 +175,7 @@ const Finance = () => {
   const openEditInvoice = (inv: Invoice) => {
     setInvoiceForm(inv);
     setEditingInvoiceId(inv.id);
+    setInvoiceTotalText(inv.total ? String(Math.round(Number(inv.total))) : '');
     setShowInvoiceDialog(true);
     setInvoiceFile(null);
     setInvoiceUploadPct(0);
@@ -162,8 +188,27 @@ const Finance = () => {
     setEditingInvoiceId(null);
     setInvoiceFile(null);
     setInvoiceUploadPct(0);
+    setInvoiceTotalText('');
     setSavingInvoice(false);
     setDeleteAttachmentOpen(false);
+  };
+
+  const openCreateSupplier = () => {
+    setEditingSupplierId(null);
+    setSupplierForm({});
+    setShowSupplierDialog(true);
+  };
+
+  const openEditSupplier = (sup: Supplier) => {
+    setEditingSupplierId(sup.id);
+    setSupplierForm(sup);
+    setShowSupplierDialog(true);
+  };
+
+  const closeSupplierDialog = () => {
+    setShowSupplierDialog(false);
+    setSupplierForm({});
+    setEditingSupplierId(null);
   };
 
   const clearSelectedInvoiceFile = () => {
@@ -223,17 +268,31 @@ const Finance = () => {
       setSnackbar({ open: true, message: 'Complete al menos nombre y NIT.', severity: 'warning' });
       return;
     }
-    await addSupplier(supplierForm as Omit<Supplier, 'id'>);
-    setShowSupplierDialog(false);
-    setSupplierForm({});
-    setSnackbar({ open: true, message: 'Proveedor guardado.', severity: 'success' });
-    loadData();
+    try {
+      if (editingSupplierId) {
+        const { id, ...toUpdate } = supplierForm as any;
+        await updateSupplier(editingSupplierId, toUpdate);
+        setSnackbar({ open: true, message: 'Proveedor actualizado.', severity: 'success' });
+      } else {
+        await addSupplier(supplierForm as Omit<Supplier, 'id'>);
+        setSnackbar({ open: true, message: 'Proveedor guardado.', severity: 'success' });
+      }
+      closeSupplierDialog();
+      loadData();
+    } catch (error) {
+      console.error('Error saving supplier:', error);
+      setSnackbar({ open: true, message: 'No se pudo guardar el proveedor.', severity: 'error' });
+    }
   };
 
   const handleSaveInvoice = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!invoiceForm.supplierId || !invoiceForm.siteId || !invoiceForm.number || !invoiceForm.description) {
       setSnackbar({ open: true, message: 'Complete los campos requeridos.', severity: 'warning' });
+      return;
+    }
+    if (!Number.isFinite(Number(invoiceForm.total)) || Number(invoiceForm.total) <= 0) {
+      setSnackbar({ open: true, message: 'Ingrese un valor total válido.', severity: 'warning' });
       return;
     }
 
@@ -363,7 +422,7 @@ const Finance = () => {
                   onChange={(e) => setSelectedSiteFilter(String(e.target.value))}
                 >
                   <MenuItem value="">Todas</MenuItem>
-                  {sites.map((s) => (
+                  {sortedSites.map((s) => (
                     <MenuItem key={s.id} value={s.id}>
                       {s.name}
                     </MenuItem>
@@ -380,7 +439,7 @@ const Finance = () => {
                   onChange={(e) => setSelectedSupplierFilter(String(e.target.value))}
                 >
                   <MenuItem value="">Todos</MenuItem>
-                  {suppliers.map((s) => (
+                  {sortedSuppliers.map((s) => (
                     <MenuItem key={s.id} value={s.id}>
                       {s.name}
                     </MenuItem>
@@ -532,7 +591,7 @@ const Finance = () => {
         <Stack spacing={2}>
           <Box sx={{ display: 'flex', justifyContent: 'flex-end' }}>
             {canWrite && (
-              <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={() => setShowSupplierDialog(true)}>
+              <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreateSupplier}>
                 Nuevo proveedor
               </Button>
             )}
@@ -543,12 +602,21 @@ const Finance = () => {
               <Grid key={sup.id} size={{ xs: 12, sm: 6, md: 4 }}>
                 <Card>
                   <CardContent>
-                    <Typography variant="h6" sx={{ fontWeight: 900 }}>
-                      {sup.name}
-                    </Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      NIT: {sup.nit}
-                    </Typography>
+                    <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start">
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="h6" sx={{ fontWeight: 900 }} noWrap>
+                          {sup.name}
+                        </Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          NIT: {sup.nit}
+                        </Typography>
+                      </Box>
+                      {canWrite && (
+                        <Button size="small" variant="text" startIcon={<EditOutlinedIcon />} onClick={() => openEditSupplier(sup)}>
+                          Editar
+                        </Button>
+                      )}
+                    </Stack>
                     <Divider sx={{ my: 1.5 }} />
                     <Typography variant="body2">Tel: {sup.phone || '—'}</Typography>
                     <Typography variant="body2">Email: {sup.email || '—'}</Typography>
@@ -687,13 +755,15 @@ const Finance = () => {
         </Stack>
       )}
 
-      <Dialog open={showSupplierDialog} onClose={() => setShowSupplierDialog(false)} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>Nuevo proveedor</DialogTitle>
+      <Dialog open={showSupplierDialog} onClose={closeSupplierDialog} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>
+          {editingSupplierId ? 'Editar proveedor' : 'Nuevo proveedor'}
+        </DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSaveSupplier} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
-                Modo solo lectura (Gerencia/Auditoría). No puedes crear proveedores.
+                Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar proveedores.
               </Alert>
             )}
             <Stack spacing={2}>
@@ -738,7 +808,7 @@ const Finance = () => {
             </Stack>
 
             <DialogActions sx={{ px: 0, mt: 2 }}>
-              <Button onClick={() => setShowSupplierDialog(false)}>Cancelar</Button>
+              <Button onClick={closeSupplierDialog}>Cancelar</Button>
               <Button type="submit" variant="contained" disabled={!canWrite}>
                 Guardar
               </Button>
@@ -784,7 +854,7 @@ const Finance = () => {
                     onChange={(e) => setInvoiceForm({ ...invoiceForm, supplierId: String(e.target.value) })}
                   >
                     <MenuItem value="">Seleccione...</MenuItem>
-                    {suppliers.map((s) => (
+                    {sortedSuppliers.map((s) => (
                       <MenuItem key={s.id} value={s.id}>
                         {s.name}
                       </MenuItem>
@@ -802,7 +872,7 @@ const Finance = () => {
                     onChange={(e) => setInvoiceForm({ ...invoiceForm, siteId: String(e.target.value) })}
                   >
                     <MenuItem value="">Seleccione...</MenuItem>
-                    {sites.map((s) => (
+                    {sortedSites.map((s) => (
                       <MenuItem key={s.id} value={s.id}>
                         {s.name}
                       </MenuItem>
@@ -823,9 +893,15 @@ const Finance = () => {
               <Grid size={{ xs: 12, sm: 6 }}>
                 <TextField
                   label="Valor total"
-                  type="number"
-                  value={invoiceForm.total ?? ''}
-                  onChange={(e) => setInvoiceForm({ ...invoiceForm, total: Number(e.target.value) })}
+                  type="text"
+                  inputMode="numeric"
+                  value={invoiceTotalText}
+                  onChange={(e) => {
+                    const digitsOnly = e.target.value.replace(/\D/g, '');
+                    setInvoiceTotalText(digitsOnly);
+                    setInvoiceForm({ ...invoiceForm, total: parseCopAmount(digitsOnly) });
+                  }}
+                  inputProps={{ inputMode: 'numeric', pattern: '[0-9]*' }}
                   required
                   fullWidth
                 />
