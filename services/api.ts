@@ -128,6 +128,7 @@ export const addInvoice = async (data: Omit<Invoice, 'id'>) => {
 
 export const updateInvoice = (id: string, data: Partial<Invoice>) =>
   updateDoc(doc(db, 'invoices', id), data);
+export const deleteInvoice = (id: string) => deleteDoc(doc(db, 'invoices', id));
 
 // ACTS (Actas)
 export const getActs = async () => {

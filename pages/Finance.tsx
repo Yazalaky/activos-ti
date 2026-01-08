@@ -41,7 +41,7 @@ import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import { addInvoice, addSupplier, getInvoices, getSites, getSuppliers, updateInvoice, updateSupplier } from '../services/api';
+import { addInvoice, addSupplier, deleteInvoice, getInvoices, getSites, getSuppliers, updateInvoice, updateSupplier } from '../services/api';
 import type { Invoice, Site, Supplier } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
@@ -52,6 +52,7 @@ type TabKey = 'invoices' | 'suppliers' | 'reports';
 const Finance = () => {
   const { role } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
+  const canDelete = role === 'admin';
   const [activeTab, setActiveTab] = useState<TabKey>('invoices');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -70,6 +71,9 @@ const Finance = () => {
   const [invoiceUploadPct, setInvoiceUploadPct] = useState<number>(0);
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [deleteAttachmentOpen, setDeleteAttachmentOpen] = useState(false);
+  const [deleteInvoiceOpen, setDeleteInvoiceOpen] = useState(false);
+  const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
+  const [deletingInvoice, setDeletingInvoice] = useState(false);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' | 'warning' }>({
     open: false,
@@ -79,6 +83,9 @@ const Finance = () => {
 
   const [supplierForm, setSupplierForm] = useState<Partial<Supplier>>({});
   const [invoiceTotalText, setInvoiceTotalText] = useState<string>('');
+
+  const normalizeInvoiceNumber = (value: string) =>
+    value.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
 
   const parseCopAmount = (input: string): number => {
     const raw = input.trim();
@@ -216,6 +223,36 @@ const Finance = () => {
     setInvoiceUploadPct(0);
   };
 
+  const openDeleteInvoice = (inv: Invoice) => {
+    setInvoiceToDelete(inv);
+    setDeleteInvoiceOpen(true);
+  };
+
+  const closeDeleteInvoice = () => {
+    setDeleteInvoiceOpen(false);
+    setInvoiceToDelete(null);
+  };
+
+  const handleDeleteInvoice = async () => {
+    if (!canDelete || !invoiceToDelete) return;
+    try {
+      setDeletingInvoice(true);
+      const path = String(invoiceToDelete.pdfPath || '').trim();
+      if (path) {
+        await deleteStoragePath(path).catch(() => undefined);
+      }
+      await deleteInvoice(invoiceToDelete.id);
+      setSnackbar({ open: true, message: 'Factura eliminada.', severity: 'success' });
+      closeDeleteInvoice();
+      loadData();
+    } catch (error) {
+      console.error('Delete invoice error:', error);
+      setSnackbar({ open: true, message: 'No se pudo eliminar la factura.', severity: 'error' });
+    } finally {
+      setDeletingInvoice(false);
+    }
+  };
+
   const handleDeleteInvoiceAttachment = async () => {
     if (!canWrite) return;
     if (!editingInvoiceId) {
@@ -289,6 +326,24 @@ const Finance = () => {
     e.preventDefault();
     if (!invoiceForm.supplierId || !invoiceForm.siteId || !invoiceForm.number || !invoiceForm.description) {
       setSnackbar({ open: true, message: 'Complete los campos requeridos.', severity: 'warning' });
+      return;
+    }
+    const normalizedNumber = normalizeInvoiceNumber(String(invoiceForm.number || ''));
+    if (!normalizedNumber) {
+      setSnackbar({ open: true, message: 'Ingrese un número de factura válido.', severity: 'warning' });
+      return;
+    }
+    const hasDuplicate = invoices.some((inv) => {
+      if (editingInvoiceId && inv.id === editingInvoiceId) return false;
+      if (inv.supplierId !== invoiceForm.supplierId) return false;
+      return normalizeInvoiceNumber(String(inv.number || '')) === normalizedNumber;
+    });
+    if (hasDuplicate) {
+      setSnackbar({
+        open: true,
+        message: 'Ya existe una factura con ese número para el mismo proveedor.',
+        severity: 'warning',
+      });
       return;
     }
     if (!Number.isFinite(Number(invoiceForm.total)) || Number(invoiceForm.total) <= 0) {
@@ -542,22 +597,33 @@ const Finance = () => {
                           </Typography>
                         </TableCell>
                         <TableCell align="right">
-                          <Stack direction="row" spacing={1} justifyContent="flex-end">
-                            {canWrite && (
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                startIcon={<EditOutlinedIcon />}
+                        <Stack direction="row" spacing={1} justifyContent="flex-end">
+                          {canWrite && (
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={<EditOutlinedIcon />}
                                 onClick={() => openEditInvoice(inv)}
                               >
-                                Editar
-                              </Button>
-                            )}
+                              Editar
+                            </Button>
+                          )}
+                          {canDelete && (
                             <Button
                               size="small"
                               variant="text"
-                              startIcon={<DescriptionOutlinedIcon />}
-                              disabled={!inv.pdfUrl}
+                              color="error"
+                              startIcon={<DeleteOutlineOutlinedIcon />}
+                              onClick={() => openDeleteInvoice(inv)}
+                            >
+                              Eliminar
+                            </Button>
+                          )}
+                          <Button
+                            size="small"
+                            variant="text"
+                            startIcon={<DescriptionOutlinedIcon />}
+                            disabled={!inv.pdfUrl}
                               onClick={() => {
                                 if (!inv.pdfUrl) return;
                                 window.open(inv.pdfUrl, '_blank', 'noopener,noreferrer');
@@ -1027,6 +1093,21 @@ const Finance = () => {
         <DialogActions>
           <Button onClick={() => setDeleteAttachmentOpen(false)}>Cancelar</Button>
           <Button variant="contained" color="error" onClick={handleDeleteInvoiceAttachment} disabled={!canWrite || savingInvoice}>
+            Eliminar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={deleteInvoiceOpen} onClose={closeDeleteInvoice} fullWidth maxWidth="xs">
+        <DialogTitle sx={{ fontWeight: 900 }}>Eliminar factura</DialogTitle>
+        <DialogContent>
+          <Typography variant="body2" color="text.secondary">
+            ¿Confirmas eliminar esta factura? Esta acción no se puede deshacer.
+          </Typography>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDeleteInvoice}>Cancelar</Button>
+          <Button variant="contained" color="error" onClick={handleDeleteInvoice} disabled={!canDelete || deletingInvoice}>
             Eliminar
           </Button>
         </DialogActions>
