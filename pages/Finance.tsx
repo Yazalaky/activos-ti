@@ -14,6 +14,7 @@ import {
   FormControl,
   Grid,
   InputLabel,
+  InputAdornment,
   LinearProgress,
   MenuItem,
   Select,
@@ -41,6 +42,7 @@ import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import { addInvoice, addSupplier, deleteInvoice, getInvoices, getSites, getSuppliers, updateInvoice, updateSupplier } from '../services/api';
 import type { Invoice, Site, Supplier } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
@@ -62,6 +64,7 @@ const Finance = () => {
   const [endDate, setEndDate] = useState('');
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('');
+  const [invoiceNumberFilter, setInvoiceNumberFilter] = useState('');
 
   const [showSupplierDialog, setShowSupplierDialog] = useState(false);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
@@ -134,6 +137,7 @@ const Finance = () => {
     setEndDate('');
     setSelectedSiteFilter('');
     setSelectedSupplierFilter('');
+    setInvoiceNumberFilter('');
   };
 
   const getDisplayStatus = (inv: Invoice) => {
@@ -150,17 +154,19 @@ const Finance = () => {
   };
 
   const filteredInvoices = useMemo(() => {
+    const numberQuery = normalizeInvoiceNumber(invoiceNumberFilter);
     const filtered = invoices.filter((inv) => {
       if (startDate && inv.date < startDate) return false;
       if (endDate && inv.date > endDate) return false;
       if (selectedSiteFilter && inv.siteId !== selectedSiteFilter) return false;
       if (selectedSupplierFilter && inv.supplierId !== selectedSupplierFilter) return false;
+      if (numberQuery && normalizeInvoiceNumber(String(inv.number || '')).indexOf(numberQuery) === -1) return false;
       return true;
     });
     return filtered
       .slice()
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  }, [invoices, startDate, endDate, selectedSiteFilter, selectedSupplierFilter]);
+  }, [invoices, startDate, endDate, selectedSiteFilter, selectedSupplierFilter, invoiceNumberFilter]);
 
   const totals = useMemo(() => {
     const totalInvoiced = filteredInvoices.reduce((sum, inv) => sum + Number(inv.total || 0), 0);
@@ -468,6 +474,20 @@ const Finance = () => {
                 sx={{ width: { xs: '100%', sm: 220 } }}
               />
 
+              <TextField
+                label="No. Factura"
+                value={invoiceNumberFilter}
+                onChange={(e) => setInvoiceNumberFilter(e.target.value)}
+                sx={{ width: { xs: '100%', sm: 220 } }}
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <SearchOutlinedIcon />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
               <FormControl sx={{ width: { xs: '100%', sm: 260 } }}>
                 <InputLabel id="filter-site-label">Sede</InputLabel>
                 <Select
@@ -502,7 +522,7 @@ const Finance = () => {
                 </Select>
               </FormControl>
 
-              {(startDate || endDate || selectedSiteFilter || selectedSupplierFilter) && (
+              {(startDate || endDate || selectedSiteFilter || selectedSupplierFilter || invoiceNumberFilter) && (
                 <Button
                   variant="text"
                   color="error"
