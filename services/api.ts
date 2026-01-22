@@ -113,6 +113,7 @@ export const getActivities = async () => {
 };
 
 export const addActivity = (data: Omit<Activity, 'id'>) => addDoc(collection(db, 'activities'), data);
+export const updateActivity = (id: string, data: Partial<Activity>) => updateDoc(doc(db, 'activities', id), data);
 
 // SUPPLIERS
 export const getSuppliers = () => fetchCollection<Supplier>('suppliers');

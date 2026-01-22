@@ -28,9 +28,10 @@ import ClearOutlinedIcon from '@mui/icons-material/ClearOutlined';
 import CalendarTodayOutlinedIcon from '@mui/icons-material/CalendarTodayOutlined';
 import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined';
 import LaptopMacOutlinedIcon from '@mui/icons-material/LaptopMacOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
-import { addActivity, getActivities, getAssets, getSites } from '../services/api';
+import { addActivity, getActivities, getAssets, getSites, updateActivity } from '../services/api';
 import type { Activity, Asset, Site } from '../types';
 import { useAuth } from '../auth/AuthContext';
 
@@ -41,6 +42,7 @@ const Activities = () => {
   const [sites, setSites] = useState<Site[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -50,7 +52,7 @@ const Activities = () => {
     message: '',
   });
 
-  const [formData, setFormData] = useState<Partial<Activity>>({
+  const initialFormState: Partial<Activity> = {
     date: new Date().toISOString().split('T')[0],
     type: 'Soporte Usuario',
     priority: 'media',
@@ -58,7 +60,8 @@ const Activities = () => {
     siteId: '',
     assetId: '',
     description: '',
-  });
+  };
+  const [formData, setFormData] = useState<Partial<Activity>>(initialFormState);
 
   const loadData = async () => {
     const [acts, s, a] = await Promise.all([getActivities(), getSites(), getAssets()]);
@@ -89,6 +92,27 @@ const Activities = () => {
     setEndDate('');
   };
 
+  const openCreate = () => {
+    setEditingId(null);
+    setFormData(initialFormState);
+    setDialogOpen(true);
+  };
+
+  const openEdit = (activity: Activity) => {
+    setEditingId(activity.id);
+    setFormData({
+      ...activity,
+      assetId: activity.assetId || '',
+    });
+    setDialogOpen(true);
+  };
+
+  const closeDialog = () => {
+    setDialogOpen(false);
+    setEditingId(null);
+    setFormData(initialFormState);
+  };
+
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -108,18 +132,19 @@ const Activities = () => {
     const dataToSave = { ...formData };
     if (!dataToSave.assetId) delete dataToSave.assetId;
 
-    await addActivity(dataToSave as Omit<Activity, 'id'>);
-    setDialogOpen(false);
-
-    setFormData((prev) => ({
-      ...prev,
-      description: '',
-      assetId: '',
-      type: 'Soporte Usuario',
-      priority: 'media',
-    }));
-
-    loadData();
+    try {
+      if (editingId) {
+        const { id, ...toUpdate } = dataToSave as any;
+        await updateActivity(editingId, toUpdate);
+      } else {
+        await addActivity(dataToSave as Omit<Activity, 'id'>);
+      }
+      closeDialog();
+      loadData();
+    } catch (error) {
+      console.error('Error saving activity:', error);
+      setSnackbar({ open: true, message: 'No se pudo guardar la actividad.' });
+    }
   };
 
   const getPriorityColor = (priority: Activity['priority']) => {
@@ -141,7 +166,7 @@ const Activities = () => {
         </Box>
 
         {canWrite && (
-          <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={() => setDialogOpen(true)}>
+          <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate}>
             Nuevo registro
           </Button>
         )}
@@ -215,21 +240,28 @@ const Activities = () => {
 
                   <Grid size={{ xs: 12, sm: 9, md: 10 }}>
                     <Stack spacing={1}>
-                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                        <Chip label={activity.type} variant="outlined" />
-                        <Chip label={activity.priority.toUpperCase()} color={getPriorityColor(activity.priority)} />
-                        <Chip
-                          icon={<PersonOutlineOutlinedIcon />}
-                          label={`Tec: ${activity.techName}`}
-                          variant="outlined"
-                        />
-                        <Chip label={siteName} variant="outlined" />
-                        {assetInfo && (
+                      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
+                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                          <Chip label={activity.type} variant="outlined" />
+                          <Chip label={activity.priority.toUpperCase()} color={getPriorityColor(activity.priority)} />
                           <Chip
-                            icon={<LaptopMacOutlinedIcon />}
-                            label={`${assetInfo.fixedAssetId} · ${assetInfo.brand} ${assetInfo.model}`}
+                            icon={<PersonOutlineOutlinedIcon />}
+                            label={`Tec: ${activity.techName}`}
                             variant="outlined"
                           />
+                          <Chip label={siteName} variant="outlined" />
+                          {assetInfo && (
+                            <Chip
+                              icon={<LaptopMacOutlinedIcon />}
+                              label={`${assetInfo.fixedAssetId} · ${assetInfo.brand} ${assetInfo.model}`}
+                              variant="outlined"
+                            />
+                          )}
+                        </Stack>
+                        {canWrite && (
+                          <IconButton size="small" onClick={() => openEdit(activity)} aria-label="Editar actividad">
+                            <EditOutlinedIcon />
+                          </IconButton>
                         )}
                       </Stack>
 
@@ -255,13 +287,13 @@ const Activities = () => {
         )}
       </Stack>
 
-      <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle sx={{ fontWeight: 900 }}>Registrar actividad</DialogTitle>
+      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
+        <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar actividad' : 'Registrar actividad'}</DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
-                Modo solo lectura (Gerencia/Auditoría). No puedes crear actividades.
+                Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar actividades.
               </Alert>
             )}
             <Grid container spacing={2}>
@@ -376,9 +408,9 @@ const Activities = () => {
 
             <Divider sx={{ my: 2 }} />
             <DialogActions sx={{ px: 0 }}>
-              <Button onClick={() => setDialogOpen(false)}>Cancelar</Button>
+              <Button onClick={closeDialog}>Cancelar</Button>
               <Button type="submit" variant="contained" disabled={!canWrite}>
-                Guardar
+                {editingId ? 'Actualizar' : 'Guardar'}
               </Button>
             </DialogActions>
           </Box>

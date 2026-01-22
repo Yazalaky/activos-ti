@@ -77,6 +77,7 @@ const Assets = () => {
   const [sites, setSites] = useState<Site[]>([]);
   const [filterText, setFilterText] = useState('');
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('');
+  const [selectedTypeFilter, setSelectedTypeFilter] = useState<AssetType | ''>('');
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -128,6 +129,12 @@ const Assets = () => {
   const [assignmentData, setAssignmentData] = useState({ name: '', position: '' });
   const [inlineAssignment, setInlineAssignment] = useState({ name: '', position: '' });
 
+  const clearFilters = () => {
+    setFilterText('');
+    setSelectedSiteFilter('');
+    setSelectedTypeFilter('');
+  };
+
   const loadData = async () => {
     const [a, s] = await Promise.all([getAssets(), getSites()]);
     setAssets(a);
@@ -149,9 +156,10 @@ const Assets = () => {
         (a.fixedAssetId && a.fixedAssetId.toLowerCase().includes(search)) ||
         (assignedTo && assignedTo.includes(search));
       const matchesSite = selectedSiteFilter ? a.siteId === selectedSiteFilter : true;
-      return matchesText && matchesSite;
+      const matchesType = selectedTypeFilter ? a.type === selectedTypeFilter : true;
+      return matchesText && matchesSite && matchesType;
     });
-  }, [assets, filterText, selectedSiteFilter]);
+  }, [assets, filterText, selectedSiteFilter, selectedTypeFilter]);
 
   const nextFixedIdPreview = useMemo(() => {
     if (!formData.siteId) return '';
@@ -475,7 +483,7 @@ const Assets = () => {
       <Card>
         <CardContent>
           <Grid container spacing={2} alignItems="center">
-            <Grid size={{ xs: 12, md: 7 }}>
+            <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 label="Buscar"
                 value={filterText}
@@ -491,7 +499,7 @@ const Assets = () => {
                 }}
               />
             </Grid>
-            <Grid size={{ xs: 12, md: 5 }}>
+            <Grid size={{ xs: 12, md: 3 }}>
               <FormControl fullWidth>
                 <InputLabel id="filter-site">Sede</InputLabel>
                 <Select
@@ -514,6 +522,45 @@ const Assets = () => {
                 </Select>
               </FormControl>
             </Grid>
+            <Grid size={{ xs: 12, md: 3 }}>
+              <FormControl fullWidth>
+                <InputLabel id="filter-type">Tipo</InputLabel>
+                <Select
+                  labelId="filter-type"
+                  label="Tipo"
+                  value={selectedTypeFilter}
+                  onChange={(e) => setSelectedTypeFilter(e.target.value as AssetType | '')}
+                  startAdornment={
+                    <InputAdornment position="start">
+                      <FilterAltOutlinedIcon />
+                    </InputAdornment>
+                  }
+                >
+                  <MenuItem value="">Todos</MenuItem>
+                  <MenuItem value="laptop">Laptop</MenuItem>
+                  <MenuItem value="desktop">Desktop</MenuItem>
+                  <MenuItem value="monitor">Monitor</MenuItem>
+                  <MenuItem value="keyboard">Teclado</MenuItem>
+                  <MenuItem value="mouse">Mouse</MenuItem>
+                  <MenuItem value="printer">Impresora</MenuItem>
+                  <MenuItem value="scanner">Scanner</MenuItem>
+                  <MenuItem value="network">Red</MenuItem>
+                  <MenuItem value="other">Otro</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
+            {(filterText || selectedSiteFilter || selectedTypeFilter) && (
+              <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                  variant="text"
+                  color="error"
+                  startIcon={<DeleteOutlineOutlinedIcon />}
+                  onClick={clearFilters}
+                >
+                  Limpiar
+                </Button>
+              </Grid>
+            )}
           </Grid>
         </CardContent>
       </Card>
