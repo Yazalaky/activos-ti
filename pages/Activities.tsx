@@ -153,6 +153,12 @@ const Activities = () => {
     return 'success';
   };
 
+  const parseLocalDate = (dateStr: string) => {
+    const [y, m, d] = dateStr.split('-').map((v) => Number(v));
+    if (!y || !m || !d) return new Date(dateStr);
+    return new Date(y, m - 1, d);
+  };
+
   return (
     <Stack spacing={2.5}>
       <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} justifyContent="space-between">
@@ -233,7 +239,7 @@ const Activities = () => {
                         </Typography>
                       </Stack>
                       <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                        {format(new Date(activity.date), 'EEEE', { locale: es })}
+                        {format(parseLocalDate(activity.date), 'EEEE', { locale: es })}
                       </Typography>
                     </Box>
                   </Grid>
