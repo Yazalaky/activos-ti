@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -35,6 +35,115 @@ import { addActivity, getActivities, getAssets, getSites, updateActivity } from 
 import type { Activity, Asset, Site } from '../types';
 import { useAuth } from '../auth/AuthContext';
 
+const parseLocalDate = (dateStr: string) => {
+  const [y, m, d] = dateStr.split('-').map((v) => Number(v));
+  if (!y || !m || !d) return new Date(dateStr);
+  return new Date(y, m - 1, d);
+};
+
+const getPriorityColor = (priority: Activity['priority']) => {
+  if (priority === 'alta') return 'error';
+  if (priority === 'media') return 'warning';
+  return 'success';
+};
+
+const createInitialFormState = (): Partial<Activity> => ({
+  date: new Date().toISOString().split('T')[0],
+  type: 'Soporte Usuario',
+  priority: 'media',
+  techName: '',
+  siteId: '',
+  assetId: '',
+  description: '',
+});
+
+type ActivityListProps = {
+  activities: Activity[];
+  sites: Site[];
+  assets: Asset[];
+  canWrite: boolean;
+  onEdit: (activity: Activity) => void;
+};
+
+const ActivityList = React.memo(function ActivityList({ activities, sites, assets, canWrite, onEdit }: ActivityListProps) {
+  return (
+    <Stack spacing={2}>
+      {activities.map((activity) => {
+        const assetInfo = activity.assetId ? assets.find((a) => a.id === activity.assetId) : null;
+        const siteName = sites.find((s) => s.id === activity.siteId)?.name || 'Sede N/A';
+
+        return (
+          <Card key={activity.id}>
+            <CardContent>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 3, md: 2 }}>
+                  <Box
+                    sx={{
+                      borderRadius: 3,
+                      p: 1.5,
+                      bgcolor: 'rgba(0,0,0,0.03)',
+                      border: '1px solid rgba(0,0,0,0.06)',
+                    }}
+                  >
+                    <Stack direction="row" spacing={1} alignItems="center">
+                      <CalendarTodayOutlinedIcon color="action" fontSize="small" />
+                      <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                        {activity.date}
+                      </Typography>
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
+                      {format(parseLocalDate(activity.date), 'EEEE', { locale: es })}
+                    </Typography>
+                  </Box>
+                </Grid>
+
+                <Grid size={{ xs: 12, sm: 9, md: 10 }}>
+                  <Stack spacing={1}>
+                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
+                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                        <Chip label={activity.type} variant="outlined" />
+                        <Chip label={activity.priority.toUpperCase()} color={getPriorityColor(activity.priority)} />
+                        <Chip icon={<PersonOutlineOutlinedIcon />} label={`Tec: ${activity.techName}`} variant="outlined" />
+                        <Chip label={siteName} variant="outlined" />
+                        {assetInfo && (
+                          <Chip
+                            icon={<LaptopMacOutlinedIcon />}
+                            label={`${assetInfo.fixedAssetId} · ${assetInfo.brand} ${assetInfo.model}`}
+                            variant="outlined"
+                          />
+                        )}
+                      </Stack>
+                      {canWrite && (
+                        <IconButton size="small" onClick={() => onEdit(activity)} aria-label="Editar actividad">
+                          <EditOutlinedIcon />
+                        </IconButton>
+                      )}
+                    </Stack>
+
+                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                      {activity.description}
+                    </Typography>
+                  </Stack>
+                </Grid>
+              </Grid>
+            </CardContent>
+          </Card>
+        );
+      })}
+
+      {activities.length === 0 && (
+        <Card sx={{ borderStyle: 'dashed' }}>
+          <CardContent>
+            <Typography variant="body2" color="text.secondary" align="center">
+              No se encontraron actividades con los filtros seleccionados.
+            </Typography>
+          </CardContent>
+        </Card>
+      )}
+    </Stack>
+  );
+});
+
 const Activities = () => {
   const { role } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
@@ -52,16 +161,7 @@ const Activities = () => {
     message: '',
   });
 
-  const initialFormState: Partial<Activity> = {
-    date: new Date().toISOString().split('T')[0],
-    type: 'Soporte Usuario',
-    priority: 'media',
-    techName: '',
-    siteId: '',
-    assetId: '',
-    description: '',
-  };
-  const [formData, setFormData] = useState<Partial<Activity>>(initialFormState);
+  const [formData, setFormData] = useState<Partial<Activity>>(createInitialFormState);
 
   const loadData = async () => {
     const [acts, s, a] = await Promise.all([getActivities(), getSites(), getAssets()]);
@@ -92,26 +192,26 @@ const Activities = () => {
     setEndDate('');
   };
 
-  const openCreate = () => {
+  const openCreate = useCallback(() => {
     setEditingId(null);
-    setFormData(initialFormState);
+    setFormData(createInitialFormState());
     setDialogOpen(true);
-  };
+  }, []);
 
-  const openEdit = (activity: Activity) => {
+  const openEdit = useCallback((activity: Activity) => {
     setEditingId(activity.id);
     setFormData({
       ...activity,
       assetId: activity.assetId || '',
     });
     setDialogOpen(true);
-  };
+  }, []);
 
-  const closeDialog = () => {
+  const closeDialog = useCallback(() => {
     setDialogOpen(false);
     setEditingId(null);
-    setFormData(initialFormState);
-  };
+    setFormData(createInitialFormState());
+  }, []);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -145,18 +245,6 @@ const Activities = () => {
       console.error('Error saving activity:', error);
       setSnackbar({ open: true, message: 'No se pudo guardar la actividad.' });
     }
-  };
-
-  const getPriorityColor = (priority: Activity['priority']) => {
-    if (priority === 'alta') return 'error';
-    if (priority === 'media') return 'warning';
-    return 'success';
-  };
-
-  const parseLocalDate = (dateStr: string) => {
-    const [y, m, d] = dateStr.split('-').map((v) => Number(v));
-    if (!y || !m || !d) return new Date(dateStr);
-    return new Date(y, m - 1, d);
   };
 
   return (
@@ -214,84 +302,13 @@ const Activities = () => {
         </CardContent>
       </Card>
 
-      <Stack spacing={2}>
-        {filteredActivities.map((activity) => {
-          const assetInfo = activity.assetId ? assets.find((a) => a.id === activity.assetId) : null;
-          const siteName = sites.find((s) => s.id === activity.siteId)?.name || 'Sede N/A';
-
-          return (
-            <Card key={activity.id}>
-              <CardContent>
-                <Grid container spacing={2}>
-                  <Grid size={{ xs: 12, sm: 3, md: 2 }}>
-                    <Box
-                      sx={{
-                        borderRadius: 3,
-                        p: 1.5,
-                        bgcolor: 'rgba(0,0,0,0.03)',
-                        border: '1px solid rgba(0,0,0,0.06)',
-                      }}
-                    >
-                      <Stack direction="row" spacing={1} alignItems="center">
-                        <CalendarTodayOutlinedIcon color="action" fontSize="small" />
-                        <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                          {activity.date}
-                        </Typography>
-                      </Stack>
-                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                        {format(parseLocalDate(activity.date), 'EEEE', { locale: es })}
-                      </Typography>
-                    </Box>
-                  </Grid>
-
-                  <Grid size={{ xs: 12, sm: 9, md: 10 }}>
-                    <Stack spacing={1}>
-                      <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
-                        <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                          <Chip label={activity.type} variant="outlined" />
-                          <Chip label={activity.priority.toUpperCase()} color={getPriorityColor(activity.priority)} />
-                          <Chip
-                            icon={<PersonOutlineOutlinedIcon />}
-                            label={`Tec: ${activity.techName}`}
-                            variant="outlined"
-                          />
-                          <Chip label={siteName} variant="outlined" />
-                          {assetInfo && (
-                            <Chip
-                              icon={<LaptopMacOutlinedIcon />}
-                              label={`${assetInfo.fixedAssetId} · ${assetInfo.brand} ${assetInfo.model}`}
-                              variant="outlined"
-                            />
-                          )}
-                        </Stack>
-                        {canWrite && (
-                          <IconButton size="small" onClick={() => openEdit(activity)} aria-label="Editar actividad">
-                            <EditOutlinedIcon />
-                          </IconButton>
-                        )}
-                      </Stack>
-
-                      <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                        {activity.description}
-                      </Typography>
-                    </Stack>
-                  </Grid>
-                </Grid>
-              </CardContent>
-            </Card>
-          );
-        })}
-
-        {filteredActivities.length === 0 && (
-          <Card sx={{ borderStyle: 'dashed' }}>
-            <CardContent>
-              <Typography variant="body2" color="text.secondary" align="center">
-                No se encontraron actividades con los filtros seleccionados.
-              </Typography>
-            </CardContent>
-          </Card>
-        )}
-      </Stack>
+      <ActivityList
+        activities={filteredActivities}
+        sites={sites}
+        assets={assets}
+        canWrite={canWrite}
+        onEdit={openEdit}
+      />
 
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
         <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar actividad' : 'Registrar actividad'}</DialogTitle>

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Avatar,
@@ -69,6 +69,125 @@ const statusColor = (status: Status) => {
       return 'default';
   }
 };
+
+type AssetTableProps = {
+  assets: Asset[];
+  sites: Site[];
+  canWrite: boolean;
+  onView: (asset: Asset) => void;
+  onEdit: (asset: Asset) => void;
+  onAssign: (asset: Asset) => void;
+  onReturn: (asset: Asset) => void;
+};
+
+const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onView, onEdit, onAssign, onReturn }: AssetTableProps) {
+  return (
+    <Table size="small">
+      <TableHead>
+        <TableRow>
+          <TableCell sx={{ fontWeight: 800 }}>Activo fijo / Tipo</TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Equipo</TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Ubicación</TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Hardware</TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Estado</TableCell>
+          <TableCell sx={{ fontWeight: 800 }} align="right">
+            Acciones
+          </TableCell>
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {assets.map((asset) => {
+          const siteName = sites.find((s) => s.id === asset.siteId)?.name || 'Sin sede';
+          const hardware =
+            asset.type === 'laptop' || asset.type === 'desktop'
+              ? [asset.processor && `CPU: ${asset.processor}`, asset.ram && `RAM: ${asset.ram}`, asset.storage && `DISCO: ${asset.storage}`]
+                  .filter(Boolean)
+                  .join(' · ')
+              : '—';
+
+          return (
+            <TableRow key={asset.id} hover>
+              <TableCell>
+                <Typography variant="subtitle2" sx={{ fontWeight: 900, color: 'primary.main' }}>
+                  {asset.fixedAssetId || 'PEND'}
+                </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
+                  {asset.type}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                  {asset.brand} {asset.model}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  S/N: {asset.serial}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                <Typography variant="body2">{siteName}</Typography>
+              </TableCell>
+              <TableCell>
+                <Typography variant="caption" color="text.secondary">
+                  {hardware || '—'}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                <Stack spacing={0.5}>
+                  <Chip label={statusLabel[asset.status]} color={statusColor(asset.status) as any} sx={{ fontWeight: 800, width: 'fit-content' }} />
+                  {asset.currentAssignment && (
+                    <Chip size="small" variant="outlined" label={asset.currentAssignment.assignedToName} sx={{ width: 'fit-content' }} />
+                  )}
+                </Stack>
+              </TableCell>
+              <TableCell align="right">
+                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                  <Tooltip title="Ver detalle">
+                    <IconButton onClick={() => onView(asset)} aria-label="Ver" size="small">
+                      <VisibilityOutlinedIcon />
+                    </IconButton>
+                  </Tooltip>
+                  {canWrite && (
+                    <>
+                      <Tooltip title="Editar">
+                        <IconButton onClick={() => onEdit(asset)} aria-label="Editar" size="small">
+                          <EditOutlinedIcon />
+                        </IconButton>
+                      </Tooltip>
+                      {asset.status === 'bodega' && (
+                        <Tooltip title="Asignar">
+                          <IconButton onClick={() => onAssign(asset)} aria-label="Asignar" size="small">
+                            <PersonAddAltOutlinedIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                      {asset.status === 'asignado' && (
+                        <Tooltip title="Retornar a bodega">
+                          <IconButton onClick={() => onReturn(asset)} aria-label="Retornar" size="small">
+                            <KeyboardReturnOutlinedIcon />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </>
+                  )}
+                </Stack>
+              </TableCell>
+            </TableRow>
+          );
+        })}
+
+        {assets.length === 0 && (
+          <TableRow>
+            <TableCell colSpan={6} sx={{ py: 6 }}>
+              <Typography variant="body2" color="text.secondary" align="center">
+                No se encontraron activos.
+              </Typography>
+            </TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
+  );
+});
 
 const Assets = () => {
   const { role } = useAuth();
@@ -185,7 +304,7 @@ const Assets = () => {
     setEditorOpen(true);
   };
 
-  const openEdit = (asset: Asset) => {
+  const openEdit = useCallback((asset: Asset) => {
     setEditingId(asset.id);
     setEditorMode('edit');
     setFormData(asset);
@@ -198,9 +317,9 @@ const Assets = () => {
     setImageFile(null);
     setImageUploadPct(0);
     setEditorOpen(true);
-  };
+  }, []);
 
-  const openView = (asset: Asset) => {
+  const openView = useCallback((asset: Asset) => {
     setEditingId(asset.id);
     setEditorMode('view');
     setFormData(asset);
@@ -213,7 +332,7 @@ const Assets = () => {
     setImageFile(null);
     setImageUploadPct(0);
     setEditorOpen(true);
-  };
+  }, []);
 
   const closeEditor = () => {
     if (previewImage?.startsWith('blob:')) {
@@ -415,11 +534,11 @@ const Assets = () => {
     }
   };
 
-  const openAssign = (asset: Asset) => {
+  const openAssign = useCallback((asset: Asset) => {
     setAssignAsset(asset);
     setAssignmentData({ name: '', position: '' });
     setAssignOpen(true);
-  };
+  }, []);
 
   const handleAssignment = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -447,10 +566,10 @@ const Assets = () => {
     loadData();
   };
 
-  const confirmReturn = (asset: Asset) => {
+  const confirmReturn = useCallback((asset: Asset) => {
     setReturnAsset(asset);
     setReturnOpen(true);
-  };
+  }, []);
 
   const handleReturn = async () => {
     if (!returnAsset) return;
@@ -567,119 +686,15 @@ const Assets = () => {
 
       <Card>
         <CardContent sx={{ p: 0 }}>
-          <Table size="small">
-            <TableHead>
-              <TableRow>
-                <TableCell sx={{ fontWeight: 800 }}>Activo fijo / Tipo</TableCell>
-                <TableCell sx={{ fontWeight: 800 }}>Equipo</TableCell>
-                <TableCell sx={{ fontWeight: 800 }}>Ubicación</TableCell>
-                <TableCell sx={{ fontWeight: 800 }}>Hardware</TableCell>
-                <TableCell sx={{ fontWeight: 800 }}>Estado</TableCell>
-                <TableCell sx={{ fontWeight: 800 }} align="right">
-                  Acciones
-                </TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {filteredAssets.map((asset) => {
-                const siteName = sites.find((s) => s.id === asset.siteId)?.name || 'Sin sede';
-                const hardware =
-                  asset.type === 'laptop' || asset.type === 'desktop'
-                    ? [asset.processor && `CPU: ${asset.processor}`, asset.ram && `RAM: ${asset.ram}`, asset.storage && `DISCO: ${asset.storage}`]
-                        .filter(Boolean)
-                        .join(' · ')
-                    : '—';
-
-                return (
-                  <TableRow key={asset.id} hover>
-                    <TableCell>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 900, color: 'primary.main' }}>
-                        {asset.fixedAssetId || 'PEND'}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
-                        {asset.type}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2" sx={{ fontWeight: 800 }}>
-                        {asset.brand} {asset.model}
-                      </Typography>
-                      <Typography variant="caption" color="text.secondary">
-                        S/N: {asset.serial}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="body2">{siteName}</Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Typography variant="caption" color="text.secondary">
-                        {hardware || '—'}
-                      </Typography>
-                    </TableCell>
-                    <TableCell>
-                      <Stack spacing={0.5}>
-                        <Chip
-                          label={statusLabel[asset.status]}
-                          color={statusColor(asset.status) as any}
-                          sx={{ fontWeight: 800, width: 'fit-content' }}
-                        />
-                        {asset.currentAssignment && (
-                          <Chip
-                            size="small"
-                            variant="outlined"
-                            label={asset.currentAssignment.assignedToName}
-                            sx={{ width: 'fit-content' }}
-                          />
-                        )}
-                      </Stack>
-                    </TableCell>
-                    <TableCell align="right">
-                      <Stack direction="row" spacing={1} justifyContent="flex-end">
-                        <Tooltip title="Ver detalle">
-                          <IconButton onClick={() => openView(asset)} aria-label="Ver" size="small">
-                            <VisibilityOutlinedIcon />
-                          </IconButton>
-                        </Tooltip>
-                        {canWrite && (
-                          <>
-                            <Tooltip title="Editar">
-                              <IconButton onClick={() => openEdit(asset)} aria-label="Editar" size="small">
-                                <EditOutlinedIcon />
-                              </IconButton>
-                            </Tooltip>
-                            {asset.status === 'bodega' && (
-                              <Tooltip title="Asignar">
-                                <IconButton onClick={() => openAssign(asset)} aria-label="Asignar" size="small">
-                                  <PersonAddAltOutlinedIcon />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                            {asset.status === 'asignado' && (
-                              <Tooltip title="Retornar a bodega">
-                                <IconButton onClick={() => confirmReturn(asset)} aria-label="Retornar" size="small">
-                                  <KeyboardReturnOutlinedIcon />
-                                </IconButton>
-                              </Tooltip>
-                            )}
-                          </>
-                        )}
-                      </Stack>
-                    </TableCell>
-                  </TableRow>
-                );
-              })}
-
-              {filteredAssets.length === 0 && (
-                <TableRow>
-                  <TableCell colSpan={6} sx={{ py: 6 }}>
-                    <Typography variant="body2" color="text.secondary" align="center">
-                      No se encontraron activos.
-                    </Typography>
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
+          <AssetTable
+            assets={filteredAssets}
+            sites={sites}
+            canWrite={canWrite}
+            onView={openView}
+            onEdit={openEdit}
+            onAssign={openAssign}
+            onReturn={confirmReturn}
+          />
         </CardContent>
       </Card>
 

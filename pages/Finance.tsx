@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -51,6 +51,162 @@ import { deleteStoragePath } from '../services/storageFiles';
 
 type TabKey = 'invoices' | 'suppliers' | 'reports';
 
+const getDisplayStatus = (inv: Invoice) => {
+  if (inv.status === 'paid') {
+    return { label: 'Pagado', color: 'success' as const, icon: <CheckCircleOutlinedIcon fontSize="small" /> };
+  }
+
+  const today = new Date().toISOString().split('T')[0];
+  if (inv.dueDate && inv.dueDate < today) {
+    return { label: 'Vencido', color: 'error' as const, icon: <ErrorOutlineOutlinedIcon fontSize="small" /> };
+  }
+
+  return { label: 'Pendiente', color: 'warning' as const, icon: <ScheduleOutlinedIcon fontSize="small" /> };
+};
+
+type InvoiceTableProps = {
+  invoices: Invoice[];
+  suppliers: Supplier[];
+  sites: Site[];
+  canWrite: boolean;
+  canDelete: boolean;
+  onEdit: (inv: Invoice) => void;
+  onDelete: (inv: Invoice) => void;
+  onToggleStatus: (inv: Invoice) => void;
+};
+
+const InvoiceTable = React.memo(function InvoiceTable({
+  invoices,
+  suppliers,
+  sites,
+  canWrite,
+  canDelete,
+  onEdit,
+  onDelete,
+  onToggleStatus,
+}: InvoiceTableProps) {
+  return (
+    <Table size="small">
+      <TableHead>
+        <TableRow>
+          <TableCell sx={{ fontWeight: 800 }}>Factura</TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Detalle / Sede</TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Estado</TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Fechas</TableCell>
+          <TableCell sx={{ fontWeight: 800 }} align="right">
+            Valor
+          </TableCell>
+          <TableCell sx={{ fontWeight: 800 }} align="right">
+            Acciones
+          </TableCell>
+        </TableRow>
+      </TableHead>
+      <TableBody>
+        {invoices.map((inv) => {
+          const statusInfo = getDisplayStatus(inv);
+          const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || 'N/A';
+          const siteName = sites.find((s) => s.id === inv.siteId)?.name || 'Sede N/A';
+
+          return (
+            <TableRow key={inv.id} hover>
+              <TableCell>
+                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                  {inv.number}
+                </Typography>
+                <Typography variant="caption" color="text.secondary">
+                  {supplierName}
+                </Typography>
+              </TableCell>
+              <TableCell>
+                <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+                  {inv.description}
+                </Typography>
+                <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                  <BusinessOutlinedIcon fontSize="small" color="action" />
+                  <Typography variant="caption" color="primary">
+                    {siteName}
+                  </Typography>
+                </Stack>
+              </TableCell>
+              <TableCell>
+                <Chip
+                  icon={statusInfo.icon}
+                  label={statusInfo.label}
+                  color={statusInfo.color}
+                  onClick={canWrite ? () => onToggleStatus(inv) : undefined}
+                  sx={{ fontWeight: 800 }}
+                />
+              </TableCell>
+              <TableCell>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
+                  Rad: {inv.date}
+                </Typography>
+                {inv.dueDate && (
+                  <Typography variant="caption" color={statusInfo.label === 'Vencido' ? 'error.main' : 'text.secondary'}>
+                    Venc: {inv.dueDate}
+                  </Typography>
+                )}
+              </TableCell>
+              <TableCell align="right">
+                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                  ${Number(inv.total || 0).toLocaleString()}
+                </Typography>
+              </TableCell>
+              <TableCell align="right">
+                <Stack direction="row" spacing={1} justifyContent="flex-end">
+                  {canWrite && (
+                    <Button size="small" variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => onEdit(inv)}>
+                      Editar
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button size="small" variant="text" color="error" startIcon={<DeleteOutlineOutlinedIcon />} onClick={() => onDelete(inv)}>
+                      Eliminar
+                    </Button>
+                  )}
+                  <Button
+                    size="small"
+                    variant="text"
+                    startIcon={<DescriptionOutlinedIcon />}
+                    disabled={!inv.pdfUrl}
+                    onClick={() => {
+                      if (!inv.pdfUrl) return;
+                      window.open(inv.pdfUrl, '_blank', 'noopener,noreferrer');
+                    }}
+                  >
+                    PDF
+                  </Button>
+                </Stack>
+              </TableCell>
+            </TableRow>
+          );
+        })}
+
+        {invoices.length === 0 && (
+          <TableRow>
+            <TableCell colSpan={6} sx={{ py: 6 }}>
+              <Typography variant="body2" color="text.secondary" align="center">
+                No hay facturas registradas con los filtros seleccionados.
+              </Typography>
+            </TableCell>
+          </TableRow>
+        )}
+      </TableBody>
+    </Table>
+  );
+});
+
+const createInitialInvoiceState = (): Partial<Invoice> => ({
+  date: new Date().toISOString().split('T')[0],
+  dueDate: '',
+  siteId: '',
+  supplierId: '',
+  number: '',
+  description: '',
+  total: 0,
+  status: 'pending',
+});
+
 const Finance = () => {
   const { role } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
@@ -99,17 +255,7 @@ const Finance = () => {
     return Number.isFinite(num) ? num : 0;
   };
 
-  const initialInvoiceState: Partial<Invoice> = {
-    date: new Date().toISOString().split('T')[0],
-    dueDate: '',
-    siteId: '',
-    supplierId: '',
-    number: '',
-    description: '',
-    total: 0,
-    status: 'pending',
-  };
-  const [invoiceForm, setInvoiceForm] = useState<Partial<Invoice>>(initialInvoiceState);
+  const [invoiceForm, setInvoiceForm] = useState<Partial<Invoice>>(createInitialInvoiceState);
 
   const sortedSuppliers = useMemo(
     () => suppliers.slice().sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })),
@@ -140,19 +286,6 @@ const Finance = () => {
     setInvoiceNumberFilter('');
   };
 
-  const getDisplayStatus = (inv: Invoice) => {
-    if (inv.status === 'paid') {
-      return { label: 'Pagado', color: 'success' as const, icon: <CheckCircleOutlinedIcon fontSize="small" /> };
-    }
-
-    const today = new Date().toISOString().split('T')[0];
-    if (inv.dueDate && inv.dueDate < today) {
-      return { label: 'Vencido', color: 'error' as const, icon: <ErrorOutlineOutlinedIcon fontSize="small" /> };
-    }
-
-    return { label: 'Pendiente', color: 'warning' as const, icon: <ScheduleOutlinedIcon fontSize="small" /> };
-  };
-
   const filteredInvoices = useMemo(() => {
     const numberQuery = normalizeInvoiceNumber(invoiceNumberFilter);
     const filtered = invoices.filter((inv) => {
@@ -175,17 +308,17 @@ const Finance = () => {
     return { totalInvoiced, totalPaid, totalPending };
   }, [filteredInvoices]);
 
-  const openCreateInvoice = () => {
+  const openCreateInvoice = useCallback(() => {
     setEditingInvoiceId(null);
-    setInvoiceForm(initialInvoiceState);
+    setInvoiceForm(createInitialInvoiceState());
     setInvoiceTotalText('');
     setShowInvoiceDialog(true);
     setInvoiceFile(null);
     setInvoiceUploadPct(0);
     setDeleteAttachmentOpen(false);
-  };
+  }, []);
 
-  const openEditInvoice = (inv: Invoice) => {
+  const openEditInvoice = useCallback((inv: Invoice) => {
     setInvoiceForm(inv);
     setEditingInvoiceId(inv.id);
     setInvoiceTotalText(inv.total ? String(Math.round(Number(inv.total))) : '');
@@ -193,18 +326,18 @@ const Finance = () => {
     setInvoiceFile(null);
     setInvoiceUploadPct(0);
     setDeleteAttachmentOpen(false);
-  };
+  }, []);
 
-  const closeInvoiceDialog = () => {
+  const closeInvoiceDialog = useCallback(() => {
     setShowInvoiceDialog(false);
-    setInvoiceForm(initialInvoiceState);
+    setInvoiceForm(createInitialInvoiceState());
     setEditingInvoiceId(null);
     setInvoiceFile(null);
     setInvoiceUploadPct(0);
     setInvoiceTotalText('');
     setSavingInvoice(false);
     setDeleteAttachmentOpen(false);
-  };
+  }, []);
 
   const openCreateSupplier = () => {
     setEditingSupplierId(null);
@@ -229,15 +362,15 @@ const Finance = () => {
     setInvoiceUploadPct(0);
   };
 
-  const openDeleteInvoice = (inv: Invoice) => {
+  const openDeleteInvoice = useCallback((inv: Invoice) => {
     setInvoiceToDelete(inv);
     setDeleteInvoiceOpen(true);
-  };
+  }, []);
 
-  const closeDeleteInvoice = () => {
+  const closeDeleteInvoice = useCallback(() => {
     setDeleteInvoiceOpen(false);
     setInvoiceToDelete(null);
-  };
+  }, []);
 
   const handleDeleteInvoice = async () => {
     if (!canDelete || !invoiceToDelete) return;
@@ -418,12 +551,15 @@ const Finance = () => {
     }
   };
 
-  const toggleInvoiceStatus = async (inv: Invoice) => {
-    if (!canWrite) return;
-    const newStatus: Invoice['status'] = inv.status === 'paid' ? 'pending' : 'paid';
-    setInvoices((prev) => prev.map((item) => (item.id === inv.id ? { ...item, status: newStatus } : item)));
-    await updateInvoice(inv.id, { status: newStatus });
-  };
+  const toggleInvoiceStatus = useCallback(
+    async (inv: Invoice) => {
+      if (!canWrite) return;
+      const newStatus: Invoice['status'] = inv.status === 'paid' ? 'pending' : 'paid';
+      setInvoices((prev) => prev.map((item) => (item.id === inv.id ? { ...item, status: newStatus } : item)));
+      await updateInvoice(inv.id, { status: newStatus });
+    },
+    [canWrite]
+  );
 
   return (
     <Stack spacing={2.5}>
@@ -550,124 +686,16 @@ const Finance = () => {
 
           <Card>
             <CardContent sx={{ p: 0 }}>
-              <Table size="small">
-                <TableHead>
-                  <TableRow>
-                    <TableCell sx={{ fontWeight: 800 }}>Factura</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Detalle / Sede</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Estado</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }}>Fechas</TableCell>
-                    <TableCell sx={{ fontWeight: 800 }} align="right">
-                      Valor
-                    </TableCell>
-                    <TableCell sx={{ fontWeight: 800 }} align="right">
-                      Acciones
-                    </TableCell>
-                  </TableRow>
-                </TableHead>
-                <TableBody>
-                  {filteredInvoices.map((inv) => {
-                    const statusInfo = getDisplayStatus(inv);
-                    const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || 'N/A';
-                    const siteName = sites.find((s) => s.id === inv.siteId)?.name || 'Sede N/A';
-
-                  return (
-                      <TableRow key={inv.id} hover>
-                        <TableCell>
-                          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                            {inv.number}
-                          </Typography>
-                          <Typography variant="caption" color="text.secondary">
-                            {supplierName}
-                          </Typography>
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
-                            {inv.description}
-                          </Typography>
-                          <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                            <BusinessOutlinedIcon fontSize="small" color="action" />
-                            <Typography variant="caption" color="primary">
-                              {siteName}
-                            </Typography>
-                          </Stack>
-                        </TableCell>
-                        <TableCell>
-                          <Chip
-                            icon={statusInfo.icon}
-                            label={statusInfo.label}
-                            color={statusInfo.color}
-                            onClick={canWrite ? () => toggleInvoiceStatus(inv) : undefined}
-                            sx={{ fontWeight: 800 }}
-                          />
-                        </TableCell>
-                        <TableCell>
-                          <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>
-                            Rad: {inv.date}
-                          </Typography>
-                          {inv.dueDate && (
-                            <Typography variant="caption" color={statusInfo.label === 'Vencido' ? 'error.main' : 'text.secondary'}>
-                              Venc: {inv.dueDate}
-                            </Typography>
-                          )}
-                        </TableCell>
-                        <TableCell align="right">
-                          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                            ${Number(inv.total || 0).toLocaleString()}
-                          </Typography>
-                        </TableCell>
-                        <TableCell align="right">
-                        <Stack direction="row" spacing={1} justifyContent="flex-end">
-                          {canWrite && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<EditOutlinedIcon />}
-                                onClick={() => openEditInvoice(inv)}
-                              >
-                              Editar
-                            </Button>
-                          )}
-                          {canDelete && (
-                            <Button
-                              size="small"
-                              variant="text"
-                              color="error"
-                              startIcon={<DeleteOutlineOutlinedIcon />}
-                              onClick={() => openDeleteInvoice(inv)}
-                            >
-                              Eliminar
-                            </Button>
-                          )}
-                          <Button
-                            size="small"
-                            variant="text"
-                            startIcon={<DescriptionOutlinedIcon />}
-                            disabled={!inv.pdfUrl}
-                              onClick={() => {
-                                if (!inv.pdfUrl) return;
-                                window.open(inv.pdfUrl, '_blank', 'noopener,noreferrer');
-                              }}
-                            >
-                              PDF
-                            </Button>
-                          </Stack>
-                        </TableCell>
-                      </TableRow>
-                    );
-                  })}
-
-                  {filteredInvoices.length === 0 && (
-                    <TableRow>
-                      <TableCell colSpan={6} sx={{ py: 6 }}>
-                        <Typography variant="body2" color="text.secondary" align="center">
-                          No hay facturas registradas con los filtros seleccionados.
-                        </Typography>
-                      </TableCell>
-                    </TableRow>
-                  )}
-                </TableBody>
-              </Table>
+              <InvoiceTable
+                invoices={filteredInvoices}
+                suppliers={suppliers}
+                sites={sites}
+                canWrite={canWrite}
+                canDelete={canDelete}
+                onEdit={openEditInvoice}
+                onDelete={openDeleteInvoice}
+                onToggleStatus={toggleInvoiceStatus}
+              />
             </CardContent>
           </Card>
         </Stack>
