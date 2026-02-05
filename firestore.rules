@@ -59,6 +59,11 @@ service cloud.firestore {
         && value.matches('invoices/' + invoiceId + '/attachments/[^/]+');
     }
 
+    function isValidQuoteAttachmentPath(quoteId, value) {
+      return value is string
+        && value.matches('quotes/' + quoteId + '/attachments/[^/]+');
+    }
+
     function isValidActPdfPath(actId, value) {
       return value is string
         && value.matches('acts/' + actId + '/pdf/[^/]+');
@@ -101,6 +106,32 @@ service cloud.firestore {
       let pdfContentTypeOk = !data.keys().hasAny(['pdfContentType'])
         || data.pdfContentType == null
         || isValidInvoiceContentType(data.pdfContentType);
+
+      let pdfSizeOk = !data.keys().hasAny(['pdfSize'])
+        || (
+          isNullOrIntOrFloat(data.pdfSize)
+          && (data.pdfSize == null || (data.pdfSize >= 0 && data.pdfSize <= 10 * 1024 * 1024))
+        );
+
+      return pdfPathOk && pdfUrlOk && pdfNameOk && pdfContentTypeOk && pdfSizeOk;
+    }
+
+    function quoteAttachmentValid(quoteId) {
+      let data = request.resource.data;
+
+      let pdfPathOk = !data.keys().hasAny(['pdfPath'])
+        || data.pdfPath == null
+        || isValidQuoteAttachmentPath(quoteId, data.pdfPath);
+
+      let pdfUrlOk = !data.keys().hasAny(['pdfUrl'])
+        || isNullOrShortString(data.pdfUrl, 2048);
+
+      let pdfNameOk = !data.keys().hasAny(['pdfName'])
+        || isNullOrShortString(data.pdfName, 256);
+
+      let pdfContentTypeOk = !data.keys().hasAny(['pdfContentType'])
+        || data.pdfContentType == null
+        || (data.pdfContentType is string && data.pdfContentType.matches('application/pdf'));
 
       let pdfSizeOk = !data.keys().hasAny(['pdfSize'])
         || (
@@ -191,6 +222,14 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && invoiceAttachmentValid(invoiceId);
       allow update: if canWrite() && invoiceAttachmentValid(invoiceId);
+      allow delete: if isAdmin();
+    }
+
+    // QUOTES (Cotizaciones)
+    match /quotes/{quoteId} {
+      allow read: if isSignedIn();
+      allow create: if canWrite() && quoteAttachmentValid(quoteId);
+      allow update: if canWrite() && quoteAttachmentValid(quoteId);
       allow delete: if isAdmin();
     }
 

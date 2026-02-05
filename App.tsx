@@ -8,6 +8,7 @@ const Login = lazy(() => import('./pages/Login'));
 const Dashboard = lazy(() => import('./pages/Dashboard'));
 const Assets = lazy(() => import('./pages/Assets'));
 const Activities = lazy(() => import('./pages/Activities'));
+const Quotes = lazy(() => import('./pages/Quotes'));
 const Acts = lazy(() => import('./pages/Acts'));
 const Finance = lazy(() => import('./pages/Finance'));
 const Sites = lazy(() => import('./pages/Sites'));
@@ -100,6 +101,17 @@ function App() {
             <RequireAuth>
               <AppLayout>
                 <Activities />
+              </AppLayout>
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/quotes"
+          element={
+            <RequireAuth>
+              <AppLayout>
+                <Quotes />
               </AppLayout>
             </RequireAuth>
           }

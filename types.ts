@@ -106,6 +106,24 @@ export interface Invoice {
   createdAt: number;
 }
 
+export type QuoteStatus = 'pending' | 'approved' | 'rejected';
+
+export interface Quote {
+  id: string;
+  date: string; // YYYY-MM-DD
+  supplierId: string;
+  siteId: string;
+  status: QuoteStatus;
+  notes?: string;
+  pdfUrl?: string;
+  pdfPath?: string;
+  pdfName?: string;
+  pdfContentType?: string;
+  pdfSize?: number;
+  createdAt: number;
+  createdByUid?: string;
+}
+
 export type ActStatus = 'draft' | 'issued' | 'signed' | 'void';
 
 export interface Act {

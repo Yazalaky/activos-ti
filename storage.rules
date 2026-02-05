@@ -47,6 +47,12 @@ service firebase.storage {
       allow delete: if canWrite();
     }
 
+    match /quotes/{quoteId}/attachments/{fileName} {
+      allow read: if isSignedIn();
+      allow create, update: if canWrite() && isPdf() && underLimit(10 * 1024 * 1024);
+      allow delete: if canWrite();
+    }
+
     match /acts/{actId}/pdf/{fileName} {
       allow read: if isSignedIn();
       allow create, update: if canWrite() && isPdf() && underLimit(10 * 1024 * 1024);

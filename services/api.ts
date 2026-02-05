@@ -11,7 +11,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from '../firebaseDb';
-import type { Act, Activity, Asset, Invoice, Site, Supplier } from '../types';
+import type { Act, Activity, Asset, Invoice, Quote, Site, Supplier } from '../types';
 
 const fetchCollection = async <T>(collectionName: string): Promise<T[]> => {
   try {
@@ -130,6 +130,22 @@ export const addInvoice = async (data: Omit<Invoice, 'id'>) => {
 export const updateInvoice = (id: string, data: Partial<Invoice>) =>
   updateDoc(doc(db, 'invoices', id), data);
 export const deleteInvoice = (id: string) => deleteDoc(doc(db, 'invoices', id));
+
+// QUOTES (Cotizaciones)
+export const getQuotes = async () => {
+  try {
+    const q = query(collection(db, 'quotes'), orderBy('date', 'desc'));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Quote));
+  } catch (error) {
+    console.error('Error fetching quotes:', error);
+    return [];
+  }
+};
+
+export const addQuote = (data: Omit<Quote, 'id'>) => addDoc(collection(db, 'quotes'), data);
+export const updateQuote = (id: string, data: Partial<Quote>) => updateDoc(doc(db, 'quotes', id), data);
+export const deleteQuote = (id: string) => deleteDoc(doc(db, 'quotes', id));
 
 // ACTS (Actas)
 export const getActs = async () => {

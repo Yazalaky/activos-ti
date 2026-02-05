@@ -23,6 +23,7 @@ import DashboardOutlinedIcon from '@mui/icons-material/DashboardOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import LocationCityOutlinedIcon from '@mui/icons-material/LocationCityOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
@@ -48,6 +49,7 @@ const routeMeta: Record<string, { title: string; subtitle: string }> = {
   '/': { title: 'Dashboard', subtitle: 'KPIs y actividad reciente' },
   '/assets': { title: 'Inventario', subtitle: 'Gestión de activos' },
   '/activities': { title: 'Bitácora', subtitle: 'Registro de actividades' },
+  '/quotes': { title: 'Cotizaciones', subtitle: 'Registro de cotizaciones por sede' },
   '/acts': { title: 'Actas', subtitle: 'Actas de entrega por activo' },
   '/sites': { title: 'Sedes', subtitle: 'Administración y prefijos' },
   '/finance': { title: 'Finanzas', subtitle: 'Facturas, proveedores y costos' },
@@ -83,6 +85,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     {
       title: 'Gestión',
       items: [
+        { path: '/quotes', label: 'Cotizaciones', icon: <DescriptionOutlinedIcon /> },
         { path: '/sites', label: 'Sedes', icon: <LocationCityOutlinedIcon /> },
         { path: '/finance', label: 'Proveedores y Costos', icon: <ReceiptLongOutlinedIcon /> },
       ],
