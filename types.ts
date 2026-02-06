@@ -18,6 +18,7 @@ export interface Site {
   address: string;
   prefix: string; // Nuevo: Ejemplo MBOG, MMED, MCAL
   assetSeq?: number; // Secuencia para generar fixedAssetId
+  releasedAssetSeqs?: number[]; // Secuencias liberadas para reutilizar códigos
   companyId?: string; // Para seleccionar plantilla/logo del acta
 }
 
@@ -25,6 +26,7 @@ export interface Assignment {
   assignedToName: string;
   assignedToPosition: string;
   assignedAt: number; // Timestamp
+  assignedToResponsible?: string;
   assignedToDoc?: string; // Opcional (legacy)
 }
 

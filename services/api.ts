@@ -40,8 +40,19 @@ const generateNextFixedId = async (siteId: string): Promise<string> => {
     if (!siteSnap.exists()) {
       throw new Error('Sede no encontrada.');
     }
-    const data = siteSnap.data() as Partial<Site> & { assetSeq?: number };
+    const data = siteSnap.data() as Partial<Site> & { assetSeq?: number; releasedAssetSeqs?: number[] };
     const prefix = data.prefix || 'GEN';
+    const released = Array.isArray(data.releasedAssetSeqs)
+      ? data.releasedAssetSeqs.filter((n) => Number.isFinite(n))
+      : [];
+
+    if (released.length > 0) {
+      const nextSeq = Math.min(...released);
+      const nextReleased = released.filter((n) => n !== nextSeq);
+      tx.update(siteRef, { releasedAssetSeqs: nextReleased });
+      return `${prefix}-${String(nextSeq).padStart(3, '0')}`;
+    }
+
     const nextSeq = (data.assetSeq ?? 0) + 1;
     tx.update(siteRef, { assetSeq: nextSeq });
     return `${prefix}-${String(nextSeq).padStart(3, '0')}`;
@@ -76,10 +87,18 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string) => {
     if (!siteSnap.exists()) {
       throw new Error('Sede no encontrada.');
     }
-    const site = siteSnap.data() as Partial<Site> & { assetSeq?: number };
+    const site = siteSnap.data() as Partial<Site> & { assetSeq?: number; releasedAssetSeqs?: number[] };
     const prefix = String(site.prefix || 'GEN');
-    const nextSeq = (site.assetSeq ?? 0) + 1;
-    tx.update(siteRef, { assetSeq: nextSeq });
+    const released = Array.isArray(site.releasedAssetSeqs) ? site.releasedAssetSeqs.filter((n) => Number.isFinite(n)) : [];
+    let nextSeq: number;
+    if (released.length > 0) {
+      nextSeq = Math.min(...released);
+      const nextReleased = released.filter((n) => n !== nextSeq);
+      tx.update(siteRef, { releasedAssetSeqs: nextReleased });
+    } else {
+      nextSeq = (site.assetSeq ?? 0) + 1;
+      tx.update(siteRef, { assetSeq: nextSeq });
+    }
 
     const newFixedAssetId = `${prefix}-${String(nextSeq).padStart(3, '0')}`;
     const prevFixedAssetId = String(asset.fixedAssetId || '').trim();
@@ -130,6 +149,26 @@ export const addInvoice = async (data: Omit<Invoice, 'id'>) => {
 export const updateInvoice = (id: string, data: Partial<Invoice>) =>
   updateDoc(doc(db, 'invoices', id), data);
 export const deleteInvoice = (id: string) => deleteDoc(doc(db, 'invoices', id));
+
+// BULK ASSET DELETE (release sequences)
+export const bulkDeleteAssetsForSite = async (siteId: string, assetIds: string[], releasedSeqs: number[]) => {
+  const siteRef = doc(db, 'sites', siteId);
+  return runTransaction(db, async (tx) => {
+    const siteSnap = await tx.get(siteRef);
+    if (!siteSnap.exists()) {
+      throw new Error('Sede no encontrada.');
+    }
+    const data = siteSnap.data() as Partial<Site> & { releasedAssetSeqs?: number[] };
+    const existing = Array.isArray(data.releasedAssetSeqs)
+      ? data.releasedAssetSeqs.filter((n) => Number.isFinite(n))
+      : [];
+    const merged = Array.from(new Set([...existing, ...releasedSeqs])).sort((a, b) => a - b);
+    tx.update(siteRef, { releasedAssetSeqs: merged });
+    assetIds.forEach((id) => {
+      tx.delete(doc(db, 'assets', id));
+    });
+  });
+};
 
 // QUOTES (Cotizaciones)
 export const getQuotes = async () => {

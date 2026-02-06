@@ -200,7 +200,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && assetAttachmentValid(assetId);
       allow update: if canWrite() && assetAttachmentValid(assetId);
-      allow delete: if isAdmin();
+      allow delete: if canWrite();
     }
 
     // ACTIVITIES

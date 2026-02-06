@@ -42,7 +42,7 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import { addAsset, getAssets, getSites, moveAssetToSite, updateAsset } from '../services/api';
+import { addAsset, bulkDeleteAssetsForSite, getAssets, getSites, moveAssetToSite, updateAsset } from '../services/api';
 import type { Asset, AssetType, Assignment, Site, Status } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
@@ -212,6 +212,9 @@ const Assets = () => {
   const [returnAsset, setReturnAsset] = useState<Asset | null>(null);
 
   const [deleteImageOpen, setDeleteImageOpen] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('');
+  const [bulkDeleting, setBulkDeleting] = useState(false);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'warning' | 'error' }>({
     open: false,
@@ -245,13 +248,36 @@ const Assets = () => {
   const [imageUploadPct, setImageUploadPct] = useState<number>(0);
   const [saving, setSaving] = useState(false);
 
-  const [assignmentData, setAssignmentData] = useState({ name: '', position: '' });
-  const [inlineAssignment, setInlineAssignment] = useState({ name: '', position: '' });
+  const [assignmentData, setAssignmentData] = useState({ name: '', position: '', responsible: '' });
+  const [inlineAssignment, setInlineAssignment] = useState({ name: '', position: '', responsible: '' });
 
   const clearFilters = () => {
     setFilterText('');
     setSelectedSiteFilter('');
     setSelectedTypeFilter('');
+  };
+
+  const selectedSite = useMemo(
+    () => sites.find((site) => site.id === selectedSiteFilter) || null,
+    [sites, selectedSiteFilter]
+  );
+
+  const bodegaAssetsForSite = useMemo(
+    () => assets.filter((asset) => asset.siteId === selectedSiteFilter && asset.status === 'bodega'),
+    [assets, selectedSiteFilter]
+  );
+
+  const bulkConfirmPhrase = useMemo(() => {
+    const prefix = selectedSite?.prefix ? selectedSite.prefix.toUpperCase() : '';
+    return prefix ? `ELIMINAR ${prefix}` : 'ELIMINAR';
+  }, [selectedSite]);
+
+  const extractAssetSeq = (fixedAssetId?: string) => {
+    if (!fixedAssetId) return null;
+    const match = /-(\d+)$/.exec(fixedAssetId);
+    if (!match) return null;
+    const num = Number(match[1]);
+    return Number.isFinite(num) ? num : null;
   };
 
   const loadData = async () => {
@@ -297,7 +323,7 @@ const Assets = () => {
     setEditingId(null);
     setEditorMode('create');
     setFormData(initialFormState);
-    setInlineAssignment({ name: '', position: '' });
+    setInlineAssignment({ name: '', position: '', responsible: '' });
     setPreviewImage(null);
     setImageFile(null);
     setImageUploadPct(0);
@@ -311,6 +337,7 @@ const Assets = () => {
     setInlineAssignment({
       name: asset.currentAssignment?.assignedToName ?? '',
       position: asset.currentAssignment?.assignedToPosition ?? '',
+      responsible: asset.currentAssignment?.assignedToResponsible ?? '',
     });
     setMoveSiteId(asset.siteId);
     setPreviewImage(asset.imageUrl || null);
@@ -326,6 +353,7 @@ const Assets = () => {
     setInlineAssignment({
       name: asset.currentAssignment?.assignedToName ?? '',
       position: asset.currentAssignment?.assignedToPosition ?? '',
+      responsible: asset.currentAssignment?.assignedToResponsible ?? '',
     });
     setMoveSiteId(asset.siteId);
     setPreviewImage(asset.imageUrl || null);
@@ -452,8 +480,8 @@ const Assets = () => {
       return;
     }
     if (formData.status === 'asignado') {
-      if (!inlineAssignment.name.trim() || !inlineAssignment.position.trim()) {
-        setSnackbar({ open: true, message: 'Para estado Asignado, complete Nombre completo y Cargo.', severity: 'warning' });
+      if (!inlineAssignment.name.trim() || !inlineAssignment.position.trim() || !inlineAssignment.responsible.trim()) {
+        setSnackbar({ open: true, message: 'Para estado Asignado, complete Nombre completo, Cargo y Responsable.', severity: 'warning' });
         return;
       }
     }
@@ -477,6 +505,7 @@ const Assets = () => {
       dataToSave.currentAssignment = {
         assignedToName: inlineAssignment.name.trim(),
         assignedToPosition: inlineAssignment.position.trim(),
+        assignedToResponsible: inlineAssignment.responsible.trim(),
         assignedAt: typeof existingAssignedAt === 'number' ? existingAssignedAt : Date.now(),
       };
     } else {
@@ -536,7 +565,7 @@ const Assets = () => {
 
   const openAssign = useCallback((asset: Asset) => {
     setAssignAsset(asset);
-    setAssignmentData({ name: '', position: '' });
+    setAssignmentData({ name: '', position: '', responsible: '' });
     setAssignOpen(true);
   }, []);
 
@@ -544,14 +573,15 @@ const Assets = () => {
     e.preventDefault();
     if (!assignAsset) return;
 
-    if (!assignmentData.name || !assignmentData.position) {
-      setSnackbar({ open: true, message: 'Complete nombre completo y cargo.', severity: 'warning' });
+    if (!assignmentData.name || !assignmentData.position || !assignmentData.responsible) {
+      setSnackbar({ open: true, message: 'Complete nombre completo, cargo y responsable.', severity: 'warning' });
       return;
     }
 
     const newAssignment: Assignment = {
       assignedToName: assignmentData.name,
       assignedToPosition: assignmentData.position,
+      assignedToResponsible: assignmentData.responsible,
       assignedAt: Date.now(),
     };
 
@@ -570,6 +600,54 @@ const Assets = () => {
     setReturnAsset(asset);
     setReturnOpen(true);
   }, []);
+
+  const openBulkDelete = useCallback(() => {
+    setBulkDeleteConfirm('');
+    setBulkDeleteOpen(true);
+  }, []);
+
+  const closeBulkDelete = useCallback(() => {
+    setBulkDeleteOpen(false);
+    setBulkDeleteConfirm('');
+  }, []);
+
+  const handleBulkDelete = async () => {
+    if (!canWrite || !selectedSiteFilter) return;
+    if (bodegaAssetsForSite.length === 0) {
+      setSnackbar({ open: true, message: 'No hay activos en bodega para eliminar.', severity: 'warning' });
+      return;
+    }
+    if (bulkDeleteConfirm.trim().toUpperCase() !== bulkConfirmPhrase) {
+      setSnackbar({ open: true, message: 'La frase de confirmación no coincide.', severity: 'warning' });
+      return;
+    }
+
+    try {
+      setBulkDeleting(true);
+      const assetIds = bodegaAssetsForSite.map((asset) => asset.id);
+      const releasedSeqs = bodegaAssetsForSite
+        .map((asset) => extractAssetSeq(asset.fixedAssetId))
+        .filter((n): n is number => Number.isFinite(n));
+
+      await bulkDeleteAssetsForSite(selectedSiteFilter, assetIds, releasedSeqs);
+
+      const imagePaths = bodegaAssetsForSite
+        .map((asset) => asset.imagePath)
+        .filter((path): path is string => Boolean(path));
+      if (imagePaths.length > 0) {
+        await Promise.allSettled(imagePaths.map((path) => deleteStoragePath(path)));
+      }
+
+      setSnackbar({ open: true, message: 'Activos eliminados y códigos liberados.', severity: 'success' });
+      closeBulkDelete();
+      loadData();
+    } catch (error) {
+      console.error('Bulk delete error:', error);
+      setSnackbar({ open: true, message: 'No se pudieron eliminar los activos.', severity: 'error' });
+    } finally {
+      setBulkDeleting(false);
+    }
+  };
 
   const handleReturn = async () => {
     if (!returnAsset) return;
@@ -680,6 +758,19 @@ const Assets = () => {
                 </Button>
               </Grid>
             )}
+            {canWrite && selectedSiteFilter && (
+              <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteOutlineOutlinedIcon />}
+                  onClick={openBulkDelete}
+                  disabled={bodegaAssetsForSite.length === 0}
+                >
+                  Eliminar bodegas
+                </Button>
+              </Grid>
+            )}
           </Grid>
         </CardContent>
       </Card>
@@ -786,7 +877,7 @@ const Assets = () => {
                         ...(nextStatus !== 'asignado' ? { currentAssignment: null } : {}),
                       }));
                       if (nextStatus !== 'asignado') {
-                        setInlineAssignment({ name: '', position: '' });
+                        setInlineAssignment({ name: '', position: '', responsible: '' });
                       }
                     }}
                     disabled={readOnly}
@@ -824,6 +915,14 @@ const Assets = () => {
                         label="Cargo"
                         value={inlineAssignment.position}
                         onChange={(e) => setInlineAssignment((prev) => ({ ...prev, position: e.target.value }))}
+                        required
+                        fullWidth
+                        disabled={readOnly}
+                      />
+                      <TextField
+                        label="Responsable"
+                        value={inlineAssignment.responsible}
+                        onChange={(e) => setInlineAssignment((prev) => ({ ...prev, responsible: e.target.value }))}
                         required
                         fullWidth
                         disabled={readOnly}
@@ -1047,6 +1146,41 @@ const Assets = () => {
         </DialogContent>
       </Dialog>
 
+      <Dialog open={bulkDeleteOpen} onClose={closeBulkDelete} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Eliminar activos en bodega</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Alert severity="warning">
+              Esta acción eliminará <strong>{bodegaAssetsForSite.length}</strong> activo(s) en bodega de la sede{' '}
+              <strong>{selectedSite?.name || 'seleccionada'}</strong>. Los códigos se liberarán para reutilizarse.
+            </Alert>
+            <Typography variant="body2" color="text.secondary">
+              Para confirmar, escribe: <strong>{bulkConfirmPhrase}</strong>
+            </Typography>
+            <TextField
+              label="Confirmación"
+              value={bulkDeleteConfirm}
+              onChange={(e) => setBulkDeleteConfirm(e.target.value)}
+              fullWidth
+              disabled={bulkDeleting}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeBulkDelete} disabled={bulkDeleting}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleBulkDelete}
+            disabled={bulkDeleting || bulkDeleteConfirm.trim().toUpperCase() !== bulkConfirmPhrase}
+          >
+            Eliminar
+          </Button>
+        </DialogActions>
+      </Dialog>
+
       <Dialog open={assignOpen} onClose={() => setAssignOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>Asignar activo</DialogTitle>
         <DialogContent>
@@ -1056,22 +1190,29 @@ const Assets = () => {
             </Alert>
           )}
 	          <Box component="form" onSubmit={handleAssignment}>
-	            <Stack spacing={2} sx={{ mt: 1 }}>
-	              <TextField
-	                label="Nombre completo"
-	                value={assignmentData.name}
-	                onChange={(e) => setAssignmentData({ ...assignmentData, name: e.target.value })}
-	                required
-	                fullWidth
-	              />
-	              <TextField
-	                label="Cargo"
-	                value={assignmentData.position}
-	                onChange={(e) => setAssignmentData({ ...assignmentData, position: e.target.value })}
-	                required
-	                fullWidth
-	              />
-	            </Stack>
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <TextField
+                label="Nombre completo"
+                value={assignmentData.name}
+                onChange={(e) => setAssignmentData({ ...assignmentData, name: e.target.value })}
+                required
+                fullWidth
+              />
+              <TextField
+                label="Cargo"
+                value={assignmentData.position}
+                onChange={(e) => setAssignmentData({ ...assignmentData, position: e.target.value })}
+                required
+                fullWidth
+              />
+              <TextField
+                label="Responsable"
+                value={assignmentData.responsible}
+                onChange={(e) => setAssignmentData({ ...assignmentData, responsible: e.target.value })}
+                required
+                fullWidth
+              />
+            </Stack>
 
             <DialogActions sx={{ px: 0, mt: 2 }}>
               <Button onClick={() => setAssignOpen(false)}>Cancelar</Button>
