@@ -2,6 +2,17 @@
 
 Sistema de gestión de inventario TI, actividades y costos.
 
+## Documentacion recomendada (nuevo equipo)
+
+Lee estos archivos en este orden:
+
+1. `README.md`
+2. `docs/ARCHITECTURE.md`
+3. `docs/DECISIONS.md`
+4. `docs/ROADMAP.md`
+
+Con esto cualquier sesion nueva de Codex puede recuperar rapido el contexto tecnico y funcional del proyecto.
+
 ## 1. Diagrama de Entidades y Colecciones Firestore
 
 **Colecciones:**
