@@ -174,4 +174,7 @@ export interface Maintenance extends AuditFields {
   nextMaintenanceDate?: string;
   evidenceUrl?: string;
   evidencePath?: string;
+  evidenceName?: string;
+  evidenceContentType?: string;
+  evidenceSize?: number;
 }
