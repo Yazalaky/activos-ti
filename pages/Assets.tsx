@@ -758,32 +758,32 @@ const Assets = () => {
                 </Select>
               </FormControl>
             </Grid>
-            {(filterText || selectedSiteFilter || selectedTypeFilter) && (
-              <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
-                <Button
-                  variant="outlined"
-                  startIcon={<DownloadOutlinedIcon />}
-                  onClick={() => {
-                    const data = filteredAssets.map(a => {
-                      const site = sites.find(s => s.id === a.siteId);
-                      return {
-                        ActivoFijo: a.fixedAssetId,
-                        Tipo: a.type,
-                        Marca: a.brand,
-                        Modelo: a.model,
-                        Serial: a.serial,
-                        Sede: site?.name || '',
-                        Estado: a.status,
-                        AsignadoA: a.currentAssignment?.assignedToName || '',
-                        Cargo: a.currentAssignment?.assignedToPosition || '',
-                        Costo: a.cost || 0
-                      };
-                    });
-                    exportToCsv('Activos', data);
-                  }}
-                >
-                  Exportar
-                </Button>
+            <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+              <Button
+                variant="outlined"
+                startIcon={<DownloadOutlinedIcon />}
+                onClick={() => {
+                  const data = filteredAssets.map(a => {
+                    const site = sites.find(s => s.id === a.siteId);
+                    return {
+                      ActivoFijo: a.fixedAssetId,
+                      Tipo: a.type,
+                      Marca: a.brand,
+                      Modelo: a.model,
+                      Serial: a.serial,
+                      Sede: site?.name || '',
+                      Estado: a.status,
+                      AsignadoA: a.currentAssignment?.assignedToName || '',
+                      Cargo: a.currentAssignment?.assignedToPosition || '',
+                      Costo: a.cost || 0
+                    };
+                  });
+                  exportToCsv('Activos', data);
+                }}
+              >
+                Exportar
+              </Button>
+              {(filterText || selectedSiteFilter || selectedTypeFilter) && (
                 <Button
                   variant="text"
                   color="error"
@@ -792,8 +792,8 @@ const Assets = () => {
                 >
                   Limpiar
                 </Button>
-              </Grid>
-            )}
+              )}
+            </Grid>
             {canWrite && selectedSiteFilter && (
               <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Button

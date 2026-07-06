@@ -13,11 +13,22 @@ import {
 import { db } from '../firebaseDb';
 import type { Act, Activity, Asset, Invoice, Quote, Site, Supplier, Maintenance } from '../types';
 
-const fetchCollection = async <T>(collectionName: string): Promise<T[]> => {
+export interface QueryFilters {
+  siteId?: string;
+  startDate?: string;
+  endDate?: string;
+  supplierId?: string;
+  assetId?: string;
+  status?: string;
+}
+
+const fetchCollection = async <T extends { isDeleted?: boolean }>(collectionName: string): Promise<T[]> => {
   try {
     const q = query(collection(db, collectionName));
     const querySnapshot = await getDocs(q);
-    return querySnapshot.docs.map((snap) => ({ id: snap.id, ...snap.data() } as T));
+    return querySnapshot.docs
+      .map((snap) => ({ id: snap.id, ...snap.data() } as T))
+      .filter((item) => !item.isDeleted);
   } catch (error) {
     console.error(`Error fetching ${collectionName}:`, error);
     return [];
@@ -40,19 +51,10 @@ const generateNextFixedId = async (siteId: string): Promise<string> => {
     if (!siteSnap.exists()) {
       throw new Error('Sede no encontrada.');
     }
-    const data = siteSnap.data() as Partial<Site> & { assetSeq?: number; releasedAssetSeqs?: number[] };
+    const data = siteSnap.data() as Partial<Site> & { assetSeq?: number };
     const prefix = data.prefix || 'GEN';
-    const released = Array.isArray(data.releasedAssetSeqs)
-      ? data.releasedAssetSeqs.filter((n) => Number.isFinite(n))
-      : [];
 
-    if (released.length > 0) {
-      const nextSeq = Math.min(...released);
-      const nextReleased = released.filter((n) => n !== nextSeq);
-      tx.update(siteRef, { releasedAssetSeqs: nextReleased });
-      return `${prefix}-${String(nextSeq).padStart(3, '0')}`;
-    }
-
+    // No re-utilizamos secuencias para preservar histórico
     const nextSeq = (data.assetSeq ?? 0) + 1;
     tx.update(siteRef, { assetSeq: nextSeq });
     return `${prefix}-${String(nextSeq).padStart(3, '0')}`;
@@ -87,18 +89,11 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string) => {
     if (!siteSnap.exists()) {
       throw new Error('Sede no encontrada.');
     }
-    const site = siteSnap.data() as Partial<Site> & { assetSeq?: number; releasedAssetSeqs?: number[] };
+    const site = siteSnap.data() as Partial<Site> & { assetSeq?: number };
     const prefix = String(site.prefix || 'GEN');
-    const released = Array.isArray(site.releasedAssetSeqs) ? site.releasedAssetSeqs.filter((n) => Number.isFinite(n)) : [];
-    let nextSeq: number;
-    if (released.length > 0) {
-      nextSeq = Math.min(...released);
-      const nextReleased = released.filter((n) => n !== nextSeq);
-      tx.update(siteRef, { releasedAssetSeqs: nextReleased });
-    } else {
-      nextSeq = (site.assetSeq ?? 0) + 1;
-      tx.update(siteRef, { assetSeq: nextSeq });
-    }
+    
+    const nextSeq = (site.assetSeq ?? 0) + 1;
+    tx.update(siteRef, { assetSeq: nextSeq });
 
     const newFixedAssetId = `${prefix}-${String(nextSeq).padStart(3, '0')}`;
     const prevFixedAssetId = String(asset.fixedAssetId || '').trim();
@@ -120,11 +115,20 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string) => {
 };
 
 // ACTIVITIES
-export const getActivities = async () => {
+export const getActivities = async (filters?: QueryFilters) => {
   try {
     const q = query(collection(db, 'activities'), orderBy('date', 'desc'));
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Activity));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() } as Activity))
+      .filter((item) => !item.isDeleted)
+      .filter((item) => {
+        if (filters?.siteId && item.siteId !== filters.siteId) return false;
+        if (filters?.startDate && item.date < filters.startDate) return false;
+        if (filters?.endDate && item.date > filters.endDate) return false;
+        if (filters?.assetId && item.assetId !== filters.assetId) return false;
+        return true;
+      });
   } catch (error) {
     console.error('Error fetching activities:', error);
     return [];
@@ -140,7 +144,17 @@ export const addSupplier = (data: Omit<Supplier, 'id'>, actorUid?: string) => ad
 export const updateSupplier = (id: string, data: Partial<Supplier>, actorUid?: string) => updateDoc(doc(db, 'suppliers', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
 // INVOICES
-export const getInvoices = () => fetchCollection<Invoice>('invoices');
+export const getInvoices = async (filters?: QueryFilters) => {
+  const all = await fetchCollection<Invoice>('invoices');
+  return all.filter((item) => {
+    if (filters?.siteId && item.siteId !== filters.siteId) return false;
+    if (filters?.startDate && item.date < filters.startDate) return false;
+    if (filters?.endDate && item.date > filters.endDate) return false;
+    if (filters?.supplierId && item.supplierId !== filters.supplierId) return false;
+    if (filters?.status && item.status !== filters.status) return false;
+    return true;
+  });
+};
 export const addInvoice = async (data: Omit<Invoice, 'id'>, actorUid?: string) => {
   const finalData = { ...data, status: data.status ?? 'pending', createdAt: Date.now(), createdByUid: actorUid };
   return addDoc(collection(db, 'invoices'), finalData);
@@ -148,22 +162,11 @@ export const addInvoice = async (data: Omit<Invoice, 'id'>, actorUid?: string) =
 
 export const updateInvoice = (id: string, data: Partial<Invoice>, actorUid?: string) =>
   updateDoc(doc(db, 'invoices', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
-export const deleteInvoice = (id: string) => deleteDoc(doc(db, 'invoices', id));
+export const deleteInvoice = (id: string, actorUid?: string) => updateDoc(doc(db, 'invoices', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
 
-// BULK ASSET DELETE (release sequences)
 export const bulkDeleteAssetsForSite = async (siteId: string, assetIds: string[], releasedSeqs: number[], actorUid?: string) => {
-  const siteRef = doc(db, 'sites', siteId);
+  // Ignoramos releasedSeqs para no reutilizar
   return runTransaction(db, async (tx) => {
-    const siteSnap = await tx.get(siteRef);
-    if (!siteSnap.exists()) {
-      throw new Error('Sede no encontrada.');
-    }
-    const data = siteSnap.data() as Partial<Site> & { releasedAssetSeqs?: number[] };
-    const existing = Array.isArray(data.releasedAssetSeqs)
-      ? data.releasedAssetSeqs.filter((n) => Number.isFinite(n))
-      : [];
-    const merged = Array.from(new Set([...existing, ...releasedSeqs])).sort((a, b) => a - b);
-    tx.update(siteRef, { releasedAssetSeqs: merged });
     assetIds.forEach((id) => {
       tx.update(doc(db, 'assets', id), { isDeleted: true, status: 'baja', deletedAt: Date.now(), deletedByUid: actorUid });
     });
@@ -175,7 +178,7 @@ export const getQuotes = async () => {
   try {
     const q = query(collection(db, 'quotes'), orderBy('date', 'desc'));
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Quote));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Quote)).filter(x => !x.isDeleted);
   } catch (error) {
     console.error('Error fetching quotes:', error);
     return [];
@@ -184,14 +187,14 @@ export const getQuotes = async () => {
 
 export const addQuote = (data: Omit<Quote, 'id'>, actorUid?: string) => addDoc(collection(db, 'quotes'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateQuote = (id: string, data: Partial<Quote>, actorUid?: string) => updateDoc(doc(db, 'quotes', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
-export const deleteQuote = (id: string) => deleteDoc(doc(db, 'quotes', id));
+export const deleteQuote = (id: string, actorUid?: string) => updateDoc(doc(db, 'quotes', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
 
 // ACTS (Actas)
 export const getActs = async () => {
   try {
     const q = query(collection(db, 'acts'), orderBy('createdAt', 'desc'));
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Act));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Act)).filter(x => !x.isDeleted);
   } catch (error) {
     console.error('Error fetching acts:', error);
     return [];
@@ -200,10 +203,20 @@ export const getActs = async () => {
 
 export const addAct = (data: Omit<Act, 'id'>, actorUid?: string) => addDoc(collection(db, 'acts'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateAct = (id: string, data: Partial<Act>, actorUid?: string) => updateDoc(doc(db, 'acts', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
-export const deleteAct = (id: string) => deleteDoc(doc(db, 'acts', id));
+export const deleteAct = (id: string, actorUid?: string) => updateDoc(doc(db, 'acts', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
 
 // MAINTENANCES
-export const getMaintenances = () => fetchCollection<Maintenance>('maintenances');
+export const getMaintenances = async (filters?: QueryFilters) => {
+  const all = await fetchCollection<Maintenance>('maintenances');
+  return all.filter((item) => {
+    if (filters?.siteId && item.siteId !== filters.siteId) return false;
+    if (filters?.startDate && item.scheduledDate && item.scheduledDate < filters.startDate) return false;
+    if (filters?.endDate && item.scheduledDate && item.scheduledDate > filters.endDate) return false;
+    if (filters?.assetId && item.assetId !== filters.assetId) return false;
+    if (filters?.status && item.status !== filters.status) return false;
+    return true;
+  });
+};
 export const addMaintenance = (data: Omit<Maintenance, 'id'>, actorUid?: string) => addDoc(collection(db, 'maintenances'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateMaintenance = (id: string, data: Partial<Maintenance>, actorUid?: string) => updateDoc(doc(db, 'maintenances', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 export const softDeleteMaintenance = (id: string, actorUid?: string) => updateDoc(doc(db, 'maintenances', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });

@@ -131,7 +131,7 @@ const pickUniquePrefix = (name: string, used: Set<string>) => {
 };
 
 const Sites = () => {
-  const { role } = useAuth();
+  const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
 
   const [sites, setSites] = useState<Site[]>([]);
@@ -250,10 +250,10 @@ const Sites = () => {
       };
 
       if (editingId) {
-        await updateSite(editingId, payload);
+        await updateSite(editingId, payload, profile?.uid);
         setSnackbar({ open: true, message: 'Sede actualizada.', severity: 'success' });
       } else {
-        await addSite(payload as any);
+        await addSite(payload as any, profile?.uid);
         setSnackbar({ open: true, message: 'Sede creada.', severity: 'success' });
       }
       closeEditor();
@@ -275,7 +275,7 @@ const Sites = () => {
     if (!deleteTarget) return;
     if (!canWrite) return;
     try {
-      await deleteSite(deleteTarget.id);
+      await deleteSite(deleteTarget.id, profile?.uid);
       setSnackbar({ open: true, message: 'Sede eliminada.', severity: 'success' });
       setDeleteOpen(false);
       setDeleteTarget(null);

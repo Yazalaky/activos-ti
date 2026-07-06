@@ -147,8 +147,8 @@ const ActivityList = React.memo(function ActivityList({ activities, sites, asset
 });
 
 const Activities = () => {
-  const { role } = useAuth();
-  const canWrite = role === 'admin' || role === 'tech';
+  const { profile } = useAuth();
+  const canWrite = profile?.role === 'admin' || profile?.role === 'tech';
   const [activities, setActivities] = useState<Activity[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -237,9 +237,9 @@ const Activities = () => {
     try {
       if (editingId) {
         const { id, ...toUpdate } = dataToSave as any;
-        await updateActivity(editingId, toUpdate);
+        await updateActivity(editingId, toUpdate, profile?.uid);
       } else {
-        await addActivity(dataToSave as Omit<Activity, 'id'>);
+        await addActivity(dataToSave as Omit<Activity, 'id'>, profile?.uid);
       }
       closeDialog();
       loadData();
