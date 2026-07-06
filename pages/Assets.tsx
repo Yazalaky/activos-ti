@@ -650,7 +650,7 @@ const Assets = () => {
         await Promise.allSettled(imagePaths.map((path) => deleteStoragePath(path)));
       }
 
-      setSnackbar({ open: true, message: 'Activos eliminados y códigos liberados.', severity: 'success' });
+      setSnackbar({ open: true, message: 'Activos dados de baja correctamente.', severity: 'success' });
       closeBulkDelete();
       loadData();
     } catch (error) {

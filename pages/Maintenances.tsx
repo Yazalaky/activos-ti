@@ -27,19 +27,20 @@ import {
   TableRow,
   TextField,
   Typography,
+  LinearProgress,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
-import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
-import ClearOutlinedIcon from '@mui/icons-material/ClearOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
-import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
+import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import { addMaintenance, getAssets, getMaintenances, getSites, getSuppliers, softDeleteMaintenance, updateMaintenance } from '../services/api';
 import type { Asset, Maintenance, Site, Supplier } from '../types';
 import { useAuth } from '../auth/AuthContext';
 import { exportToCsv } from '../utils/exportCsv';
+import { uploadFileToStorage } from '../services/storageUpload';
+import { deleteStoragePath } from '../services/storageFiles';
 
 const statusMap: Record<Maintenance['status'], { label: string; color: any }> = {
   programado: { label: 'Programado', color: 'info' },
@@ -57,6 +58,8 @@ const createInitialState = (): Partial<Maintenance> => ({
   cost: 0,
 });
 
+const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
+
 const Maintenances = () => {
   const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
@@ -70,6 +73,9 @@ const Maintenances = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [formData, setFormData] = useState<Partial<Maintenance>>(createInitialState());
+  const [evidenceFile, setEvidenceFile] = useState<File | null>(null);
+  const [evidenceUploadPct, setEvidenceUploadPct] = useState(0);
+  const [saving, setSaving] = useState(false);
 
   const [filterStartDate, setFilterStartDate] = useState('');
   const [filterEndDate, setFilterEndDate] = useState('');
@@ -113,12 +119,16 @@ const Maintenances = () => {
   const openCreate = () => {
     setEditingId(null);
     setFormData(createInitialState());
+    setEvidenceFile(null);
+    setEvidenceUploadPct(0);
     setDialogOpen(true);
   };
 
   const openEdit = (m: Maintenance) => {
     setEditingId(m.id);
     setFormData(m);
+    setEvidenceFile(null);
+    setEvidenceUploadPct(0);
     setDialogOpen(true);
   };
   
@@ -126,6 +136,9 @@ const Maintenances = () => {
     setDialogOpen(false);
     setFormData(createInitialState());
     setEditingId(null);
+    setEvidenceFile(null);
+    setEvidenceUploadPct(0);
+    setSaving(false);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -135,11 +148,51 @@ const Maintenances = () => {
       return;
     }
     try {
+      setSaving(true);
       if (editingId) {
-        await updateMaintenance(editingId, formData, profile?.uid);
+        const dataToUpdate: Partial<Maintenance> = { ...formData };
+
+        if (evidenceFile) {
+          const previousPath = String(formData.evidencePath || '').trim();
+          const ts = Date.now();
+          const result = await uploadFileToStorage(
+            `maintenances/${editingId}/attachments/${ts}-${evidenceFile.name}`,
+            evidenceFile,
+            setEvidenceUploadPct
+          );
+          dataToUpdate.evidenceUrl = result.url;
+          dataToUpdate.evidencePath = result.path;
+          dataToUpdate.evidenceName = result.name;
+          dataToUpdate.evidenceContentType = result.contentType;
+          dataToUpdate.evidenceSize = result.size;
+
+          if (previousPath && previousPath !== result.path) {
+            deleteStoragePath(previousPath).catch(() => undefined);
+          }
+        }
+
+        await updateMaintenance(editingId, dataToUpdate, profile?.uid);
         setSnackbar({ open: true, message: 'Mantenimiento actualizado.', severity: 'success' });
       } else {
-        await addMaintenance(formData as Omit<Maintenance, 'id'>, profile?.uid);
+        const { evidenceUrl, evidencePath, evidenceName, evidenceContentType, evidenceSize, ...createPayload } = formData as any;
+        const docRef: any = await addMaintenance(createPayload as Omit<Maintenance, 'id'>, profile?.uid);
+
+        if (evidenceFile) {
+          const ts = Date.now();
+          const result = await uploadFileToStorage(
+            `maintenances/${docRef.id}/attachments/${ts}-${evidenceFile.name}`,
+            evidenceFile,
+            setEvidenceUploadPct
+          );
+          await updateMaintenance(docRef.id, {
+            evidenceUrl: result.url,
+            evidencePath: result.path,
+            evidenceName: result.name,
+            evidenceContentType: result.contentType,
+            evidenceSize: result.size,
+          }, profile?.uid);
+        }
+
         setSnackbar({ open: true, message: 'Mantenimiento creado.', severity: 'success' });
       }
       closeDialog();
@@ -147,6 +200,8 @@ const Maintenances = () => {
     } catch (err) {
       console.error(err);
       setSnackbar({ open: true, message: 'Error al guardar.', severity: 'error' });
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -255,6 +310,7 @@ const Maintenances = () => {
                 <TableCell>Activo</TableCell>
                 <TableCell>Sede</TableCell>
                 <TableCell>Tipo / Estado</TableCell>
+                <TableCell>Evidencia</TableCell>
                 <TableCell align="right">Costo</TableCell>
                 <TableCell align="right">Acciones</TableCell>
               </TableRow>
@@ -277,6 +333,22 @@ const Maintenances = () => {
                         <Chip size="small" label={statusMap[m.status]?.label} color={statusMap[m.status]?.color} />
                       </Stack>
                     </TableCell>
+                    <TableCell>
+                      {m.evidenceUrl ? (
+                        <Button
+                          size="small"
+                          variant="text"
+                          href={m.evidenceUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          startIcon={<OpenInNewOutlinedIcon />}
+                        >
+                          Abrir
+                        </Button>
+                      ) : (
+                        <Typography variant="caption" color="text.secondary">Sin evidencia</Typography>
+                      )}
+                    </TableCell>
                     <TableCell align="right">${Number(m.cost || 0).toLocaleString()}</TableCell>
                     <TableCell align="right">
                       {canWrite && (
@@ -290,7 +362,7 @@ const Maintenances = () => {
                 );
               })}
               {filteredMaintenances.length === 0 && (
-                <TableRow><TableCell colSpan={6} align="center" sx={{ py: 3 }}>No hay mantenimientos registrados.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} align="center" sx={{ py: 3 }}>No hay mantenimientos registrados.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -365,10 +437,56 @@ const Maintenances = () => {
               <Grid size={12}>
                 <TextField fullWidth multiline minRows={2} label="Acciones realizadas" value={formData.actionsTaken || ''} onChange={e => setFormData({ ...formData, actionsTaken: e.target.value })} />
               </Grid>
+              <Grid size={12}>
+                <Stack spacing={1}>
+                  <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+                    <Button component="label" variant="outlined" startIcon={<AttachFileOutlinedIcon />} disabled={saving}>
+                      {evidenceFile ? 'Cambiar evidencia' : 'Adjuntar evidencia'}
+                      <input
+                        hidden
+                        type="file"
+                        accept="application/pdf,image/*"
+                        onChange={(e) => {
+                          const file = e.target.files?.[0] || null;
+                          if (file && file.size > MAX_EVIDENCE_BYTES) {
+                            setEvidenceFile(null);
+                            setEvidenceUploadPct(0);
+                            setSnackbar({ open: true, message: 'La evidencia no puede superar 10 MB.', severity: 'warning' });
+                            e.target.value = '';
+                            return;
+                          }
+                          setEvidenceFile(file);
+                          setEvidenceUploadPct(0);
+                          e.target.value = '';
+                        }}
+                      />
+                    </Button>
+                    {formData.evidenceUrl && (
+                      <Button
+                        variant="text"
+                        href={formData.evidenceUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        startIcon={<OpenInNewOutlinedIcon />}
+                      >
+                        Ver evidencia actual
+                      </Button>
+                    )}
+                  </Stack>
+                  <Typography variant="caption" color="text.secondary">
+                    {evidenceFile
+                      ? `${evidenceFile.name} (${(evidenceFile.size / 1024 / 1024).toFixed(2)} MB)`
+                      : formData.evidenceName || 'PDF o imagen, máximo 10 MB.'}
+                  </Typography>
+                  {evidenceUploadPct > 0 && evidenceUploadPct < 100 && (
+                    <LinearProgress variant="determinate" value={evidenceUploadPct} />
+                  )}
+                </Stack>
+              </Grid>
             </Grid>
             <DialogActions sx={{ px: 0, mt: 2 }}>
-              <Button onClick={closeDialog}>Cancelar</Button>
-              <Button type="submit" variant="contained">Guardar</Button>
+              <Button onClick={closeDialog} disabled={saving}>Cancelar</Button>
+              <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
             </DialogActions>
           </Box>
         </DialogContent>
