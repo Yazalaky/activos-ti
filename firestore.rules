@@ -212,14 +212,14 @@ service cloud.firestore {
     match /activities/{activityId} {
       allow read: if isSignedIn();
       allow create, update: if isAdmin() || isTech();
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // SUPPLIERS
     match /suppliers/{supplierId} {
       allow read: if isSignedIn();
       allow create, update: if isAdmin() || isTech();
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // INVOICES
@@ -227,7 +227,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && invoiceAttachmentValid(invoiceId);
       allow update: if canWrite() && invoiceAttachmentValid(invoiceId);
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // QUOTES (Cotizaciones)
@@ -235,7 +235,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && quoteAttachmentValid(quoteId);
       allow update: if canWrite() && quoteAttachmentValid(quoteId);
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // ACTS (Actas de entrega)
@@ -243,7 +243,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && actAttachmentValid(actId);
       allow update: if canWrite() && actAttachmentValid(actId);
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // MAINTENANCES

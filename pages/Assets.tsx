@@ -193,7 +193,7 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
 });
 
 const Assets = () => {
-  const { role } = useAuth();
+  const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
   const [assets, setAssets] = useState<Asset[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -412,7 +412,7 @@ const Assets = () => {
 
     try {
       setMovingSite(true);
-      const result = await moveAssetToSite(editingId, nextSiteId);
+      const result = await moveAssetToSite(editingId, nextSiteId, profile?.uid);
       if (result.changed) {
         setFormData((prev) => ({
           ...prev,
@@ -465,7 +465,7 @@ const Assets = () => {
       if (path) {
         await deleteStoragePath(path);
       }
-      await updateAsset(editingId, { imageUrl: null, imagePath: null } as any);
+      await updateAsset(editingId, { imageUrl: null, imagePath: null } as any, profile?.uid);
       setFormData((prev) => ({ ...prev, imageUrl: '', imagePath: '' }));
       setPreviewImage(null);
       setImageFile(null);
@@ -547,11 +547,11 @@ const Assets = () => {
           }
         }
 
-        await updateAsset(editingId, updatePayload);
+        await updateAsset(editingId, updatePayload, profile?.uid);
         setSnackbar({ open: true, message: 'Activo actualizado.', severity: 'success' });
       } else {
         const { id, fixedAssetId, createdAt, imageUrl, imagePath, ...createPayload } = dataToSave;
-        const docRef: any = await addAsset(createPayload as any);
+        const docRef: any = await addAsset(createPayload as any, profile?.uid);
 
         if (imageFile) {
           const ts = Date.now();
@@ -560,7 +560,7 @@ const Assets = () => {
             imageFile,
             setImageUploadPct
           );
-          await updateAsset(docRef.id, { imageUrl: result.url, imagePath: result.path });
+          await updateAsset(docRef.id, { imageUrl: result.url, imagePath: result.path }, profile?.uid);
         }
 
         setSnackbar({ open: true, message: 'Activo creado.', severity: 'success' });
@@ -600,7 +600,7 @@ const Assets = () => {
     await updateAsset(assignAsset.id, {
       status: 'asignado',
       currentAssignment: newAssignment,
-    });
+    }, profile?.uid);
 
     setAssignOpen(false);
     setAssignAsset(null);
@@ -641,7 +641,7 @@ const Assets = () => {
         .map((asset) => extractAssetSeq(asset.fixedAssetId))
         .filter((n): n is number => Number.isFinite(n));
 
-      await bulkDeleteAssetsForSite(selectedSiteFilter, assetIds, releasedSeqs);
+      await bulkDeleteAssetsForSite(selectedSiteFilter, assetIds, releasedSeqs, profile?.uid);
 
       const imagePaths = bodegaAssetsForSite
         .map((asset) => asset.imagePath)
@@ -663,7 +663,7 @@ const Assets = () => {
 
   const handleReturn = async () => {
     if (!returnAsset) return;
-    await updateAsset(returnAsset.id, { status: 'bodega', currentAssignment: null });
+    await updateAsset(returnAsset.id, { status: 'bodega', currentAssignment: null }, profile?.uid);
     setReturnOpen(false);
     setReturnAsset(null);
     setSnackbar({ open: true, message: 'Activo retornado a bodega.', severity: 'success' });

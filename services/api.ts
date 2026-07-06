@@ -70,7 +70,7 @@ export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>, actorUi
 export const updateAsset = (id: string, data: Partial<Asset>, actorUid?: string) =>
   updateDoc(doc(db, 'assets', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
-export const moveAssetToSite = async (assetId: string, newSiteId: string) => {
+export const moveAssetToSite = async (assetId: string, newSiteId: string, actorUid?: string) => {
   const assetRef = doc(db, 'assets', assetId);
   const siteRef = doc(db, 'sites', newSiteId);
 
@@ -108,6 +108,8 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string) => {
       previousFixedAssetIds: nextPrevList,
       movedAt: Date.now(),
       movedFromSiteId: currentSiteId || null,
+      updatedAt: Date.now(),
+      updatedByUid: actorUid,
     } as any);
 
     return { changed: true, fixedAssetId: newFixedAssetId, siteId: newSiteId };
@@ -220,4 +222,3 @@ export const getMaintenances = async (filters?: QueryFilters) => {
 export const addMaintenance = (data: Omit<Maintenance, 'id'>, actorUid?: string) => addDoc(collection(db, 'maintenances'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateMaintenance = (id: string, data: Partial<Maintenance>, actorUid?: string) => updateDoc(doc(db, 'maintenances', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 export const softDeleteMaintenance = (id: string, actorUid?: string) => updateDoc(doc(db, 'maintenances', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
-

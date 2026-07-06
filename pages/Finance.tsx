@@ -209,7 +209,7 @@ const createInitialInvoiceState = (): Partial<Invoice> => ({
 });
 
 const Finance = () => {
-  const { role } = useAuth();
+  const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
   const canDelete = role === 'admin';
   const [activeTab, setActiveTab] = useState<TabKey>('invoices');
