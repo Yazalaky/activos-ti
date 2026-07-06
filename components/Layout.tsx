@@ -28,6 +28,7 @@ import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import LocationCityOutlinedIcon from '@mui/icons-material/LocationCityOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
+import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { auth } from '../firebaseAuth';
 import { useAuth } from '../auth/AuthContext';
 import type { Role } from '../types';
@@ -51,6 +52,7 @@ const routeMeta: Record<string, { title: string; subtitle: string }> = {
   '/activities': { title: 'Bitácora', subtitle: 'Registro de actividades' },
   '/quotes': { title: 'Cotizaciones', subtitle: 'Registro de cotizaciones por sede' },
   '/acts': { title: 'Actas', subtitle: 'Actas de entrega por activo' },
+  '/maintenances': { title: 'Mantenimientos', subtitle: 'Gestión de mantenimientos' },
   '/sites': { title: 'Sedes', subtitle: 'Administración y prefijos' },
   '/finance': { title: 'Finanzas', subtitle: 'Facturas, proveedores y costos' },
   '/admin/users': { title: 'Usuarios', subtitle: 'Gestión de accesos y roles' },
@@ -79,6 +81,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         { path: '/', label: 'Dashboard', icon: <DashboardOutlinedIcon /> },
         { path: '/assets', label: 'Inventario', icon: <Inventory2OutlinedIcon /> },
         { path: '/activities', label: 'Bitácora', icon: <ListAltOutlinedIcon /> },
+        { path: '/maintenances', label: 'Mantenimientos', icon: <BuildOutlinedIcon /> },
         { path: '/acts', label: 'Actas', icon: <AssignmentOutlinedIcon /> },
       ],
     },

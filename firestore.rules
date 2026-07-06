@@ -240,5 +240,14 @@ service cloud.firestore {
       allow update: if canWrite() && actAttachmentValid(actId);
       allow delete: if isAdmin();
     }
+
+    // MAINTENANCES
+    match /maintenances/{maintenanceId} {
+      allow read: if isSignedIn();
+      allow create, update: if canWrite()
+        && request.resource.data.type in ['preventivo', 'correctivo']
+        && request.resource.data.status in ['programado', 'en_proceso', 'realizado', 'cancelado'];
+      allow delete: if false; // physical delete blocked
+    }
   }
 }

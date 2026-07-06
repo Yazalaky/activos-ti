@@ -34,6 +34,8 @@ import { es } from 'date-fns/locale';
 import { addActivity, getActivities, getAssets, getSites, updateActivity } from '../services/api';
 import type { Activity, Asset, Site } from '../types';
 import { useAuth } from '../auth/AuthContext';
+import { exportToCsv } from '../utils/exportCsv';
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
 const parseLocalDate = (dateStr: string) => {
   const [y, m, d] = dateStr.split('-').map((v) => Number(v));
@@ -298,6 +300,29 @@ const Activities = () => {
                 Limpiar
               </Button>
             )}
+            <Button
+              variant="outlined"
+              startIcon={<DownloadOutlinedIcon />}
+              sx={{ ml: (startDate || endDate) ? 1 : 'auto' }}
+              onClick={() => {
+                const data = filteredActivities.map(a => {
+                  const site = sites.find(s => s.id === a.siteId);
+                  const asset = assets.find(as => as.id === a.assetId);
+                  return {
+                    Fecha: a.date,
+                    Tipo: a.type,
+                    Prioridad: a.priority,
+                    Tecnico: a.techName,
+                    Sede: site?.name || '',
+                    Activo: asset?.fixedAssetId || '',
+                    Descripcion: a.description
+                  };
+                });
+                exportToCsv('Bitacora', data);
+              }}
+            >
+              Exportar
+            </Button>
           </Stack>
         </CardContent>
       </Card>

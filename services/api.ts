@@ -11,7 +11,7 @@ import {
   where,
 } from 'firebase/firestore';
 import { db } from '../firebaseDb';
-import type { Act, Activity, Asset, Invoice, Quote, Site, Supplier } from '../types';
+import type { Act, Activity, Asset, Invoice, Quote, Site, Supplier, Maintenance } from '../types';
 
 const fetchCollection = async <T>(collectionName: string): Promise<T[]> => {
   try {
@@ -26,9 +26,9 @@ const fetchCollection = async <T>(collectionName: string): Promise<T[]> => {
 
 // SITES
 export const getSites = () => fetchCollection<Site>('sites');
-export const addSite = (data: Omit<Site, 'id'>) => addDoc(collection(db, 'sites'), data);
-export const deleteSite = (id: string) => deleteDoc(doc(db, 'sites', id));
-export const updateSite = (id: string, data: Partial<Site>) => updateDoc(doc(db, 'sites', id), data);
+export const addSite = (data: Omit<Site, 'id'>, actorUid?: string) => addDoc(collection(db, 'sites'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
+export const deleteSite = (id: string, actorUid?: string) => updateDoc(doc(db, 'sites', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
+export const updateSite = (id: string, data: Partial<Site>, actorUid?: string) => updateDoc(doc(db, 'sites', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
 // ASSETS
 export const getAssets = () => fetchCollection<Asset>('assets');
@@ -59,14 +59,14 @@ const generateNextFixedId = async (siteId: string): Promise<string> => {
   });
 };
 
-export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>) => {
+export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>, actorUid?: string) => {
   const fixedAssetId = await generateNextFixedId(data.siteId);
-  const finalData = { ...data, fixedAssetId, createdAt: Date.now() };
+  const finalData = { ...data, fixedAssetId, createdAt: Date.now(), createdByUid: actorUid };
   return addDoc(collection(db, 'assets'), finalData);
 };
 
-export const updateAsset = (id: string, data: Partial<Asset>) =>
-  updateDoc(doc(db, 'assets', id), data);
+export const updateAsset = (id: string, data: Partial<Asset>, actorUid?: string) =>
+  updateDoc(doc(db, 'assets', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
 export const moveAssetToSite = async (assetId: string, newSiteId: string) => {
   const assetRef = doc(db, 'assets', assetId);
@@ -131,27 +131,27 @@ export const getActivities = async () => {
   }
 };
 
-export const addActivity = (data: Omit<Activity, 'id'>) => addDoc(collection(db, 'activities'), data);
-export const updateActivity = (id: string, data: Partial<Activity>) => updateDoc(doc(db, 'activities', id), data);
+export const addActivity = (data: Omit<Activity, 'id'>, actorUid?: string) => addDoc(collection(db, 'activities'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
+export const updateActivity = (id: string, data: Partial<Activity>, actorUid?: string) => updateDoc(doc(db, 'activities', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
 // SUPPLIERS
 export const getSuppliers = () => fetchCollection<Supplier>('suppliers');
-export const addSupplier = (data: Omit<Supplier, 'id'>) => addDoc(collection(db, 'suppliers'), data);
-export const updateSupplier = (id: string, data: Partial<Supplier>) => updateDoc(doc(db, 'suppliers', id), data);
+export const addSupplier = (data: Omit<Supplier, 'id'>, actorUid?: string) => addDoc(collection(db, 'suppliers'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
+export const updateSupplier = (id: string, data: Partial<Supplier>, actorUid?: string) => updateDoc(doc(db, 'suppliers', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
 // INVOICES
 export const getInvoices = () => fetchCollection<Invoice>('invoices');
-export const addInvoice = async (data: Omit<Invoice, 'id'>) => {
-  const finalData = { ...data, status: data.status ?? 'pending', createdAt: Date.now() };
+export const addInvoice = async (data: Omit<Invoice, 'id'>, actorUid?: string) => {
+  const finalData = { ...data, status: data.status ?? 'pending', createdAt: Date.now(), createdByUid: actorUid };
   return addDoc(collection(db, 'invoices'), finalData);
 };
 
-export const updateInvoice = (id: string, data: Partial<Invoice>) =>
-  updateDoc(doc(db, 'invoices', id), data);
+export const updateInvoice = (id: string, data: Partial<Invoice>, actorUid?: string) =>
+  updateDoc(doc(db, 'invoices', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 export const deleteInvoice = (id: string) => deleteDoc(doc(db, 'invoices', id));
 
 // BULK ASSET DELETE (release sequences)
-export const bulkDeleteAssetsForSite = async (siteId: string, assetIds: string[], releasedSeqs: number[]) => {
+export const bulkDeleteAssetsForSite = async (siteId: string, assetIds: string[], releasedSeqs: number[], actorUid?: string) => {
   const siteRef = doc(db, 'sites', siteId);
   return runTransaction(db, async (tx) => {
     const siteSnap = await tx.get(siteRef);
@@ -165,7 +165,7 @@ export const bulkDeleteAssetsForSite = async (siteId: string, assetIds: string[]
     const merged = Array.from(new Set([...existing, ...releasedSeqs])).sort((a, b) => a - b);
     tx.update(siteRef, { releasedAssetSeqs: merged });
     assetIds.forEach((id) => {
-      tx.delete(doc(db, 'assets', id));
+      tx.update(doc(db, 'assets', id), { isDeleted: true, status: 'baja', deletedAt: Date.now(), deletedByUid: actorUid });
     });
   });
 };
@@ -182,8 +182,8 @@ export const getQuotes = async () => {
   }
 };
 
-export const addQuote = (data: Omit<Quote, 'id'>) => addDoc(collection(db, 'quotes'), data);
-export const updateQuote = (id: string, data: Partial<Quote>) => updateDoc(doc(db, 'quotes', id), data);
+export const addQuote = (data: Omit<Quote, 'id'>, actorUid?: string) => addDoc(collection(db, 'quotes'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
+export const updateQuote = (id: string, data: Partial<Quote>, actorUid?: string) => updateDoc(doc(db, 'quotes', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 export const deleteQuote = (id: string) => deleteDoc(doc(db, 'quotes', id));
 
 // ACTS (Actas)
@@ -198,6 +198,13 @@ export const getActs = async () => {
   }
 };
 
-export const addAct = (data: Omit<Act, 'id'>) => addDoc(collection(db, 'acts'), data);
-export const updateAct = (id: string, data: Partial<Act>) => updateDoc(doc(db, 'acts', id), data);
+export const addAct = (data: Omit<Act, 'id'>, actorUid?: string) => addDoc(collection(db, 'acts'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
+export const updateAct = (id: string, data: Partial<Act>, actorUid?: string) => updateDoc(doc(db, 'acts', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 export const deleteAct = (id: string) => deleteDoc(doc(db, 'acts', id));
+
+// MAINTENANCES
+export const getMaintenances = () => fetchCollection<Maintenance>('maintenances');
+export const addMaintenance = (data: Omit<Maintenance, 'id'>, actorUid?: string) => addDoc(collection(db, 'maintenances'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
+export const updateMaintenance = (id: string, data: Partial<Maintenance>, actorUid?: string) => updateDoc(doc(db, 'maintenances', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
+export const softDeleteMaintenance = (id: string, actorUid?: string) => updateDoc(doc(db, 'maintenances', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
+

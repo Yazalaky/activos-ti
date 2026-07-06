@@ -48,6 +48,7 @@ import type { Invoice, Site, Supplier } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
 import { deleteStoragePath } from '../services/storageFiles';
+import { exportToCsv } from '../utils/exportCsv';
 
 type TabKey = 'invoices' | 'suppliers' | 'reports';
 
@@ -813,9 +814,26 @@ const Finance = () => {
                 <Typography variant="h6" sx={{ fontWeight: 900 }}>
                   Detalle de costos
                 </Typography>
-                <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} disabled>
-                  Exportar
+                <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+                <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} onClick={() => {
+                  const data = filteredInvoices.map(inv => {
+                    const sup = suppliers.find(s => s.id === inv.supplierId);
+                    const site = sites.find(s => s.id === inv.siteId);
+                    return {
+                      Factura: inv.number,
+                      Fecha: inv.date,
+                      Proveedor: sup?.name || '',
+                      Sede: site?.name || '',
+                      Descripcion: inv.description,
+                      Total: inv.total,
+                      Estado: inv.status
+                    };
+                  });
+                  exportToCsv('Reporte_Financiero', data);
+                }}>
+                  Exportar reporte
                 </Button>
+              </Stack>
               </Box>
               <Divider />
               <Table size="small">
