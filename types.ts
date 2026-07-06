@@ -4,6 +4,16 @@ export type Status = 'bodega' | 'asignado' | 'mantenimiento' | 'baja';
 
 export type AssetType = 'laptop' | 'desktop' | 'monitor' | 'keyboard' | 'mouse' | 'printer' | 'scanner' | 'network' | 'other';
 
+export interface AuditFields {
+  createdAt?: number;
+  createdByUid?: string;
+  updatedAt?: number;
+  updatedByUid?: string;
+  deletedAt?: number;
+  deletedByUid?: string;
+  isDeleted?: boolean;
+}
+
 export interface UserProfile {
   uid: string;
   email: string;
@@ -11,7 +21,7 @@ export interface UserProfile {
   name: string;
 }
 
-export interface Site {
+export interface Site extends AuditFields {
   id: string;
   name: string;
   city: string;
@@ -30,7 +40,7 @@ export interface Assignment {
   assignedToDoc?: string; // Opcional (legacy)
 }
 
-export interface Asset {
+export interface Asset extends AuditFields {
   id: string;
   fixedAssetId: string; // Nuevo: Auto-generado (ej: MBOG-001)
   type: AssetType;
@@ -64,10 +74,9 @@ export interface Asset {
   previousFixedAssetIds?: string[]; // Historial cuando se cambia de sede/código
   movedAt?: number; // Timestamp del último cambio de sede
   movedFromSiteId?: string | null;
-  createdAt: number;
 }
 
-export interface Activity {
+export interface Activity extends AuditFields {
   id: string;
   date: string; // YYYY-MM-DD
   techId?: string; // User ID optional
@@ -80,7 +89,7 @@ export interface Activity {
   timeSpentMinutes?: number;
 }
 
-export interface Supplier {
+export interface Supplier extends AuditFields {
   id: string;
   name: string;
   nit: string;
@@ -90,7 +99,7 @@ export interface Supplier {
   category: string;
 }
 
-export interface Invoice {
+export interface Invoice extends AuditFields {
   id: string;
   supplierId: string;
   number: string;
@@ -105,12 +114,11 @@ export interface Invoice {
   pdfName?: string;
   pdfContentType?: string;
   pdfSize?: number;
-  createdAt: number;
 }
 
 export type QuoteStatus = 'pending' | 'approved' | 'rejected';
 
-export interface Quote {
+export interface Quote extends AuditFields {
   id: string;
   date: string; // YYYY-MM-DD
   supplierId: string;
@@ -122,13 +130,11 @@ export interface Quote {
   pdfName?: string;
   pdfContentType?: string;
   pdfSize?: number;
-  createdAt: number;
-  createdByUid?: string;
 }
 
 export type ActStatus = 'draft' | 'issued' | 'signed' | 'void';
 
-export interface Act {
+export interface Act extends AuditFields {
   id: string;
   assetId: string;
   siteId: string;
@@ -148,8 +154,24 @@ export interface Act {
   pdfName?: string;
   pdfContentType?: string;
   pdfSize?: number;
-  createdAt: number;
-  createdByUid?: string;
   issuedAt?: number;
   signedAt?: number;
+}
+
+export interface Maintenance extends AuditFields {
+  id: string;
+  assetId: string;
+  siteId: string;
+  type: 'preventivo' | 'correctivo';
+  status: 'programado' | 'en_proceso' | 'realizado' | 'cancelado';
+  scheduledDate?: string;
+  completedDate?: string;
+  technicianName?: string;
+  supplierId?: string;
+  cost?: number;
+  findings?: string;
+  actionsTaken?: string;
+  nextMaintenanceDate?: string;
+  evidenceUrl?: string;
+  evidencePath?: string;
 }

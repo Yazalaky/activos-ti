@@ -57,7 +57,7 @@ const statusColor = (status: QuoteStatus) => {
 };
 
 const Quotes = () => {
-  const { role, user } = useAuth();
+  const { role, user, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
   const canDelete = role === 'admin';
 
@@ -212,16 +212,14 @@ const Quotes = () => {
           }
         }
 
-        await updateQuote(editingId, toUpdate);
+        await updateQuote(editingId, toUpdate, profile?.uid);
         setSnackbar({ open: true, message: 'Cotización actualizada.', severity: 'success' });
       } else {
         const { id, createdAt, pdfUrl, pdfPath, pdfName, pdfContentType, pdfSize, ...createPayload } = formData as any;
         const docRef: any = await addQuote({
           ...createPayload,
           status: formData.status || 'pending',
-          createdAt: Date.now(),
-          createdByUid: user?.uid,
-        });
+        }, profile?.uid);
 
         if (quoteFile) {
           const ts = Date.now();
@@ -232,7 +230,7 @@ const Quotes = () => {
             pdfName: result.name,
             pdfContentType: result.contentType,
             pdfSize: result.size,
-          });
+          }, profile?.uid);
         }
         setSnackbar({ open: true, message: 'Cotización guardada.', severity: 'success' });
       }
@@ -253,7 +251,7 @@ const Quotes = () => {
       setSaving(true);
       const path = String(quoteToDelete.pdfPath || '').trim();
       if (path) await deleteStoragePath(path);
-      await deleteQuote(quoteToDelete.id);
+      await deleteQuote(quoteToDelete.id, profile?.uid);
       setSnackbar({ open: true, message: 'Cotización eliminada.', severity: 'success' });
       closeDelete();
       loadData();

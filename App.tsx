@@ -13,6 +13,7 @@ const Acts = lazy(() => import('./pages/Acts'));
 const Finance = lazy(() => import('./pages/Finance'));
 const Sites = lazy(() => import('./pages/Sites'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers'));
+const Maintenances = lazy(() => import('./pages/Maintenances'));
 
 const FullPageLoader = () => (
   <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center' }}>
@@ -112,6 +113,17 @@ function App() {
             <RequireAuth>
               <AppLayout>
                 <Quotes />
+              </AppLayout>
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/maintenances"
+          element={
+            <RequireAuth>
+              <AppLayout>
+                <Maintenances />
               </AppLayout>
             </RequireAuth>
           }

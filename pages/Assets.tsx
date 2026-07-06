@@ -42,11 +42,14 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
-import { addAsset, bulkDeleteAssetsForSite, getAssets, getSites, moveAssetToSite, updateAsset } from '../services/api';
-import type { Asset, AssetType, Assignment, Site, Status } from '../types';
+import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
+import { addAsset, bulkDeleteAssetsForSite, getAssets, getSites, moveAssetToSite, updateAsset, getMaintenances } from '../services/api';
+import type { Asset, AssetType, Assignment, Site, Status, Maintenance } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
 import { deleteStoragePath } from '../services/storageFiles';
+import { exportToCsv } from '../utils/exportCsv';
+import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
 const statusLabel: Record<Status, string> = {
   bodega: 'Bodega',
@@ -190,7 +193,7 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
 });
 
 const Assets = () => {
-  const { role } = useAuth();
+  const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
   const [assets, setAssets] = useState<Asset[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -250,6 +253,13 @@ const Assets = () => {
 
   const [assignmentData, setAssignmentData] = useState({ name: '', position: '', responsible: '' });
   const [inlineAssignment, setInlineAssignment] = useState({ name: '', position: '', responsible: '' });
+
+  const [assetMaintenances, setAssetMaintenances] = useState<Maintenance[]>([]);
+  const loadMaintenances = useCallback(async (assetId: string) => {
+    const all = await getMaintenances();
+    const forAsset = all.filter(m => m.assetId === assetId && !m.isDeleted).sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || ''));
+    setAssetMaintenances(forAsset.slice(0, 3)); // top 3
+  }, []);
 
   const clearFilters = () => {
     setFilterText('');
@@ -344,6 +354,7 @@ const Assets = () => {
     setImageFile(null);
     setImageUploadPct(0);
     setEditorOpen(true);
+    loadMaintenances(asset.id);
   }, []);
 
   const openView = useCallback((asset: Asset) => {
@@ -360,6 +371,7 @@ const Assets = () => {
     setImageFile(null);
     setImageUploadPct(0);
     setEditorOpen(true);
+    loadMaintenances(asset.id);
   }, []);
 
   const closeEditor = () => {
@@ -400,7 +412,7 @@ const Assets = () => {
 
     try {
       setMovingSite(true);
-      const result = await moveAssetToSite(editingId, nextSiteId);
+      const result = await moveAssetToSite(editingId, nextSiteId, profile?.uid);
       if (result.changed) {
         setFormData((prev) => ({
           ...prev,
@@ -453,7 +465,7 @@ const Assets = () => {
       if (path) {
         await deleteStoragePath(path);
       }
-      await updateAsset(editingId, { imageUrl: null, imagePath: null } as any);
+      await updateAsset(editingId, { imageUrl: null, imagePath: null } as any, profile?.uid);
       setFormData((prev) => ({ ...prev, imageUrl: '', imagePath: '' }));
       setPreviewImage(null);
       setImageFile(null);
@@ -535,11 +547,11 @@ const Assets = () => {
           }
         }
 
-        await updateAsset(editingId, updatePayload);
+        await updateAsset(editingId, updatePayload, profile?.uid);
         setSnackbar({ open: true, message: 'Activo actualizado.', severity: 'success' });
       } else {
         const { id, fixedAssetId, createdAt, imageUrl, imagePath, ...createPayload } = dataToSave;
-        const docRef: any = await addAsset(createPayload as any);
+        const docRef: any = await addAsset(createPayload as any, profile?.uid);
 
         if (imageFile) {
           const ts = Date.now();
@@ -548,7 +560,7 @@ const Assets = () => {
             imageFile,
             setImageUploadPct
           );
-          await updateAsset(docRef.id, { imageUrl: result.url, imagePath: result.path });
+          await updateAsset(docRef.id, { imageUrl: result.url, imagePath: result.path }, profile?.uid);
         }
 
         setSnackbar({ open: true, message: 'Activo creado.', severity: 'success' });
@@ -588,7 +600,7 @@ const Assets = () => {
     await updateAsset(assignAsset.id, {
       status: 'asignado',
       currentAssignment: newAssignment,
-    });
+    }, profile?.uid);
 
     setAssignOpen(false);
     setAssignAsset(null);
@@ -629,7 +641,7 @@ const Assets = () => {
         .map((asset) => extractAssetSeq(asset.fixedAssetId))
         .filter((n): n is number => Number.isFinite(n));
 
-      await bulkDeleteAssetsForSite(selectedSiteFilter, assetIds, releasedSeqs);
+      await bulkDeleteAssetsForSite(selectedSiteFilter, assetIds, releasedSeqs, profile?.uid);
 
       const imagePaths = bodegaAssetsForSite
         .map((asset) => asset.imagePath)
@@ -651,7 +663,7 @@ const Assets = () => {
 
   const handleReturn = async () => {
     if (!returnAsset) return;
-    await updateAsset(returnAsset.id, { status: 'bodega', currentAssignment: null });
+    await updateAsset(returnAsset.id, { status: 'bodega', currentAssignment: null }, profile?.uid);
     setReturnOpen(false);
     setReturnAsset(null);
     setSnackbar({ open: true, message: 'Activo retornado a bodega.', severity: 'success' });
@@ -746,8 +758,32 @@ const Assets = () => {
                 </Select>
               </FormControl>
             </Grid>
-            {(filterText || selectedSiteFilter || selectedTypeFilter) && (
-              <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+              <Button
+                variant="outlined"
+                startIcon={<DownloadOutlinedIcon />}
+                onClick={() => {
+                  const data = filteredAssets.map(a => {
+                    const site = sites.find(s => s.id === a.siteId);
+                    return {
+                      ActivoFijo: a.fixedAssetId,
+                      Tipo: a.type,
+                      Marca: a.brand,
+                      Modelo: a.model,
+                      Serial: a.serial,
+                      Sede: site?.name || '',
+                      Estado: a.status,
+                      AsignadoA: a.currentAssignment?.assignedToName || '',
+                      Cargo: a.currentAssignment?.assignedToPosition || '',
+                      Costo: a.cost || 0
+                    };
+                  });
+                  exportToCsv('Activos', data);
+                }}
+              >
+                Exportar
+              </Button>
+              {(filterText || selectedSiteFilter || selectedTypeFilter) && (
                 <Button
                   variant="text"
                   color="error"
@@ -756,8 +792,8 @@ const Assets = () => {
                 >
                   Limpiar
                 </Button>
-              </Grid>
-            )}
+              )}
+            </Grid>
             {canWrite && selectedSiteFilter && (
               <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Button
@@ -1130,6 +1166,33 @@ const Assets = () => {
                   disabled={readOnly}
                   sx={{ mt: 2 }}
                 />
+
+                {(editingId && isViewMode) && (
+                  <>
+                    <Divider sx={{ my: 2 }} />
+                    <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>
+                      Últimos mantenimientos
+                    </Typography>
+                    {assetMaintenances.length === 0 ? (
+                      <Typography variant="body2" color="text.secondary">No hay registros.</Typography>
+                    ) : (
+                      <Stack spacing={1}>
+                        {assetMaintenances.map(m => (
+                          <Card key={m.id} variant="outlined">
+                            <CardContent sx={{ p: 1, '&:last-child': { pb: 1 } }}>
+                              <Stack direction="row" justifyContent="space-between" alignItems="center">
+                                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{m.scheduledDate}</Typography>
+                                <Chip size="small" label={m.type.toUpperCase()} variant="outlined" />
+                              </Stack>
+                              <Typography variant="body2" sx={{ mt: 0.5 }}>{m.findings || 'Sin hallazgos detallados'}</Typography>
+                              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>Costo: ${Number(m.cost || 0).toLocaleString()} · Est: {m.status}</Typography>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </Stack>
+                    )}
+                  </>
+                )}
               </Grid>
             </Grid>
 

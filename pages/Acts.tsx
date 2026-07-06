@@ -80,7 +80,7 @@ const statusColor = (status: ActStatus) => {
 };
 
 const Acts = () => {
-  const { role, user } = useAuth();
+  const { role, user, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
 
   const [acts, setActs] = useState<Act[]>([]);
@@ -197,10 +197,8 @@ const Acts = () => {
         },
         observations: observations.trim() || undefined,
         status: 'draft',
-        createdAt: Date.now(),
-        createdByUid: user?.uid,
       }) as Omit<Act, 'id'>;
-      await addAct(payload);
+      await addAct(payload, profile?.uid);
       setSnackbar({ open: true, message: 'Acta creada (borrador).', severity: 'success' });
       setCreateOpen(false);
       await load();
@@ -238,7 +236,7 @@ const Acts = () => {
         pdfSize: result.size,
         status: uploadAct.status === 'draft' ? 'issued' : uploadAct.status,
         issuedAt: uploadAct.issuedAt ?? Date.now(),
-      } as any);
+      } as any, profile?.uid);
       setSnackbar({ open: true, message: 'PDF cargado.', severity: 'success' });
       setUploadOpen(false);
       await load();

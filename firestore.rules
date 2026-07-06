@@ -69,6 +69,11 @@ service cloud.firestore {
         && value.matches('acts/' + actId + '/pdf/[^/]+');
     }
 
+    function isValidMaintenanceEvidencePath(maintenanceId, value) {
+      return value is string
+        && value.matches('maintenances/' + maintenanceId + '/attachments/[^/]+');
+    }
+
     function isValidInvoiceContentType(value) {
       return value is string
         && (value.matches('application/pdf') || value.matches('image/.*'));
@@ -192,7 +197,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite();
       allow update: if canWrite(); // incluye assetSeq
-      allow delete: if isAdmin() || isTech();
+      allow delete: if false;
     }
 
     // ASSETS
@@ -200,21 +205,21 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && assetAttachmentValid(assetId);
       allow update: if canWrite() && assetAttachmentValid(assetId);
-      allow delete: if canWrite();
+      allow delete: if false;
     }
 
     // ACTIVITIES
     match /activities/{activityId} {
       allow read: if isSignedIn();
       allow create, update: if isAdmin() || isTech();
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // SUPPLIERS
     match /suppliers/{supplierId} {
       allow read: if isSignedIn();
       allow create, update: if isAdmin() || isTech();
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // INVOICES
@@ -222,7 +227,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && invoiceAttachmentValid(invoiceId);
       allow update: if canWrite() && invoiceAttachmentValid(invoiceId);
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // QUOTES (Cotizaciones)
@@ -230,7 +235,7 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && quoteAttachmentValid(quoteId);
       allow update: if canWrite() && quoteAttachmentValid(quoteId);
-      allow delete: if isAdmin();
+      allow delete: if false;
     }
 
     // ACTS (Actas de entrega)
@@ -238,7 +243,21 @@ service cloud.firestore {
       allow read: if isSignedIn();
       allow create: if canWrite() && actAttachmentValid(actId);
       allow update: if canWrite() && actAttachmentValid(actId);
-      allow delete: if isAdmin();
+      allow delete: if false;
+    }
+
+    // MAINTENANCES
+    match /maintenances/{maintenanceId} {
+      allow read: if isSignedIn();
+      allow create: if canWrite()
+        && request.resource.data.type in ['preventivo', 'correctivo']
+        && request.resource.data.status in ['programado', 'en_proceso', 'realizado', 'cancelado'];
+      allow update: if canWrite()
+        && request.resource.data.type in ['preventivo', 'correctivo']
+        && request.resource.data.status in ['programado', 'en_proceso', 'realizado', 'cancelado']
+        && (!request.resource.data.keys().hasAny(['evidencePath']) || request.resource.data.evidencePath == null || isValidMaintenanceEvidencePath(maintenanceId, request.resource.data.evidencePath))
+        && (isAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isDeleted', 'deletedAt', 'deletedByUid']));
+      allow delete: if false; // physical delete blocked
     }
   }
 }

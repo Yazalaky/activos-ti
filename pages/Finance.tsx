@@ -48,6 +48,7 @@ import type { Invoice, Site, Supplier } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
 import { deleteStoragePath } from '../services/storageFiles';
+import { exportToCsv } from '../utils/exportCsv';
 
 type TabKey = 'invoices' | 'suppliers' | 'reports';
 
@@ -208,7 +209,7 @@ const createInitialInvoiceState = (): Partial<Invoice> => ({
 });
 
 const Finance = () => {
-  const { role } = useAuth();
+  const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
   const canDelete = role === 'admin';
   const [activeTab, setActiveTab] = useState<TabKey>('invoices');
@@ -380,7 +381,7 @@ const Finance = () => {
       if (path) {
         await deleteStoragePath(path).catch(() => undefined);
       }
-      await deleteInvoice(invoiceToDelete.id);
+      await deleteInvoice(invoiceToDelete.id, profile?.uid);
       setSnackbar({ open: true, message: 'Factura eliminada.', severity: 'success' });
       closeDeleteInvoice();
       loadData();
@@ -412,13 +413,13 @@ const Finance = () => {
       setSavingInvoice(true);
       const path = String(invoiceForm.pdfPath || '').trim();
       if (path) await deleteStoragePath(path);
-      await updateInvoice(editingInvoiceId, {
-        pdfUrl: null,
-        pdfPath: null,
-        pdfName: null,
-        pdfContentType: null,
-        pdfSize: null,
-      } as any);
+        await updateInvoice(editingInvoiceId, {
+          pdfUrl: null,
+          pdfPath: null,
+          pdfName: null,
+          pdfContentType: null,
+          pdfSize: null,
+        } as any, profile?.uid);
       setInvoiceForm((prev) => ({
         ...prev,
         pdfUrl: undefined,
@@ -447,10 +448,10 @@ const Finance = () => {
     try {
       if (editingSupplierId) {
         const { id, ...toUpdate } = supplierForm as any;
-        await updateSupplier(editingSupplierId, toUpdate);
+        await updateSupplier(editingSupplierId, toUpdate, profile?.uid);
         setSnackbar({ open: true, message: 'Proveedor actualizado.', severity: 'success' });
       } else {
-        await addSupplier(supplierForm as Omit<Supplier, 'id'>);
+        await addSupplier(supplierForm as Omit<Supplier, 'id'>, profile?.uid);
         setSnackbar({ open: true, message: 'Proveedor guardado.', severity: 'success' });
       }
       closeSupplierDialog();
@@ -515,12 +516,12 @@ const Finance = () => {
           }
         }
 
-        await updateInvoice(editingInvoiceId, toUpdate);
+        await updateInvoice(editingInvoiceId, toUpdate, profile?.uid);
         setSnackbar({ open: true, message: 'Factura actualizada.', severity: 'success' });
       } else {
         const { id, createdAt, pdfUrl, pdfPath, pdfName, pdfContentType, pdfSize, ...createPayload } = invoiceForm as any;
         const newInvoice = { ...createPayload, status: invoiceForm.status || 'pending' };
-        const docRef: any = await addInvoice(newInvoice as Omit<Invoice, 'id'>);
+        const docRef: any = await addInvoice(newInvoice as Omit<Invoice, 'id'>, profile?.uid);
 
         if (invoiceFile) {
           const ts = Date.now();
@@ -535,7 +536,7 @@ const Finance = () => {
             pdfName: result.name,
             pdfContentType: result.contentType,
             pdfSize: result.size,
-          });
+          }, profile?.uid);
         }
 
         setSnackbar({ open: true, message: 'Factura guardada.', severity: 'success' });
@@ -556,7 +557,7 @@ const Finance = () => {
       if (!canWrite) return;
       const newStatus: Invoice['status'] = inv.status === 'paid' ? 'pending' : 'paid';
       setInvoices((prev) => prev.map((item) => (item.id === inv.id ? { ...item, status: newStatus } : item)));
-      await updateInvoice(inv.id, { status: newStatus });
+      await updateInvoice(inv.id, { status: newStatus }, profile?.uid);
     },
     [canWrite]
   );
@@ -813,9 +814,26 @@ const Finance = () => {
                 <Typography variant="h6" sx={{ fontWeight: 900 }}>
                   Detalle de costos
                 </Typography>
-                <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} disabled>
-                  Exportar
+                <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+                <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} onClick={() => {
+                  const data = filteredInvoices.map(inv => {
+                    const sup = suppliers.find(s => s.id === inv.supplierId);
+                    const site = sites.find(s => s.id === inv.siteId);
+                    return {
+                      Factura: inv.number,
+                      Fecha: inv.date,
+                      Proveedor: sup?.name || '',
+                      Sede: site?.name || '',
+                      Descripcion: inv.description,
+                      Total: inv.total,
+                      Estado: inv.status
+                    };
+                  });
+                  exportToCsv('Reporte_Financiero', data);
+                }}>
+                  Exportar reporte
                 </Button>
+              </Stack>
               </Box>
               <Divider />
               <Table size="small">
