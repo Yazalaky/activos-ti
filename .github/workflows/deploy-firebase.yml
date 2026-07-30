@@ -1,0 +1,90 @@
+name: Firebase Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Ejecutar solamente validaciones o desplegar a producción
+        type: choice
+        required: true
+        default: validate
+        options:
+          - validate
+          - deploy
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: activos-ti-firebase-production
+  cancel-in-progress: false
+
+jobs:
+  firebase:
+    name: Validate or deploy Firebase
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      FIREBASE_PROJECT_ID: ${{ vars.FIREBASE_PROJECT_ID }}
+      WIF_PROVIDER: ${{ vars.WIF_PROVIDER }}
+      WIF_SERVICE_ACCOUNT: ${{ vars.WIF_SERVICE_ACCOUNT }}
+      VITE_FIREBASE_API_KEY: ${{ vars.VITE_FIREBASE_API_KEY }}
+      VITE_FIREBASE_AUTH_DOMAIN: ${{ vars.VITE_FIREBASE_AUTH_DOMAIN }}
+      VITE_FIREBASE_PROJECT_ID: ${{ vars.VITE_FIREBASE_PROJECT_ID }}
+      VITE_FIREBASE_STORAGE_BUCKET: ${{ vars.VITE_FIREBASE_STORAGE_BUCKET }}
+      VITE_FIREBASE_MESSAGING_SENDER_ID: ${{ vars.VITE_FIREBASE_MESSAGING_SENDER_ID }}
+      VITE_FIREBASE_APP_ID: ${{ vars.VITE_FIREBASE_APP_ID }}
+      VITE_FIREBASE_MEASUREMENT_ID: ${{ vars.VITE_FIREBASE_MEASUREMENT_ID }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            functions/package-lock.json
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Install Functions dependencies
+        run: npm --prefix functions ci
+
+      - name: Build frontend
+        run: npm run build
+
+      - name: Validate Functions syntax
+        run: node --check functions/index.js
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ env.FIREBASE_PROJECT_ID }}
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.WIF_SERVICE_ACCOUNT }}
+
+      - name: Validate Firebase access
+        run: |
+          npx --yes firebase-tools@15.23.0 projects:list \
+            --non-interactive
+
+          npx --yes firebase-tools@15.23.0 apps:list WEB \
+            --project "$FIREBASE_PROJECT_ID" \
+            --non-interactive
+
+      - name: Deploy Firebase
+        if: ${{ inputs.mode == 'deploy' }}
+        run: |
+          npx --yes firebase-tools@15.23.0 deploy \
+            --project "$FIREBASE_PROJECT_ID" \
+            --only "firestore,storage,functions,hosting" \
+            --non-interactive
