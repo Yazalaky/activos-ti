@@ -32,6 +32,7 @@ import {
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
@@ -49,6 +50,7 @@ import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
 import { deleteStoragePath } from '../services/storageFiles';
 import { exportToCsv } from '../utils/exportCsv';
+import { printReport } from '../utils/printReport';
 
 type TabKey = 'invoices' | 'suppliers' | 'reports';
 
@@ -208,6 +210,16 @@ const createInitialInvoiceState = (): Partial<Invoice> => ({
   status: 'pending',
 });
 
+const invoiceReportColumns = [
+  { key: 'Factura', label: 'Factura' },
+  { key: 'Fecha', label: 'Fecha' },
+  { key: 'Proveedor', label: 'Proveedor' },
+  { key: 'Sede', label: 'Sede' },
+  { key: 'Descripcion', label: 'Descripción' },
+  { key: 'Total', label: 'Total' },
+  { key: 'Estado', label: 'Estado' },
+] as const;
+
 const Finance = () => {
   const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
@@ -301,6 +313,23 @@ const Finance = () => {
       .slice()
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
   }, [invoices, startDate, endDate, selectedSiteFilter, selectedSupplierFilter, invoiceNumberFilter]);
+
+  const invoiceReportRows = useMemo(
+    () => filteredInvoices.map((invoice) => {
+      const supplier = suppliers.find((supplierItem) => supplierItem.id === invoice.supplierId);
+      const site = sites.find((siteItem) => siteItem.id === invoice.siteId);
+      return {
+        Factura: invoice.number,
+        Fecha: invoice.date,
+        Proveedor: supplier?.name || '',
+        Sede: site?.name || '',
+        Descripcion: invoice.description,
+        Total: invoice.total,
+        Estado: invoice.status,
+      };
+    }),
+    [filteredInvoices, suppliers, sites],
+  );
 
   const totals = useMemo(() => {
     const totalInvoiced = filteredInvoices.reduce((sum, inv) => sum + Number(inv.total || 0), 0);
@@ -815,23 +844,21 @@ const Finance = () => {
                   Detalle de costos
                 </Typography>
                 <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
-                <Button variant="outlined" startIcon={<DownloadOutlinedIcon />} onClick={() => {
-                  const data = filteredInvoices.map(inv => {
-                    const sup = suppliers.find(s => s.id === inv.supplierId);
-                    const site = sites.find(s => s.id === inv.siteId);
-                    return {
-                      Factura: inv.number,
-                      Fecha: inv.date,
-                      Proveedor: sup?.name || '',
-                      Sede: site?.name || '',
-                      Descripcion: inv.description,
-                      Total: inv.total,
-                      Estado: inv.status
-                    };
-                  });
-                  exportToCsv('Reporte_Financiero', data);
-                }}>
-                  Exportar reporte
+                <Button
+                  variant="outlined"
+                  startIcon={<DownloadOutlinedIcon />}
+                  disabled={!invoiceReportRows.length}
+                  onClick={() => exportToCsv('Reporte_Financiero', invoiceReportRows)}
+                >
+                  CSV
+                </Button>
+                <Button
+                  variant="outlined"
+                  startIcon={<PrintOutlinedIcon />}
+                  disabled={!invoiceReportRows.length}
+                  onClick={() => printReport('Reporte financiero', invoiceReportColumns, invoiceReportRows)}
+                >
+                  PDF / Imprimir
                 </Button>
               </Stack>
               </Box>

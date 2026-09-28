@@ -33,12 +33,14 @@ import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import { addMaintenance, getAssets, getMaintenances, getSites, getSuppliers, softDeleteMaintenance, updateMaintenance } from '../services/api';
 import type { Asset, Maintenance, Site, Supplier } from '../types';
 import { useAuth } from '../auth/AuthContext';
 import { exportToCsv } from '../utils/exportCsv';
+import { printReport } from '../utils/printReport';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { deleteStoragePath } from '../services/storageFiles';
 
@@ -48,6 +50,21 @@ const statusMap: Record<Maintenance['status'], { label: string; color: any }> = 
   realizado: { label: 'Realizado', color: 'success' },
   cancelado: { label: 'Cancelado', color: 'error' },
 };
+
+const maintenanceReportColumns = [
+  { key: 'FechaProg', label: 'Fecha programada' },
+  { key: 'FechaReal', label: 'Fecha realizada' },
+  { key: 'Tipo', label: 'Tipo' },
+  { key: 'Estado', label: 'Estado' },
+  { key: 'Sede', label: 'Sede' },
+  { key: 'Activo', label: 'Activo' },
+  { key: 'Proveedor', label: 'Proveedor' },
+  { key: 'Tecnico', label: 'Técnico' },
+  { key: 'Costo', label: 'Costo' },
+  { key: 'Hallazgos', label: 'Hallazgos' },
+  { key: 'Acciones', label: 'Acciones' },
+  { key: 'ProximaFecha', label: 'Próxima fecha' },
+] as const;
 
 const createInitialState = (): Partial<Maintenance> => ({
   type: 'preventivo',
@@ -115,6 +132,29 @@ const Maintenances = () => {
       return true;
     }).sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || ''));
   }, [maintenances, filterSite, filterType, filterStatus, filterStartDate, filterEndDate]);
+
+  const maintenanceReportRows = useMemo(
+    () => filteredMaintenances.map((maintenance) => {
+      const site = sites.find((siteItem) => siteItem.id === maintenance.siteId);
+      const asset = assets.find((assetItem) => assetItem.id === maintenance.assetId);
+      const supplier = suppliers.find((supplierItem) => supplierItem.id === maintenance.supplierId);
+      return {
+        FechaProg: maintenance.scheduledDate || '',
+        FechaReal: maintenance.completedDate || '',
+        Tipo: maintenance.type,
+        Estado: maintenance.status,
+        Sede: site?.name || '',
+        Activo: asset?.fixedAssetId || '',
+        Proveedor: supplier?.name || '',
+        Tecnico: maintenance.technicianName || '',
+        Costo: maintenance.cost || 0,
+        Hallazgos: maintenance.findings || '',
+        Acciones: maintenance.actionsTaken || '',
+        ProximaFecha: maintenance.nextMaintenanceDate || '',
+      };
+    }),
+    [filteredMaintenances, sites, assets, suppliers],
+  );
 
   const openCreate = () => {
     setEditingId(null);
@@ -218,26 +258,7 @@ const Maintenances = () => {
   };
 
   const exportData = () => {
-    const data = filteredMaintenances.map(m => {
-      const s = sites.find(x => x.id === m.siteId);
-      const a = assets.find(x => x.id === m.assetId);
-      const sup = suppliers.find(x => x.id === m.supplierId);
-      return {
-        FechaProg: m.scheduledDate,
-        FechaReal: m.completedDate || '',
-        Tipo: m.type,
-        Estado: m.status,
-        Sede: s?.name || '',
-        Activo: a?.fixedAssetId || '',
-        Proveedor: sup?.name || '',
-        Tecnico: m.technicianName || '',
-        Costo: m.cost || 0,
-        Hallazgos: m.findings || '',
-        Acciones: m.actionsTaken || '',
-        ProximaFecha: m.nextMaintenanceDate || ''
-      };
-    });
-    exportToCsv('Mantenimientos', data);
+    exportToCsv('Mantenimientos', maintenanceReportRows);
   };
 
   const siteAssets = useMemo(() => assets.filter(a => a.siteId === formData.siteId && a.status !== 'baja'), [assets, formData.siteId]);
@@ -295,7 +316,15 @@ const Maintenances = () => {
               {(filterStartDate || filterEndDate || filterSite || filterType || filterStatus) && (
                 <Button variant="text" color="error" onClick={clearFilters}>Limpiar</Button>
               )}
-              <Button variant="outlined" onClick={exportData} startIcon={<DownloadOutlinedIcon />}>Exportar</Button>
+              <Button variant="outlined" onClick={exportData} startIcon={<DownloadOutlinedIcon />} disabled={!maintenanceReportRows.length}>CSV</Button>
+              <Button
+                variant="outlined"
+                onClick={() => printReport('Reporte de mantenimientos', maintenanceReportColumns, maintenanceReportRows)}
+                startIcon={<PrintOutlinedIcon />}
+                disabled={!maintenanceReportRows.length}
+              >
+                PDF / Imprimir
+              </Button>
             </Grid>
           </Grid>
         </CardContent>

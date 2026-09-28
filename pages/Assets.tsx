@@ -42,6 +42,7 @@ import KeyboardReturnOutlinedIcon from '@mui/icons-material/KeyboardReturnOutlin
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
 import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
+import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { addAsset, bulkDecommissionAssetsForSite, decommissionAsset, getAssets, getSites, moveAssetToSite, updateAsset, getMaintenances } from '../services/api';
@@ -50,6 +51,7 @@ import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
 import { deleteStoragePath } from '../services/storageFiles';
 import { exportToCsv } from '../utils/exportCsv';
+import { printReport } from '../utils/printReport';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
 const statusLabel: Record<Status, string> = {
@@ -73,6 +75,21 @@ const statusColor = (status: Status) => {
       return 'default';
   }
 };
+
+const assetReportColumns = [
+  { key: 'ActivoFijo', label: 'Activo fijo' },
+  { key: 'Tipo', label: 'Tipo' },
+  { key: 'Marca', label: 'Marca' },
+  { key: 'Modelo', label: 'Modelo' },
+  { key: 'Serial', label: 'Serial' },
+  { key: 'Sede', label: 'Sede' },
+  { key: 'Estado', label: 'Estado' },
+  { key: 'AsignadoA', label: 'Asignado a' },
+  { key: 'Cargo', label: 'Cargo' },
+  { key: 'Costo', label: 'Costo' },
+  { key: 'MotivoBaja', label: 'Motivo de baja' },
+  { key: 'FechaBaja', label: 'Fecha de baja' },
+] as const;
 
 type AssetTableProps = {
   assets: Asset[];
@@ -334,6 +351,29 @@ const Assets = () => {
       return matchesText && matchesSite && matchesType && matchesView;
     });
   }, [assets, filterText, selectedSiteFilter, selectedTypeFilter, assetViewFilter]);
+
+  const inventoryReportRows = useMemo(
+    () => filteredAssets.map((asset) => {
+      const site = sites.find((siteItem) => siteItem.id === asset.siteId);
+      return {
+        ActivoFijo: asset.fixedAssetId,
+        Tipo: asset.type,
+        Marca: asset.brand,
+        Modelo: asset.model,
+        Serial: asset.serial,
+        Sede: site?.name || '',
+        Estado: asset.status,
+        AsignadoA: asset.currentAssignment?.assignedToName || '',
+        Cargo: asset.currentAssignment?.assignedToPosition || '',
+        Costo: asset.cost || 0,
+        MotivoBaja: asset.decommissionReason || '',
+        FechaBaja: asset.decommissionedAt ? new Date(asset.decommissionedAt).toLocaleString('es-CO') : '',
+      };
+    }),
+    [filteredAssets, sites],
+  );
+
+  const inventoryReportName = assetViewFilter === 'baja' ? 'Activos_De_Baja' : 'Activos';
 
   const nextFixedIdPreview = useMemo(() => {
     if (!formData.siteId) return '';
@@ -827,28 +867,18 @@ const Assets = () => {
               <Button
                 variant="outlined"
                 startIcon={<DownloadOutlinedIcon />}
-                onClick={() => {
-                  const data = filteredAssets.map(a => {
-                    const site = sites.find(s => s.id === a.siteId);
-                    return {
-                      ActivoFijo: a.fixedAssetId,
-                      Tipo: a.type,
-                      Marca: a.brand,
-                      Modelo: a.model,
-                      Serial: a.serial,
-                      Sede: site?.name || '',
-                      Estado: a.status,
-                      AsignadoA: a.currentAssignment?.assignedToName || '',
-                      Cargo: a.currentAssignment?.assignedToPosition || '',
-                      Costo: a.cost || 0,
-                      MotivoBaja: a.decommissionReason || '',
-                      FechaBaja: a.decommissionedAt ? new Date(a.decommissionedAt).toLocaleString('es-CO') : '',
-                    };
-                  });
-                  exportToCsv(assetViewFilter === 'baja' ? 'Activos_De_Baja' : 'Activos', data);
-                }}
+                disabled={!inventoryReportRows.length}
+                onClick={() => exportToCsv(inventoryReportName, inventoryReportRows)}
               >
-                Exportar
+                CSV
+              </Button>
+              <Button
+                variant="outlined"
+                startIcon={<PrintOutlinedIcon />}
+                disabled={!inventoryReportRows.length}
+                onClick={() => printReport(`Reporte de inventario - ${inventoryReportName}`, assetReportColumns, inventoryReportRows)}
+              >
+                PDF / Imprimir
               </Button>
               {(filterText || selectedSiteFilter || selectedTypeFilter || assetViewFilter !== 'active') && (
                 <Button

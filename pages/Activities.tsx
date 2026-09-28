@@ -36,6 +36,8 @@ import type { Activity, Asset, Site } from '../types';
 import { useAuth } from '../auth/AuthContext';
 import { exportToCsv } from '../utils/exportCsv';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
+import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
+import { printReport } from '../utils/printReport';
 
 const parseLocalDate = (dateStr: string) => {
   const [y, m, d] = dateStr.split('-').map((v) => Number(v));
@@ -48,6 +50,16 @@ const getPriorityColor = (priority: Activity['priority']) => {
   if (priority === 'media') return 'warning';
   return 'success';
 };
+
+const activityReportColumns = [
+  { key: 'Fecha', label: 'Fecha' },
+  { key: 'Tipo', label: 'Tipo' },
+  { key: 'Prioridad', label: 'Prioridad' },
+  { key: 'Tecnico', label: 'Técnico' },
+  { key: 'Sede', label: 'Sede' },
+  { key: 'Activo', label: 'Activo' },
+  { key: 'Descripcion', label: 'Descripción' },
+] as const;
 
 const createInitialFormState = (): Partial<Activity> => ({
   date: new Date().toISOString().split('T')[0],
@@ -189,6 +201,23 @@ const Activities = () => {
     });
   }, [activities, startDate, endDate]);
 
+  const activityReportRows = useMemo(
+    () => filteredActivities.map((activity) => {
+      const site = sites.find((siteItem) => siteItem.id === activity.siteId);
+      const asset = assets.find((assetItem) => assetItem.id === activity.assetId);
+      return {
+        Fecha: activity.date,
+        Tipo: activity.type,
+        Prioridad: activity.priority,
+        Tecnico: activity.techName,
+        Sede: site?.name || '',
+        Activo: asset?.fixedAssetId || '',
+        Descripcion: activity.description,
+      };
+    }),
+    [filteredActivities, sites, assets],
+  );
+
   const clearFilters = () => {
     setStartDate('');
     setEndDate('');
@@ -304,24 +333,18 @@ const Activities = () => {
               variant="outlined"
               startIcon={<DownloadOutlinedIcon />}
               sx={{ ml: (startDate || endDate) ? 1 : 'auto' }}
-              onClick={() => {
-                const data = filteredActivities.map(a => {
-                  const site = sites.find(s => s.id === a.siteId);
-                  const asset = assets.find(as => as.id === a.assetId);
-                  return {
-                    Fecha: a.date,
-                    Tipo: a.type,
-                    Prioridad: a.priority,
-                    Tecnico: a.techName,
-                    Sede: site?.name || '',
-                    Activo: asset?.fixedAssetId || '',
-                    Descripcion: a.description
-                  };
-                });
-                exportToCsv('Bitacora', data);
-              }}
+              disabled={!activityReportRows.length}
+              onClick={() => exportToCsv('Bitacora', activityReportRows)}
             >
-              Exportar
+              CSV
+            </Button>
+            <Button
+              variant="outlined"
+              startIcon={<PrintOutlinedIcon />}
+              disabled={!activityReportRows.length}
+              onClick={() => printReport('Reporte de bitácora', activityReportColumns, activityReportRows)}
+            >
+              PDF / Imprimir
             </Button>
           </Stack>
         </CardContent>
