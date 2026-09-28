@@ -29,6 +29,7 @@ import {
   Typography,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
@@ -36,6 +37,7 @@ import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { addAct, getActs, getAssets, getSites, updateAct } from '../services/api';
 import { uploadFileToStorage } from '../services/storageUpload';
+import { deleteStoragePath } from '../services/storageFiles';
 import type { Act, ActStatus, Asset, Site } from '../types';
 
 const stripUndefinedDeep = (value: any): any => {
@@ -78,6 +80,8 @@ const statusColor = (status: ActStatus) => {
       return 'default';
   }
 };
+
+const MAX_ACT_PDF_SIZE = 10 * 1024 * 1024;
 
 const Acts = () => {
   const { role, user, profile } = useAuth();
@@ -224,10 +228,22 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'Seleccione un archivo PDF.', severity: 'warning' });
       return;
     }
+    if (uploadFile.type !== 'application/pdf' && !uploadFile.name.toLowerCase().endsWith('.pdf')) {
+      setSnackbar({ open: true, message: 'El archivo debe ser un PDF.', severity: 'warning' });
+      return;
+    }
+    if (uploadFile.size > MAX_ACT_PDF_SIZE) {
+      setSnackbar({ open: true, message: 'El PDF no puede superar los 10 MB.', severity: 'warning' });
+      return;
+    }
+
+    const previousPdfPath = uploadAct.pdfPath;
+    let newPdfPath = '';
     try {
       setUploading(true);
       const ts = Date.now();
       const result = await uploadFileToStorage(`acts/${uploadAct.id}/pdf/${ts}-${uploadFile.name}`, uploadFile, setUploadPct);
+      newPdfPath = result.path;
       await updateAct(uploadAct.id, {
         pdfUrl: result.url,
         pdfPath: result.path,
@@ -237,12 +253,35 @@ const Acts = () => {
         status: uploadAct.status === 'draft' ? 'issued' : uploadAct.status,
         issuedAt: uploadAct.issuedAt ?? Date.now(),
       } as any, profile?.uid);
-      setSnackbar({ open: true, message: 'PDF cargado.', severity: 'success' });
+
+      if (previousPdfPath && previousPdfPath !== result.path) {
+        try {
+          await deleteStoragePath(previousPdfPath);
+        } catch (cleanupError) {
+          // La sustitución ya fue guardada; un fallo de limpieza no debe ocultar el resultado.
+          console.warn('No se pudo eliminar el PDF anterior del acta:', cleanupError);
+        }
+      }
+      // Desde este punto el nuevo archivo ya está referenciado por el acta.
+      newPdfPath = '';
+
+      setSnackbar({
+        open: true,
+        message: uploadAct.pdfUrl ? 'PDF reemplazado correctamente.' : 'PDF cargado correctamente.',
+        severity: 'success',
+      });
       setUploadOpen(false);
       await load();
     } catch (error) {
+      if (newPdfPath) {
+        try {
+          await deleteStoragePath(newPdfPath);
+        } catch (cleanupError) {
+          console.warn('No se pudo limpiar el PDF nuevo después de un error:', cleanupError);
+        }
+      }
       console.error('Upload act PDF error:', error);
-      setSnackbar({ open: true, message: 'No se pudo cargar el PDF.', severity: 'error' });
+      setSnackbar({ open: true, message: 'No se pudo guardar el PDF.', severity: 'error' });
     } finally {
       setUploading(false);
     }
@@ -402,8 +441,13 @@ const Acts = () => {
                       <TableCell align="right">
                         <Stack direction="row" spacing={1} justifyContent="flex-end">
                           {canWrite && (
-                            <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act)}>
-                              Subir PDF
+                            <Button
+                              size="small"
+                              variant="outlined"
+                              startIcon={act.pdfUrl ? <EditOutlinedIcon /> : <UploadFileOutlinedIcon />}
+                              onClick={() => openUpload(act)}
+                            >
+                              {act.pdfUrl ? 'Editar PDF' : 'Subir PDF'}
                             </Button>
                           )}
                         </Stack>
@@ -511,12 +555,19 @@ const Acts = () => {
       </Dialog>
 
       <Dialog open={uploadOpen} onClose={() => setUploadOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>Subir PDF del acta</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 900 }}>{uploadAct?.pdfUrl ? 'Editar PDF del acta' : 'Subir PDF del acta'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="info">
-              Por ahora puedes adjuntar el PDF (emitido o escaneado firmado). La generación automática con plantilla se implementa en el siguiente paso.
+              {uploadAct?.pdfUrl
+                ? 'Selecciona un nuevo PDF para reemplazar el archivo actual. El documento anterior se conservará hasta que el reemplazo se guarde correctamente.'
+                : 'Adjunta el PDF emitido o escaneado firmado. La generación automática con plantilla se implementará en el siguiente paso.'}
             </Alert>
+            {uploadAct?.pdfUrl && (
+              <Typography variant="body2" color="text.secondary">
+                Archivo actual: <strong>{uploadAct.pdfName || 'PDF del acta'}</strong>
+              </Typography>
+            )}
             {uploading && (
               <Box>
                 <Typography variant="caption" color="text.secondary">
@@ -535,6 +586,7 @@ const Acts = () => {
                   const file = e.target.files?.[0] || null;
                   setUploadFile(file);
                   setUploadPct(0);
+                  e.target.value = '';
                 }}
               />
             </Button>
@@ -545,7 +597,7 @@ const Acts = () => {
             Cancelar
           </Button>
           <Button variant="contained" onClick={handleUploadPdf} disabled={!canWrite || uploading}>
-            Subir
+            {uploadAct?.pdfUrl ? 'Reemplazar PDF' : 'Subir PDF'}
           </Button>
         </DialogActions>
       </Dialog>
