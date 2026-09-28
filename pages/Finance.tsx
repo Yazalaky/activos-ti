@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -26,6 +26,7 @@ import {
   TableBody,
   TableCell,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Typography,
@@ -88,7 +89,16 @@ const InvoiceTable = React.memo(function InvoiceTable({
   onDelete,
   onToggleStatus,
 }: InvoiceTableProps) {
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const visibleInvoices = invoices.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  useEffect(() => {
+    setPage(0);
+  }, [invoices]);
+
   return (
+    <>
     <Table size="small">
       <TableHead>
         <TableRow>
@@ -105,7 +115,7 @@ const InvoiceTable = React.memo(function InvoiceTable({
         </TableRow>
       </TableHead>
       <TableBody>
-        {invoices.map((inv) => {
+        {visibleInvoices.map((inv) => {
           const statusInfo = getDisplayStatus(inv);
           const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || 'N/A';
           const siteName = sites.find((s) => s.id === inv.siteId)?.name || 'Sede N/A';
@@ -196,6 +206,20 @@ const InvoiceTable = React.memo(function InvoiceTable({
         )}
       </TableBody>
     </Table>
+    <TablePagination
+      component="div"
+      count={invoices.length}
+      page={page}
+      rowsPerPage={rowsPerPage}
+      rowsPerPageOptions={[25, 50, 100]}
+      labelRowsPerPage="Filas por página"
+      onPageChange={(_event, nextPage) => setPage(nextPage)}
+      onRowsPerPageChange={(event) => {
+        setRowsPerPage(Number(event.target.value));
+        setPage(0);
+      }}
+    />
+    </>
   );
 });
 
@@ -234,6 +258,7 @@ const Finance = () => {
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('');
   const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('');
   const [invoiceNumberFilter, setInvoiceNumberFilter] = useState('');
+  const deferredInvoiceNumberFilter = useDeferredValue(invoiceNumberFilter);
 
   const [showSupplierDialog, setShowSupplierDialog] = useState(false);
   const [editingSupplierId, setEditingSupplierId] = useState<string | null>(null);
@@ -246,6 +271,8 @@ const Finance = () => {
   const [deleteInvoiceOpen, setDeleteInvoiceOpen] = useState(false);
   const [invoiceToDelete, setInvoiceToDelete] = useState<Invoice | null>(null);
   const [deletingInvoice, setDeletingInvoice] = useState(false);
+  const [reportPage, setReportPage] = useState(0);
+  const [reportRowsPerPage, setReportRowsPerPage] = useState(25);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'error' | 'success' | 'warning' }>({
     open: false,
@@ -300,7 +327,7 @@ const Finance = () => {
   };
 
   const filteredInvoices = useMemo(() => {
-    const numberQuery = normalizeInvoiceNumber(invoiceNumberFilter);
+    const numberQuery = normalizeInvoiceNumber(deferredInvoiceNumberFilter);
     const filtered = invoices.filter((inv) => {
       if (startDate && inv.date < startDate) return false;
       if (endDate && inv.date > endDate) return false;
@@ -312,7 +339,7 @@ const Finance = () => {
     return filtered
       .slice()
       .sort((a, b) => String(b.date || '').localeCompare(String(a.date || '')));
-  }, [invoices, startDate, endDate, selectedSiteFilter, selectedSupplierFilter, invoiceNumberFilter]);
+  }, [invoices, startDate, endDate, selectedSiteFilter, selectedSupplierFilter, deferredInvoiceNumberFilter]);
 
   const invoiceReportRows = useMemo(
     () => filteredInvoices.map((invoice) => {
@@ -337,6 +364,15 @@ const Finance = () => {
     const totalPending = filteredInvoices.filter((inv) => inv.status === 'pending').reduce((sum, inv) => sum + Number(inv.total || 0), 0);
     return { totalInvoiced, totalPaid, totalPending };
   }, [filteredInvoices]);
+
+  useEffect(() => {
+    setReportPage(0);
+  }, [filteredInvoices]);
+
+  const visibleReportInvoices = filteredInvoices.slice(
+    reportPage * reportRowsPerPage,
+    reportPage * reportRowsPerPage + reportRowsPerPage,
+  );
 
   const openCreateInvoice = useCallback(() => {
     setEditingInvoiceId(null);
@@ -877,7 +913,7 @@ const Finance = () => {
                   </TableRow>
                 </TableHead>
                 <TableBody>
-                  {filteredInvoices.map((inv) => {
+                  {visibleReportInvoices.map((inv) => {
                     const statusInfo = getDisplayStatus(inv);
                     const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || 'N/A';
                     const siteName = sites.find((s) => s.id === inv.siteId)?.name || 'Sede N/A';
@@ -909,6 +945,19 @@ const Finance = () => {
                   )}
                 </TableBody>
               </Table>
+              <TablePagination
+                component="div"
+                count={filteredInvoices.length}
+                page={reportPage}
+                rowsPerPage={reportRowsPerPage}
+                rowsPerPageOptions={[25, 50, 100]}
+                labelRowsPerPage="Filas por página"
+                onPageChange={(_event, nextPage) => setReportPage(nextPage)}
+                onRowsPerPageChange={(event) => {
+                  setReportRowsPerPage(Number(event.target.value));
+                  setReportPage(0);
+                }}
+              />
             </CardContent>
           </Card>
         </Stack>

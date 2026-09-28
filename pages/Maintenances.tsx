@@ -24,6 +24,7 @@ import {
   TableBody,
   TableCell,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Typography,
@@ -99,6 +100,8 @@ const Maintenances = () => {
   const [filterSite, setFilterSite] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterStatus, setFilterStatus] = useState('');
+  const [tablePage, setTablePage] = useState(0);
+  const [tableRowsPerPage, setTableRowsPerPage] = useState(25);
   
   const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' as any });
 
@@ -132,6 +135,15 @@ const Maintenances = () => {
       return true;
     }).sort((a, b) => (b.scheduledDate || '').localeCompare(a.scheduledDate || ''));
   }, [maintenances, filterSite, filterType, filterStatus, filterStartDate, filterEndDate]);
+
+  useEffect(() => {
+    setTablePage(0);
+  }, [filteredMaintenances]);
+
+  const visibleMaintenances = filteredMaintenances.slice(
+    tablePage * tableRowsPerPage,
+    tablePage * tableRowsPerPage + tableRowsPerPage,
+  );
 
   const maintenanceReportRows = useMemo(
     () => filteredMaintenances.map((maintenance) => {
@@ -345,7 +357,7 @@ const Maintenances = () => {
               </TableRow>
             </TableHead>
             <TableBody>
-              {filteredMaintenances.map(m => {
+              {visibleMaintenances.map(m => {
                 const s = sites.find(x => x.id === m.siteId);
                 const a = assets.find(x => x.id === m.assetId);
                 return (
@@ -395,6 +407,19 @@ const Maintenances = () => {
               )}
             </TableBody>
           </Table>
+          <TablePagination
+            component="div"
+            count={filteredMaintenances.length}
+            page={tablePage}
+            rowsPerPage={tableRowsPerPage}
+            rowsPerPageOptions={[25, 50, 100]}
+            labelRowsPerPage="Filas por página"
+            onPageChange={(_event, nextPage) => setTablePage(nextPage)}
+            onRowsPerPageChange={(event) => {
+              setTableRowsPerPage(Number(event.target.value));
+              setTablePage(0);
+            }}
+          />
         </CardContent>
       </Card>
 

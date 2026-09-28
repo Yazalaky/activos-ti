@@ -16,6 +16,7 @@ import {
   IconButton,
   InputLabel,
   MenuItem,
+  Pagination,
   Select,
   Snackbar,
   Stack,
@@ -169,6 +170,7 @@ const Activities = () => {
 
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
+  const [activityPage, setActivityPage] = useState(1);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string }>({
     open: false,
@@ -200,6 +202,17 @@ const Activities = () => {
       return true;
     });
   }, [activities, startDate, endDate]);
+
+  const activityPageSize = 25;
+
+  useEffect(() => {
+    setActivityPage(1);
+  }, [filteredActivities]);
+
+  const visibleActivities = filteredActivities.slice(
+    (activityPage - 1) * activityPageSize,
+    activityPage * activityPageSize,
+  );
 
   const activityReportRows = useMemo(
     () => filteredActivities.map((activity) => {
@@ -351,12 +364,23 @@ const Activities = () => {
       </Card>
 
       <ActivityList
-        activities={filteredActivities}
+        activities={visibleActivities}
         sites={sites}
         assets={assets}
         canWrite={canWrite}
         onEdit={openEdit}
       />
+
+      {filteredActivities.length > activityPageSize && (
+        <Stack alignItems="center">
+          <Pagination
+            color="primary"
+            page={activityPage}
+            count={Math.ceil(filteredActivities.length / activityPageSize)}
+            onChange={(_event, nextPage) => setActivityPage(nextPage)}
+          />
+        </Stack>
+      )}
 
       <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
         <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar actividad' : 'Registrar actividad'}</DialogTitle>

@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Avatar,
@@ -26,6 +26,7 @@ import {
   TableBody,
   TableCell,
   TableHead,
+  TablePagination,
   TableRow,
   TextField,
   Tooltip,
@@ -103,7 +104,16 @@ type AssetTableProps = {
 };
 
 const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onView, onEdit, onAssign, onReturn, onDecommission }: AssetTableProps) {
+  const [page, setPage] = useState(0);
+  const [rowsPerPage, setRowsPerPage] = useState(25);
+  const visibleAssets = assets.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+
+  useEffect(() => {
+    setPage(0);
+  }, [assets]);
+
   return (
+    <>
     <Table size="small">
       <TableHead>
         <TableRow>
@@ -118,7 +128,7 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
         </TableRow>
       </TableHead>
       <TableBody>
-        {assets.map((asset) => {
+        {visibleAssets.map((asset) => {
           const siteName = sites.find((s) => s.id === asset.siteId)?.name || 'Sin sede';
           const hardware =
             asset.type === 'laptop' || asset.type === 'desktop'
@@ -224,6 +234,20 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
         )}
       </TableBody>
     </Table>
+    <TablePagination
+      component="div"
+      count={assets.length}
+      page={page}
+      rowsPerPage={rowsPerPage}
+      rowsPerPageOptions={[25, 50, 100]}
+      labelRowsPerPage="Filas por página"
+      onPageChange={(_event, nextPage) => setPage(nextPage)}
+      onRowsPerPageChange={(event) => {
+        setRowsPerPage(Number(event.target.value));
+        setPage(0);
+      }}
+    />
+    </>
   );
 });
 
@@ -236,6 +260,7 @@ const Assets = () => {
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<AssetType | ''>('');
   const [assetViewFilter, setAssetViewFilter] = useState<'active' | 'baja' | 'all'>('active');
+  const deferredFilterText = useDeferredValue(filterText);
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -334,7 +359,7 @@ const Assets = () => {
   }, []);
 
   const filteredAssets = useMemo(() => {
-    const search = filterText.trim().toLowerCase();
+    const search = deferredFilterText.trim().toLowerCase();
     return assets.filter((a) => {
       const assignedTo = a.currentAssignment?.assignedToName?.toLowerCase?.() || '';
       const matchesText =
@@ -350,7 +375,7 @@ const Assets = () => {
         (assetViewFilter === 'baja' ? a.status === 'baja' : a.status !== 'baja');
       return matchesText && matchesSite && matchesType && matchesView;
     });
-  }, [assets, filterText, selectedSiteFilter, selectedTypeFilter, assetViewFilter]);
+  }, [assets, deferredFilterText, selectedSiteFilter, selectedTypeFilter, assetViewFilter]);
 
   const inventoryReportRows = useMemo(
     () => filteredAssets.map((asset) => {
