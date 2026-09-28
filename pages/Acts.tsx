@@ -98,6 +98,7 @@ const Acts = () => {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [createSiteId, setCreateSiteId] = useState('');
   const [assetId, setAssetId] = useState('');
   const [recipientName, setRecipientName] = useState('');
   const [recipientPosition, setRecipientPosition] = useState('');
@@ -130,7 +131,14 @@ const Acts = () => {
   }, []);
 
   const selectedAsset = useMemo(() => assets.find((a) => a.id === assetId) || null, [assets, assetId]);
-  const selectedSite = useMemo(() => sites.find((s) => s.id === selectedAsset?.siteId) || null, [sites, selectedAsset?.siteId]);
+  const selectedSite = useMemo(() => sites.find((s) => s.id === createSiteId) || null, [sites, createSiteId]);
+  const assetsForCreateSite = useMemo(
+    () => assets
+      .filter((asset) => !createSiteId || asset.siteId === createSiteId)
+      .slice()
+      .sort((a, b) => String(a.fixedAssetId).localeCompare(String(b.fixedAssetId))),
+    [assets, createSiteId]
+  );
 
   const filteredActs = useMemo(() => {
     const q = filterText.trim().toLowerCase();
@@ -145,6 +153,7 @@ const Acts = () => {
   }, [acts, filterText, filterStatus, filterSiteId]);
 
   const openCreate = () => {
+    setCreateSiteId('');
     setAssetId('');
     setRecipientName('');
     setRecipientPosition('');
@@ -171,6 +180,10 @@ const Acts = () => {
       return;
     }
     const site = sites.find((s) => s.id === asset.siteId);
+    if (!createSiteId || asset.siteId !== createSiteId) {
+      setSnackbar({ open: true, message: 'Seleccione una sede y un activo de esa misma sede.', severity: 'warning' });
+      return;
+    }
     if (!site?.companyId) {
       setSnackbar({ open: true, message: 'La sede no tiene empresa asignada. Configura companyId en Sedes.', severity: 'warning' });
       return;
@@ -477,6 +490,36 @@ const Acts = () => {
           <Box component="form" onSubmit={handleSaveCreate} sx={{ mt: 1 }}>
             <Stack spacing={2}>
               <FormControl fullWidth required disabled={!canWrite || creating}>
+                <InputLabel id="act-create-site-label">Sede</InputLabel>
+                <Select
+                  labelId="act-create-site-label"
+                  label="Sede"
+                  value={createSiteId}
+                  onChange={(e) => {
+                    const siteId = String(e.target.value);
+                    setCreateSiteId(siteId);
+                    setAssetId('');
+                    setRecipientName('');
+                    setRecipientPosition('');
+                    setRecipientEmail('');
+                  }}
+                >
+                  <MenuItem value="">Seleccione una sede...</MenuItem>
+                  {sites
+                    .slice()
+                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .map((site) => {
+                      const siteAssetCount = assets.filter((asset) => asset.siteId === site.id).length;
+                      return (
+                        <MenuItem key={site.id} value={site.id}>
+                          {site.name} · {siteAssetCount} activo{siteAssetCount === 1 ? '' : 's'}
+                        </MenuItem>
+                      );
+                    })}
+                </Select>
+              </FormControl>
+
+              <FormControl fullWidth required disabled={!canWrite || creating || !createSiteId}>
                 <InputLabel id="act-asset-label">Activo</InputLabel>
                 <Select
                   labelId="act-asset-label"
@@ -490,13 +533,16 @@ const Acts = () => {
                     if (asset?.currentAssignment?.assignedToPosition) setRecipientPosition(asset.currentAssignment.assignedToPosition);
                   }}
                 >
-                  <MenuItem value="">Seleccione...</MenuItem>
-                  {assets
-                    .slice()
-                    .sort((a, b) => String(a.fixedAssetId).localeCompare(String(b.fixedAssetId)))
-                    .map((a) => (
+                  <MenuItem value="">
+                    {!createSiteId
+                      ? 'Seleccione primero una sede'
+                      : assetsForCreateSite.length === 0
+                        ? 'No hay activos en esta sede'
+                        : 'Seleccione un activo...'}
+                  </MenuItem>
+                  {assetsForCreateSite.map((a) => (
                       <MenuItem key={a.id} value={a.id}>
-                        {a.fixedAssetId} · {a.brand} {a.model} (S/N: {a.serial})
+                        {a.fixedAssetId} · {a.brand} {a.model} · S/N: {a.serial} · Estado: {a.status}
                       </MenuItem>
                     ))}
                 </Select>
