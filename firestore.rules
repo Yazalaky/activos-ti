@@ -13,8 +13,13 @@ service cloud.firestore {
       return get(/databases/$(database)/documents/users/$(request.auth.uid));
     }
 
+    function profileActive() {
+      return hasProfile()
+        && (!userDoc().data.keys().hasAny(['active']) || userDoc().data.active == true);
+    }
+
     function role() {
-      return hasProfile() ? userDoc().data.role : null;
+      return profileActive() ? userDoc().data.role : null;
     }
 
     function isAdmin() {
@@ -35,6 +40,48 @@ service cloud.firestore {
 
     function canWrite() {
       return isAdmin() || isTech();
+    }
+
+    function hasGlobalAccess() {
+      return profileActive()
+        && (!userDoc().data.keys().hasAny(['accessScope']) || userDoc().data.accessScope == 'global');
+    }
+
+    function hasAssignedSite(siteId) {
+      return profileActive()
+        && userDoc().data.keys().hasAll(['accessScope', 'siteIds'])
+        && userDoc().data.accessScope == 'sites'
+        && userDoc().data.siteIds is list
+        && userDoc().data.siteIds.hasAny([siteId]);
+    }
+
+    function canReadSite(siteId) {
+      return hasGlobalAccess() || hasAssignedSite(siteId);
+    }
+
+    function canWriteSite(siteId) {
+      return canWrite() && canReadSite(siteId);
+    }
+
+    function userProfileValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['email', 'name', 'role'])
+        && data.email is string
+        && data.email.size() > 0
+        && data.email.size() <= 254
+        && data.name is string
+        && data.name.size() > 0
+        && data.name.size() <= 200
+        && data.role in ['admin', 'tech', 'auditor', 'management'];
+      let activeValid = !data.keys().hasAny(['active']) || data.active is bool;
+      let scopeValid = !data.keys().hasAny(['accessScope'])
+        || data.accessScope in ['global', 'sites'];
+      let sitesValid = !data.keys().hasAny(['siteIds'])
+        || (data.siteIds is list && data.siteIds.size() <= 30);
+      let restrictedHasSites = !data.keys().hasAny(['accessScope'])
+        || data.accessScope != 'sites'
+        || (data.keys().hasAny(['siteIds']) && data.siteIds is list && data.siteIds.size() > 0);
+      return identityValid && activeValid && scopeValid && sitesValid && restrictedHasSites;
     }
 
     function isNullOrString(value) {
@@ -195,36 +242,39 @@ service cloud.firestore {
 
     // USERS (perfiles)
     match /users/{uid} {
-      allow read: if isSignedIn() && (uid == request.auth.uid || isAdmin());
+      allow read: if profileActive() && (uid == request.auth.uid || isAdmin());
 
       // Solo admin puede crear perfiles.
-      allow create: if isAdmin()
-        && request.resource.data.keys().hasOnly(['email', 'name', 'role'])
-        && (request.resource.data.role in ['admin', 'tech', 'auditor', 'management']);
+      allow create: if isAdmin() && userProfileValid();
 
       // El usuario puede actualizar su nombre; solo admin puede cambiar role/email.
       allow update: if isSignedIn() && (
         (uid == request.auth.uid
           && request.resource.data.diff(resource.data).changedKeys().hasOnly(['name']))
-        || isAdmin()
-      );
+        || (isAdmin()
+          && userProfileValid()
+          // El estado de Auth se cambia exclusivamente por la Cloud Function.
+          && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['active']))
+      ) && profileActive();
 
       allow delete: if isAdmin();
     }
 
     // SITES
     match /sites/{siteId} {
-      allow read: if isSignedIn();
-      allow create: if canWrite();
-      allow update: if canWrite(); // incluye assetSeq
+      allow read: if canReadSite(siteId);
+      allow create: if canWrite() && hasGlobalAccess();
+      allow update: if canWriteSite(siteId); // incluye assetSeq
       allow delete: if false;
     }
 
     // ASSETS
     match /assets/{assetId} {
-      allow read: if isSignedIn();
-      allow create: if canWrite() && assetAttachmentValid(assetId) && assetLifecycleValid();
-      allow update: if canWrite()
+      allow read: if canReadSite(resource.data.siteId);
+      allow create: if canWriteSite(request.resource.data.siteId)
+        && assetAttachmentValid(assetId) && assetLifecycleValid();
+      allow update: if canWriteSite(resource.data.siteId)
+        && canWriteSite(request.resource.data.siteId)
         && assetAttachmentValid(assetId)
         && assetLifecycleValid()
         // La baja es un estado final; no se puede reactivar por una edición común.
@@ -234,49 +284,62 @@ service cloud.firestore {
 
     // ACTIVITIES
     match /activities/{activityId} {
-      allow read: if isSignedIn();
-      allow create, update: if isAdmin() || isTech();
+      allow read: if canReadSite(resource.data.siteId);
+      allow create: if canWriteSite(request.resource.data.siteId);
+      allow update: if canWriteSite(resource.data.siteId)
+        && canWriteSite(request.resource.data.siteId);
       allow delete: if false;
     }
 
     // SUPPLIERS
     match /suppliers/{supplierId} {
-      allow read: if isSignedIn();
-      allow create, update: if isAdmin() || isTech();
+      // Catálogo compartido; las transacciones que lo usan sí están limitadas por sede.
+      allow read: if profileActive();
+      allow create, update: if isAdmin() || (isTech() && hasGlobalAccess());
       allow delete: if false;
     }
 
     // INVOICES
     match /invoices/{invoiceId} {
-      allow read: if isSignedIn();
-      allow create: if canWrite() && invoiceAttachmentValid(invoiceId);
-      allow update: if canWrite() && invoiceAttachmentValid(invoiceId);
+      allow read: if canReadSite(resource.data.siteId);
+      allow create: if canWriteSite(request.resource.data.siteId)
+        && invoiceAttachmentValid(invoiceId);
+      allow update: if canWriteSite(resource.data.siteId)
+        && canWriteSite(request.resource.data.siteId)
+        && invoiceAttachmentValid(invoiceId);
       allow delete: if false;
     }
 
     // QUOTES (Cotizaciones)
     match /quotes/{quoteId} {
-      allow read: if isSignedIn();
-      allow create: if canWrite() && quoteAttachmentValid(quoteId);
-      allow update: if canWrite() && quoteAttachmentValid(quoteId);
+      allow read: if canReadSite(resource.data.siteId);
+      allow create: if canWriteSite(request.resource.data.siteId)
+        && quoteAttachmentValid(quoteId);
+      allow update: if canWriteSite(resource.data.siteId)
+        && canWriteSite(request.resource.data.siteId)
+        && quoteAttachmentValid(quoteId);
       allow delete: if false;
     }
 
     // ACTS (Actas de entrega)
     match /acts/{actId} {
-      allow read: if isSignedIn();
-      allow create: if canWrite() && actAttachmentValid(actId);
-      allow update: if canWrite() && actAttachmentValid(actId);
+      allow read: if canReadSite(resource.data.siteId);
+      allow create: if canWriteSite(request.resource.data.siteId)
+        && actAttachmentValid(actId);
+      allow update: if canWriteSite(resource.data.siteId)
+        && canWriteSite(request.resource.data.siteId)
+        && actAttachmentValid(actId);
       allow delete: if false;
     }
 
     // MAINTENANCES
     match /maintenances/{maintenanceId} {
-      allow read: if isSignedIn();
-      allow create: if canWrite()
+      allow read: if canReadSite(resource.data.siteId);
+      allow create: if canWriteSite(request.resource.data.siteId)
         && request.resource.data.type in ['preventivo', 'correctivo']
         && request.resource.data.status in ['programado', 'en_proceso', 'realizado', 'cancelado'];
-      allow update: if canWrite()
+      allow update: if canWriteSite(resource.data.siteId)
+        && canWriteSite(request.resource.data.siteId)
         && request.resource.data.type in ['preventivo', 'correctivo']
         && request.resource.data.status in ['programado', 'en_proceso', 'realizado', 'cancelado']
         && (!request.resource.data.keys().hasAny(['evidencePath']) || request.resource.data.evidencePath == null || isValidMaintenanceEvidencePath(maintenanceId, request.resource.data.evidencePath))

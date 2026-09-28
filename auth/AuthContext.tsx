@@ -52,10 +52,20 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               return;
             }
             const data = snap.data() as Omit<UserProfile, 'uid'>;
+            if (data.active === false) {
+              setState({ user: null, profile: null, role: null, loading: false });
+              void auth.signOut();
+              return;
+            }
             const profile: UserProfile = { uid, ...data };
             setState({ user, profile, role: profile.role, loading: false });
           },
-          () => setState({ user, profile: null, role: null, loading: false })
+          (error) => {
+            setState({ user, profile: null, role: null, loading: false });
+            if ((error as { code?: string })?.code === 'permission-denied') {
+              void auth.signOut();
+            }
+          }
         );
       })().catch(() => setState({ user, profile: null, role: null, loading: false }));
     });

@@ -9,14 +9,63 @@ service firebase.storage {
       return isSignedIn() && firestore.exists(/databases/(default)/documents/users/$(request.auth.uid));
     }
 
-    function role() {
+    function userDoc() {
+      return firestore.get(/databases/(default)/documents/users/$(request.auth.uid));
+    }
+
+    function profileActive() {
       return hasProfile()
-        ? firestore.get(/databases/(default)/documents/users/$(request.auth.uid)).data.role
-        : null;
+        && (!userDoc().data.keys().hasAny(['active']) || userDoc().data.active == true);
+    }
+
+    function role() {
+      return profileActive() ? userDoc().data.role : null;
     }
 
     function canWrite() {
       return role() == 'admin' || role() == 'tech';
+    }
+
+    function hasGlobalAccess() {
+      return profileActive()
+        && (!userDoc().data.keys().hasAny(['accessScope']) || userDoc().data.accessScope == 'global');
+    }
+
+    function hasAssignedSite(siteId) {
+      return profileActive()
+        && userDoc().data.keys().hasAll(['accessScope', 'siteIds'])
+        && userDoc().data.accessScope == 'sites'
+        && userDoc().data.siteIds is list
+        && userDoc().data.siteIds.hasAny([siteId]);
+    }
+
+    function canReadSite(siteId) {
+      return hasGlobalAccess() || hasAssignedSite(siteId);
+    }
+
+    function assetBelongsToAllowedSite(assetId) {
+      return firestore.exists(/databases/(default)/documents/assets/$(assetId))
+        && canReadSite(firestore.get(/databases/(default)/documents/assets/$(assetId)).data.siteId);
+    }
+
+    function invoiceBelongsToAllowedSite(invoiceId) {
+      return firestore.exists(/databases/(default)/documents/invoices/$(invoiceId))
+        && canReadSite(firestore.get(/databases/(default)/documents/invoices/$(invoiceId)).data.siteId);
+    }
+
+    function quoteBelongsToAllowedSite(quoteId) {
+      return firestore.exists(/databases/(default)/documents/quotes/$(quoteId))
+        && canReadSite(firestore.get(/databases/(default)/documents/quotes/$(quoteId)).data.siteId);
+    }
+
+    function actBelongsToAllowedSite(actId) {
+      return firestore.exists(/databases/(default)/documents/acts/$(actId))
+        && canReadSite(firestore.get(/databases/(default)/documents/acts/$(actId)).data.siteId);
+    }
+
+    function maintenanceBelongsToAllowedSite(maintenanceId) {
+      return firestore.exists(/databases/(default)/documents/maintenances/$(maintenanceId))
+        && canReadSite(firestore.get(/databases/(default)/documents/maintenances/$(maintenanceId)).data.siteId);
     }
 
     function isImage() {
@@ -36,33 +85,48 @@ service firebase.storage {
     }
 
     match /assets/{assetId}/photos/{fileName} {
-      allow read: if isSignedIn();
-      allow create, update: if canWrite() && isImage() && underLimit(5 * 1024 * 1024);
-      allow delete: if canWrite();
+      allow read: if assetBelongsToAllowedSite(assetId);
+      allow create, update: if canWrite()
+        && assetBelongsToAllowedSite(assetId)
+        && isImage()
+        && underLimit(5 * 1024 * 1024);
+      allow delete: if canWrite() && assetBelongsToAllowedSite(assetId);
     }
 
     match /invoices/{invoiceId}/attachments/{fileName} {
-      allow read: if isSignedIn();
-      allow create, update: if canWrite() && isPdfOrImage() && underLimit(10 * 1024 * 1024);
-      allow delete: if canWrite();
+      allow read: if invoiceBelongsToAllowedSite(invoiceId);
+      allow create, update: if canWrite()
+        && invoiceBelongsToAllowedSite(invoiceId)
+        && isPdfOrImage()
+        && underLimit(10 * 1024 * 1024);
+      allow delete: if canWrite() && invoiceBelongsToAllowedSite(invoiceId);
     }
 
     match /quotes/{quoteId}/attachments/{fileName} {
-      allow read: if isSignedIn();
-      allow create, update: if canWrite() && isPdf() && underLimit(10 * 1024 * 1024);
-      allow delete: if canWrite();
+      allow read: if quoteBelongsToAllowedSite(quoteId);
+      allow create, update: if canWrite()
+        && quoteBelongsToAllowedSite(quoteId)
+        && isPdf()
+        && underLimit(10 * 1024 * 1024);
+      allow delete: if canWrite() && quoteBelongsToAllowedSite(quoteId);
     }
 
     match /acts/{actId}/pdf/{fileName} {
-      allow read: if isSignedIn();
-      allow create, update: if canWrite() && isPdf() && underLimit(10 * 1024 * 1024);
-      allow delete: if canWrite();
+      allow read: if actBelongsToAllowedSite(actId);
+      allow create, update: if canWrite()
+        && actBelongsToAllowedSite(actId)
+        && isPdf()
+        && underLimit(10 * 1024 * 1024);
+      allow delete: if canWrite() && actBelongsToAllowedSite(actId);
     }
 
     match /maintenances/{maintenanceId}/attachments/{fileName} {
-      allow read: if isSignedIn();
-      allow create, update: if canWrite() && isPdfOrImage() && underLimit(10 * 1024 * 1024);
-      allow delete: if canWrite();
+      allow read: if maintenanceBelongsToAllowedSite(maintenanceId);
+      allow create, update: if canWrite()
+        && maintenanceBelongsToAllowedSite(maintenanceId)
+        && isPdfOrImage()
+        && underLimit(10 * 1024 * 1024);
+      allow delete: if canWrite() && maintenanceBelongsToAllowedSite(maintenanceId);
     }
 
     // Deny all other paths by default

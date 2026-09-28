@@ -2,7 +2,9 @@ import {
   addDoc,
   collection,
   deleteDoc,
+  documentId,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
@@ -10,6 +12,7 @@ import {
   updateDoc,
   where,
 } from 'firebase/firestore';
+import { auth } from '../firebaseAuth';
 import { db } from '../firebaseDb';
 import type { Act, Activity, Asset, Invoice, Quote, Site, Supplier, Maintenance } from '../types';
 
@@ -22,9 +25,54 @@ export interface QueryFilters {
   status?: string;
 }
 
-const fetchCollection = async <T extends { isDeleted?: boolean }>(collectionName: string): Promise<T[]> => {
+type SiteScope = 'none' | 'documentId' | 'siteId';
+
+type AccessContext = {
+  active: boolean;
+  global: boolean;
+  siteIds: string[];
+};
+
+const getAccessContext = async (): Promise<AccessContext> => {
+  const uid = auth.currentUser?.uid;
+  if (!uid) return { active: false, global: false, siteIds: [] };
+
   try {
-    const q = query(collection(db, collectionName));
+    const snap = await getDoc(doc(db, 'users', uid));
+    if (!snap.exists()) return { active: false, global: false, siteIds: [] };
+
+    const data = snap.data();
+    const active = data.active !== false;
+    const siteIds = Array.isArray(data.siteIds)
+      ? data.siteIds.filter((value): value is string => typeof value === 'string' && value.length > 0)
+      : [];
+
+    return {
+      active,
+      global: active && data.accessScope !== 'sites',
+      siteIds: active ? siteIds : [],
+    };
+  } catch (error) {
+    console.error('Error obteniendo el alcance del usuario:', error);
+    return { active: false, global: false, siteIds: [] };
+  }
+};
+
+const fetchCollection = async <T extends { isDeleted?: boolean }>(
+  collectionName: string,
+  siteScope: SiteScope = 'none',
+): Promise<T[]> => {
+  try {
+    const access = await getAccessContext();
+    if (!access.active) return [];
+    if (!access.global && siteScope !== 'none' && access.siteIds.length === 0) return [];
+
+    const constraints = [];
+    if (!access.global && siteScope !== 'none') {
+      constraints.push(where(siteScope === 'documentId' ? documentId() : 'siteId', 'in', access.siteIds));
+    }
+
+    const q = query(collection(db, collectionName), ...constraints);
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs
       .map((snap) => ({ id: snap.id, ...snap.data() } as unknown as T))
@@ -36,13 +84,13 @@ const fetchCollection = async <T extends { isDeleted?: boolean }>(collectionName
 };
 
 // SITES
-export const getSites = () => fetchCollection<Site>('sites');
+export const getSites = () => fetchCollection<Site>('sites', 'documentId');
 export const addSite = (data: Omit<Site, 'id'>, actorUid?: string) => addDoc(collection(db, 'sites'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const deleteSite = (id: string, actorUid?: string) => updateDoc(doc(db, 'sites', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
 export const updateSite = (id: string, data: Partial<Site>, actorUid?: string) => updateDoc(doc(db, 'sites', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
 // ASSETS
-export const getAssets = () => fetchCollection<Asset>('assets');
+export const getAssets = () => fetchCollection<Asset>('assets', 'siteId');
 
 const generateNextFixedId = async (siteId: string): Promise<string> => {
   const siteRef = doc(db, 'sites', siteId);
@@ -140,9 +188,15 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string, actorU
 // ACTIVITIES
 export const getActivities = async (filters?: QueryFilters) => {
   try {
-    const q = query(collection(db, 'activities'), orderBy('date', 'desc'));
+    const access = await getAccessContext();
+    if (!access.active || (!access.global && access.siteIds.length === 0)) return [];
+
+    const constraints = access.global
+      ? [orderBy('date', 'desc')]
+      : [where('siteId', 'in', access.siteIds)];
+    const q = query(collection(db, 'activities'), ...constraints);
     const snap = await getDocs(q);
-    return snap.docs
+    const result = snap.docs
       .map((d) => ({ id: d.id, ...d.data() } as Activity))
       .filter((item) => !item.isDeleted)
       .filter((item) => {
@@ -152,6 +206,7 @@ export const getActivities = async (filters?: QueryFilters) => {
         if (filters?.assetId && item.assetId !== filters.assetId) return false;
         return true;
       });
+    return result.sort((a, b) => b.date.localeCompare(a.date));
   } catch (error) {
     console.error('Error fetching activities:', error);
     return [];
@@ -168,7 +223,7 @@ export const updateSupplier = (id: string, data: Partial<Supplier>, actorUid?: s
 
 // INVOICES
 export const getInvoices = async (filters?: QueryFilters) => {
-  const all = await fetchCollection<Invoice>('invoices');
+  const all = await fetchCollection<Invoice>('invoices', 'siteId');
   return all.filter((item) => {
     if (filters?.siteId && item.siteId !== filters.siteId) return false;
     if (filters?.startDate && item.date < filters.startDate) return false;
@@ -224,9 +279,17 @@ export const bulkDecommissionAssetsForSite = async (siteId: string, assetIds: st
 // QUOTES (Cotizaciones)
 export const getQuotes = async () => {
   try {
-    const q = query(collection(db, 'quotes'), orderBy('date', 'desc'));
+    const access = await getAccessContext();
+    if (!access.active || (!access.global && access.siteIds.length === 0)) return [];
+    const constraints = access.global
+      ? [orderBy('date', 'desc')]
+      : [where('siteId', 'in', access.siteIds)];
+    const q = query(collection(db, 'quotes'), ...constraints);
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Quote)).filter(x => !x.isDeleted);
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() } as Quote))
+      .filter(x => !x.isDeleted)
+      .sort((a, b) => b.date.localeCompare(a.date));
   } catch (error) {
     console.error('Error fetching quotes:', error);
     return [];
@@ -240,9 +303,17 @@ export const deleteQuote = (id: string, actorUid?: string) => updateDoc(doc(db, 
 // ACTS (Actas)
 export const getActs = async () => {
   try {
-    const q = query(collection(db, 'acts'), orderBy('createdAt', 'desc'));
+    const access = await getAccessContext();
+    if (!access.active || (!access.global && access.siteIds.length === 0)) return [];
+    const constraints = access.global
+      ? [orderBy('createdAt', 'desc')]
+      : [where('siteId', 'in', access.siteIds)];
+    const q = query(collection(db, 'acts'), ...constraints);
     const snap = await getDocs(q);
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() } as Act)).filter(x => !x.isDeleted);
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() } as Act))
+      .filter(x => !x.isDeleted)
+      .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   } catch (error) {
     console.error('Error fetching acts:', error);
     return [];
@@ -255,7 +326,7 @@ export const deleteAct = (id: string, actorUid?: string) => updateDoc(doc(db, 'a
 
 // MAINTENANCES
 export const getMaintenances = async (filters?: QueryFilters) => {
-  const all = await fetchCollection<Maintenance>('maintenances');
+  const all = await fetchCollection<Maintenance>('maintenances', 'siteId');
   return all.filter((item) => {
     if (filters?.siteId && item.siteId !== filters.siteId) return false;
     if (filters?.startDate && item.scheduledDate && item.scheduledDate < filters.startDate) return false;

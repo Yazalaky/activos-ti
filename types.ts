@@ -1,4 +1,5 @@
 export type Role = 'admin' | 'tech' | 'auditor' | 'management';
+export type AccessScope = 'global' | 'sites';
 
 export type Status = 'bodega' | 'asignado' | 'mantenimiento' | 'baja';
 
@@ -19,6 +20,9 @@ export interface UserProfile {
   email: string;
   role: Role;
   name: string;
+  active?: boolean;
+  accessScope?: AccessScope;
+  siteIds?: string[];
 }
 
 export interface Site extends AuditFields {
