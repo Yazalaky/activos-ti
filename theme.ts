@@ -49,9 +49,9 @@ const baseTheme = createTheme({
         },
         contained: {
           boxShadow: 'none',
-        },
-        containedHover: {
-          boxShadow: 'none',
+          '&:hover': {
+            boxShadow: 'none',
+          },
         },
       },
     },

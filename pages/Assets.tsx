@@ -32,6 +32,7 @@ import {
   Typography,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
+import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
@@ -43,7 +44,7 @@ import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
-import { addAsset, bulkDeleteAssetsForSite, getAssets, getSites, moveAssetToSite, updateAsset, getMaintenances } from '../services/api';
+import { addAsset, bulkDecommissionAssetsForSite, decommissionAsset, getAssets, getSites, moveAssetToSite, updateAsset, getMaintenances } from '../services/api';
 import type { Asset, AssetType, Assignment, Site, Status, Maintenance } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
@@ -81,9 +82,10 @@ type AssetTableProps = {
   onEdit: (asset: Asset) => void;
   onAssign: (asset: Asset) => void;
   onReturn: (asset: Asset) => void;
+  onDecommission: (asset: Asset) => void;
 };
 
-const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onView, onEdit, onAssign, onReturn }: AssetTableProps) {
+const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onView, onEdit, onAssign, onReturn, onDecommission }: AssetTableProps) {
   return (
     <Table size="small">
       <TableHead>
@@ -140,6 +142,11 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
                   {asset.currentAssignment && (
                     <Chip size="small" variant="outlined" label={asset.currentAssignment.assignedToName} sx={{ width: 'fit-content' }} />
                   )}
+                  {asset.status === 'baja' && asset.decommissionReason && (
+                    <Typography variant="caption" color="error.main" sx={{ maxWidth: 220 }}>
+                      {asset.decommissionReason}
+                    </Typography>
+                  )}
                 </Stack>
               </TableCell>
               <TableCell align="right">
@@ -149,8 +156,8 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
                       <VisibilityOutlinedIcon />
                     </IconButton>
                   </Tooltip>
-                  {canWrite && (
-                    <>
+                      {canWrite && asset.status !== 'baja' && (
+                        <>
                       <Tooltip title="Editar">
                         <IconButton onClick={() => onEdit(asset)} aria-label="Editar" size="small">
                           <EditOutlinedIcon />
@@ -170,6 +177,17 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
                           </IconButton>
                         </Tooltip>
                       )}
+                      <Button
+                        onClick={() => onDecommission(asset)}
+                        aria-label="Dar de baja"
+                        size="small"
+                        variant="outlined"
+                        color="error"
+                        startIcon={<BlockOutlinedIcon />}
+                        sx={{ minWidth: 0 }}
+                      >
+                        Baja
+                      </Button>
                     </>
                   )}
                 </Stack>
@@ -200,6 +218,7 @@ const Assets = () => {
   const [filterText, setFilterText] = useState('');
   const [selectedSiteFilter, setSelectedSiteFilter] = useState('');
   const [selectedTypeFilter, setSelectedTypeFilter] = useState<AssetType | ''>('');
+  const [assetViewFilter, setAssetViewFilter] = useState<'active' | 'baja' | 'all'>('active');
 
   const [editorOpen, setEditorOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -218,6 +237,10 @@ const Assets = () => {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('');
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [decommissionOpen, setDecommissionOpen] = useState(false);
+  const [decommissionTarget, setDecommissionTarget] = useState<Asset | null>(null);
+  const [decommissionReason, setDecommissionReason] = useState('');
+  const [decommissionSaving, setDecommissionSaving] = useState(false);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'warning' | 'error' }>({
     open: false,
@@ -265,6 +288,7 @@ const Assets = () => {
     setFilterText('');
     setSelectedSiteFilter('');
     setSelectedTypeFilter('');
+    setAssetViewFilter('active');
   };
 
   const selectedSite = useMemo(
@@ -279,16 +303,8 @@ const Assets = () => {
 
   const bulkConfirmPhrase = useMemo(() => {
     const prefix = selectedSite?.prefix ? selectedSite.prefix.toUpperCase() : '';
-    return prefix ? `ELIMINAR ${prefix}` : 'ELIMINAR';
+    return prefix ? `DAR DE BAJA ${prefix}` : 'DAR DE BAJA';
   }, [selectedSite]);
-
-  const extractAssetSeq = (fixedAssetId?: string) => {
-    if (!fixedAssetId) return null;
-    const match = /-(\d+)$/.exec(fixedAssetId);
-    if (!match) return null;
-    const num = Number(match[1]);
-    return Number.isFinite(num) ? num : null;
-  };
 
   const loadData = async () => {
     const [a, s] = await Promise.all([getAssets(), getSites()]);
@@ -312,9 +328,12 @@ const Assets = () => {
         (assignedTo && assignedTo.includes(search));
       const matchesSite = selectedSiteFilter ? a.siteId === selectedSiteFilter : true;
       const matchesType = selectedTypeFilter ? a.type === selectedTypeFilter : true;
-      return matchesText && matchesSite && matchesType;
+      const matchesView =
+        assetViewFilter === 'all' ||
+        (assetViewFilter === 'baja' ? a.status === 'baja' : a.status !== 'baja');
+      return matchesText && matchesSite && matchesType && matchesView;
     });
-  }, [assets, filterText, selectedSiteFilter, selectedTypeFilter]);
+  }, [assets, filterText, selectedSiteFilter, selectedTypeFilter, assetViewFilter]);
 
   const nextFixedIdPreview = useMemo(() => {
     if (!formData.siteId) return '';
@@ -382,7 +401,7 @@ const Assets = () => {
     setEditingId(null);
     setEditorMode('create');
     setFormData(initialFormState);
-    setInlineAssignment({ name: '', position: '' });
+    setInlineAssignment({ name: '', position: '', responsible: '' });
     setMoveSiteOpen(false);
     setMoveSiteId('');
     setMovingSite(false);
@@ -613,6 +632,43 @@ const Assets = () => {
     setReturnOpen(true);
   }, []);
 
+  const openDecommission = useCallback((asset: Asset) => {
+    setDecommissionTarget(asset);
+    setDecommissionReason('');
+    setDecommissionOpen(true);
+  }, []);
+
+  const closeDecommission = useCallback(() => {
+    if (decommissionSaving) return;
+    setDecommissionOpen(false);
+    setDecommissionTarget(null);
+    setDecommissionReason('');
+  }, [decommissionSaving]);
+
+  const handleDecommission = async () => {
+    if (!canWrite || !decommissionTarget) return;
+    const reason = decommissionReason.trim();
+    if (reason.length < 5) {
+      setSnackbar({ open: true, message: 'Escribe un motivo de baja de al menos 5 caracteres.', severity: 'warning' });
+      return;
+    }
+
+    try {
+      setDecommissionSaving(true);
+      await decommissionAsset(decommissionTarget.id, reason, profile?.uid);
+      setSnackbar({ open: true, message: 'Equipo dado de baja correctamente.', severity: 'success' });
+      setDecommissionOpen(false);
+      setDecommissionTarget(null);
+      setDecommissionReason('');
+      await loadData();
+    } catch (error) {
+      console.error('Decommission asset error:', error);
+      setSnackbar({ open: true, message: 'No se pudo dar de baja el equipo.', severity: 'error' });
+    } finally {
+      setDecommissionSaving(false);
+    }
+  };
+
   const openBulkDelete = useCallback(() => {
     setBulkDeleteConfirm('');
     setBulkDeleteOpen(true);
@@ -637,25 +693,14 @@ const Assets = () => {
     try {
       setBulkDeleting(true);
       const assetIds = bodegaAssetsForSite.map((asset) => asset.id);
-      const releasedSeqs = bodegaAssetsForSite
-        .map((asset) => extractAssetSeq(asset.fixedAssetId))
-        .filter((n): n is number => Number.isFinite(n));
-
-      await bulkDeleteAssetsForSite(selectedSiteFilter, assetIds, releasedSeqs, profile?.uid);
-
-      const imagePaths = bodegaAssetsForSite
-        .map((asset) => asset.imagePath)
-        .filter((path): path is string => Boolean(path));
-      if (imagePaths.length > 0) {
-        await Promise.allSettled(imagePaths.map((path) => deleteStoragePath(path)));
-      }
+      await bulkDecommissionAssetsForSite(selectedSiteFilter, assetIds, profile?.uid);
 
       setSnackbar({ open: true, message: 'Activos dados de baja correctamente.', severity: 'success' });
       closeBulkDelete();
       loadData();
     } catch (error) {
       console.error('Bulk delete error:', error);
-      setSnackbar({ open: true, message: 'No se pudieron eliminar los activos.', severity: 'error' });
+      setSnackbar({ open: true, message: 'No se pudieron dar de baja los activos.', severity: 'error' });
     } finally {
       setBulkDeleting(false);
     }
@@ -708,7 +753,7 @@ const Assets = () => {
                 }}
               />
             </Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
+            <Grid size={{ xs: 12, md: 2 }}>
               <FormControl fullWidth>
                 <InputLabel id="filter-site">Sede</InputLabel>
                 <Select
@@ -731,7 +776,7 @@ const Assets = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, md: 3 }}>
+            <Grid size={{ xs: 12, md: 2 }}>
               <FormControl fullWidth>
                 <InputLabel id="filter-type">Tipo</InputLabel>
                 <Select
@@ -758,6 +803,26 @@ const Assets = () => {
                 </Select>
               </FormControl>
             </Grid>
+            <Grid size={{ xs: 12, md: 2 }}>
+              <FormControl fullWidth>
+                <InputLabel id="filter-view">Vista</InputLabel>
+                <Select
+                  labelId="filter-view"
+                  label="Vista"
+                  value={assetViewFilter}
+                  onChange={(e) => setAssetViewFilter(e.target.value as 'active' | 'baja' | 'all')}
+                  startAdornment={
+                    <InputAdornment position="start">
+                      <FilterAltOutlinedIcon />
+                    </InputAdornment>
+                  }
+                >
+                  <MenuItem value="active">En inventario</MenuItem>
+                  <MenuItem value="baja">Equipos de baja</MenuItem>
+                  <MenuItem value="all">Todos</MenuItem>
+                </Select>
+              </FormControl>
+            </Grid>
             <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
               <Button
                 variant="outlined"
@@ -775,15 +840,17 @@ const Assets = () => {
                       Estado: a.status,
                       AsignadoA: a.currentAssignment?.assignedToName || '',
                       Cargo: a.currentAssignment?.assignedToPosition || '',
-                      Costo: a.cost || 0
+                      Costo: a.cost || 0,
+                      MotivoBaja: a.decommissionReason || '',
+                      FechaBaja: a.decommissionedAt ? new Date(a.decommissionedAt).toLocaleString('es-CO') : '',
                     };
                   });
-                  exportToCsv('Activos', data);
+                  exportToCsv(assetViewFilter === 'baja' ? 'Activos_De_Baja' : 'Activos', data);
                 }}
               >
                 Exportar
               </Button>
-              {(filterText || selectedSiteFilter || selectedTypeFilter) && (
+              {(filterText || selectedSiteFilter || selectedTypeFilter || assetViewFilter !== 'active') && (
                 <Button
                   variant="text"
                   color="error"
@@ -794,16 +861,16 @@ const Assets = () => {
                 </Button>
               )}
             </Grid>
-            {canWrite && selectedSiteFilter && (
+            {canWrite && selectedSiteFilter && assetViewFilter !== 'baja' && (
               <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Button
                   variant="outlined"
                   color="error"
-                  startIcon={<DeleteOutlineOutlinedIcon />}
+                  startIcon={<BlockOutlinedIcon />}
                   onClick={openBulkDelete}
                   disabled={bodegaAssetsForSite.length === 0}
                 >
-                  Eliminar bodegas
+                  Dar de baja equipos en bodega
                 </Button>
               </Grid>
             )}
@@ -821,6 +888,7 @@ const Assets = () => {
             onEdit={openEdit}
             onAssign={openAssign}
             onReturn={confirmReturn}
+            onDecommission={openDecommission}
           />
         </CardContent>
       </Card>
@@ -839,6 +907,17 @@ const Assets = () => {
             {isViewMode && canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Vista rápida (solo lectura). Para modificar, usa el botón Editar en la tabla.
+              </Alert>
+            )}
+            {formData.status === 'baja' && (
+              <Alert severity="error" sx={{ mb: 2 }}>
+                <strong>Equipo dado de baja.</strong>{' '}
+                {formData.decommissionReason || 'No se registró un motivo.'}
+                {formData.decommissionedAt && (
+                  <Typography variant="caption" sx={{ display: 'block', mt: 0.5 }}>
+                    Fecha: {new Date(formData.decommissionedAt).toLocaleString('es-CO')}
+                  </Typography>
+                )}
               </Alert>
             )}
 
@@ -1210,12 +1289,12 @@ const Assets = () => {
       </Dialog>
 
       <Dialog open={bulkDeleteOpen} onClose={closeBulkDelete} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>Eliminar activos en bodega</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 900 }}>Dar de baja activos en bodega</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="warning">
-              Esta acción eliminará <strong>{bodegaAssetsForSite.length}</strong> activo(s) en bodega de la sede{' '}
-              <strong>{selectedSite?.name || 'seleccionada'}</strong>. Los códigos se liberarán para reutilizarse.
+              Esta acción dará de baja <strong>{bodegaAssetsForSite.length}</strong> activo(s) en bodega de la sede{' '}
+              <strong>{selectedSite?.name || 'seleccionada'}</strong>. Se conservarán sus características y fotos históricas.
             </Alert>
             <Typography variant="body2" color="text.secondary">
               Para confirmar, escribe: <strong>{bulkConfirmPhrase}</strong>
@@ -1239,7 +1318,89 @@ const Assets = () => {
             onClick={handleBulkDelete}
             disabled={bulkDeleting || bulkDeleteConfirm.trim().toUpperCase() !== bulkConfirmPhrase}
           >
-            Eliminar
+            Dar de baja
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={decommissionOpen} onClose={closeDecommission} fullWidth maxWidth="md">
+        <DialogTitle sx={{ fontWeight: 900 }}>Dar de baja equipo</DialogTitle>
+        <DialogContent>
+          {decommissionTarget && (
+            <Stack spacing={2} sx={{ mt: 1 }}>
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 4 }}>
+                  {decommissionTarget.imageUrl ? (
+                    <Box
+                      component="img"
+                      src={decommissionTarget.imageUrl}
+                      alt={`Foto de ${decommissionTarget.fixedAssetId}`}
+                      sx={{ width: '100%', maxHeight: 210, objectFit: 'contain', borderRadius: 3, bgcolor: 'rgba(0,0,0,0.04)' }}
+                    />
+                  ) : (
+                    <Box sx={{ minHeight: 160, display: 'grid', placeItems: 'center', borderRadius: 3, bgcolor: 'rgba(0,0,0,0.04)' }}>
+                      <PhotoCameraOutlinedIcon color="disabled" sx={{ fontSize: 48 }} />
+                    </Box>
+                  )}
+                </Grid>
+                <Grid size={{ xs: 12, sm: 8 }}>
+                  <Stack spacing={0.75}>
+                    <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                      {decommissionTarget.fixedAssetId}
+                    </Typography>
+                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
+                      {decommissionTarget.brand} {decommissionTarget.model}
+                    </Typography>
+                    <Typography variant="body2">Tipo: {decommissionTarget.type}</Typography>
+                    <Typography variant="body2">Serial: {decommissionTarget.serial || '—'}</Typography>
+                    <Typography variant="body2">
+                      Sede: {sites.find((site) => site.id === decommissionTarget.siteId)?.name || 'Sin sede'}
+                    </Typography>
+                    <Typography variant="body2">
+                      Hardware: {[decommissionTarget.processor, decommissionTarget.ram, decommissionTarget.storage].filter(Boolean).join(' · ') || '—'}
+                    </Typography>
+                    {decommissionTarget.currentAssignment && (
+                      <Chip
+                        size="small"
+                        color="warning"
+                        variant="outlined"
+                        label={`Asignado a ${decommissionTarget.currentAssignment.assignedToName}`}
+                        sx={{ width: 'fit-content', mt: 0.5 }}
+                      />
+                    )}
+                  </Stack>
+                </Grid>
+              </Grid>
+
+              <Alert severity="warning">
+                Al confirmar, el equipo desaparecerá de la vista <strong>En inventario</strong>, conservará su sede y foto, y se retirará cualquier asignación actual.
+              </Alert>
+
+              <TextField
+                label="Motivo de baja"
+                value={decommissionReason}
+                onChange={(e) => setDecommissionReason(e.target.value)}
+                required
+                fullWidth
+                multiline
+                minRows={3}
+                disabled={decommissionSaving}
+                placeholder="Ejemplo: equipo obsoleto, daño irreparable, reemplazo tecnológico..."
+                helperText="Este motivo quedará asociado al historial del equipo."
+              />
+            </Stack>
+          )}
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeDecommission} disabled={decommissionSaving}>Cancelar</Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleDecommission}
+            disabled={decommissionSaving || decommissionReason.trim().length < 5}
+            startIcon={<BlockOutlinedIcon />}
+          >
+            Confirmar baja
           </Button>
         </DialogActions>
       </Dialog>

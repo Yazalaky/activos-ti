@@ -27,7 +27,7 @@ const fetchCollection = async <T extends { isDeleted?: boolean }>(collectionName
     const q = query(collection(db, collectionName));
     const querySnapshot = await getDocs(q);
     return querySnapshot.docs
-      .map((snap) => ({ id: snap.id, ...snap.data() } as T))
+      .map((snap) => ({ id: snap.id, ...snap.data() } as unknown as T))
       .filter((item) => !item.isDeleted);
   } catch (error) {
     console.error(`Error fetching ${collectionName}:`, error);
@@ -69,6 +69,27 @@ export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>, actorUi
 
 export const updateAsset = (id: string, data: Partial<Asset>, actorUid?: string) =>
   updateDoc(doc(db, 'assets', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
+
+export const decommissionAsset = async (id: string, reason: string, actorUid?: string) => {
+  const normalizedReason = reason.trim();
+  if (!normalizedReason) {
+    throw new Error('El motivo de baja es obligatorio.');
+  }
+
+  const now = Date.now();
+  const audit = actorUid
+    ? { decommissionedByUid: actorUid, updatedByUid: actorUid }
+    : {};
+
+  return updateDoc(doc(db, 'assets', id), {
+    status: 'baja',
+    currentAssignment: null,
+    decommissionReason: normalizedReason,
+    decommissionedAt: now,
+    updatedAt: now,
+    ...audit,
+  });
+};
 
 export const moveAssetToSite = async (assetId: string, newSiteId: string, actorUid?: string) => {
   const assetRef = doc(db, 'assets', assetId);
@@ -166,11 +187,36 @@ export const updateInvoice = (id: string, data: Partial<Invoice>, actorUid?: str
   updateDoc(doc(db, 'invoices', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 export const deleteInvoice = (id: string, actorUid?: string) => updateDoc(doc(db, 'invoices', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
 
-export const bulkDeleteAssetsForSite = async (siteId: string, assetIds: string[], releasedSeqs: number[], actorUid?: string) => {
-  // Ignoramos releasedSeqs para no reutilizar
+export const bulkDecommissionAssetsForSite = async (siteId: string, assetIds: string[], actorUid?: string) => {
+  const now = Date.now();
+  const reason = 'Baja masiva de equipos en bodega';
+
   return runTransaction(db, async (tx) => {
-    assetIds.forEach((id) => {
-      tx.update(doc(db, 'assets', id), { isDeleted: true, status: 'baja', deletedAt: Date.now(), deletedByUid: actorUid });
+    const refs = assetIds.map((id) => doc(db, 'assets', id));
+    const snapshots = [];
+
+    for (const ref of refs) {
+      snapshots.push(await tx.get(ref));
+    }
+
+    snapshots.forEach((snap, index) => {
+      if (!snap.exists()) {
+        throw new Error('Uno de los activos seleccionados no existe.');
+      }
+
+      const asset = snap.data() as Partial<Asset>;
+      if (asset.siteId !== siteId || asset.status !== 'bodega') {
+        throw new Error('Solo se pueden dar de baja activos en bodega de la sede seleccionada.');
+      }
+
+      tx.update(refs[index], {
+        status: 'baja',
+        currentAssignment: null,
+        decommissionReason: reason,
+        decommissionedAt: now,
+        ...(actorUid ? { decommissionedByUid: actorUid, updatedByUid: actorUid } : {}),
+        updatedAt: now,
+      });
     });
   });
 };

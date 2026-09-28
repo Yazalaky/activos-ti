@@ -70,6 +70,11 @@ export interface Asset extends AuditFields {
   imagePath?: string;
   notes?: string;
 
+  // Baja del activo: se conserva el documento y la evidencia histórica.
+  decommissionReason?: string;
+  decommissionedAt?: number;
+  decommissionedByUid?: string;
+
   currentAssignment?: Assignment | null;
   previousFixedAssetIds?: string[]; // Historial cuando se cambia de sede/código
   movedAt?: number; // Timestamp del último cambio de sede

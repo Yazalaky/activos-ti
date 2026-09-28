@@ -95,6 +95,26 @@ service cloud.firestore {
       return imagePathOk && imageUrlOk;
     }
 
+    function assetLifecycleValid() {
+      let data = request.resource.data;
+      let statusValid = data.keys().hasAny(['status'])
+        && data.status is string
+        && data.status in ['bodega', 'asignado', 'mantenimiento', 'baja'];
+
+      let decommissionValid = data.status != 'baja'
+        || (
+          data.keys().hasAll(['decommissionReason', 'decommissionedAt', 'decommissionedByUid'])
+          && data.decommissionReason is string
+          && data.decommissionReason.size() >= 5
+          && data.decommissionReason.size() <= 1000
+          && data.decommissionedAt is int
+          && data.decommissionedByUid == request.auth.uid
+          && (!data.keys().hasAny(['currentAssignment']) || data.currentAssignment == null)
+        );
+
+      return statusValid && decommissionValid;
+    }
+
     function invoiceAttachmentValid(invoiceId) {
       let data = request.resource.data;
 
@@ -203,8 +223,12 @@ service cloud.firestore {
     // ASSETS
     match /assets/{assetId} {
       allow read: if isSignedIn();
-      allow create: if canWrite() && assetAttachmentValid(assetId);
-      allow update: if canWrite() && assetAttachmentValid(assetId);
+      allow create: if canWrite() && assetAttachmentValid(assetId) && assetLifecycleValid();
+      allow update: if canWrite()
+        && assetAttachmentValid(assetId)
+        && assetLifecycleValid()
+        // La baja es un estado final; no se puede reactivar por una edición común.
+        && (resource.data.status != 'baja' || request.resource.data.status == 'baja');
       allow delete: if false;
     }
 
