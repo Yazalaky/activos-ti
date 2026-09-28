@@ -148,7 +148,7 @@ service cloud.firestore {
         && data.status is string
         && data.status in ['bodega', 'asignado', 'mantenimiento', 'baja'];
 
-      let decommissionValid = data.status != 'baja'
+      let decommissionValid = !data.keys().hasAny(['status']) || data.status != 'baja'
         || (
           data.keys().hasAll(['decommissionReason', 'decommissionedAt', 'decommissionedByUid'])
           && data.decommissionReason is string
@@ -160,6 +160,308 @@ service cloud.firestore {
         );
 
       return statusValid && decommissionValid;
+    }
+
+    // Fase 2: los documentos nuevos deben llevar trazabilidad confiable.
+    // En actualizaciones se conserva la auditoría existente y se exige el actor actual.
+    function auditCreateValid() {
+      let data = request.resource.data;
+      return data.keys().hasAll(['createdAt', 'createdByUid'])
+        && data.createdAt is int
+        && data.createdAt > 0
+        && data.createdByUid is string
+        && data.createdByUid == request.auth.uid;
+    }
+
+    function auditUpdateValid() {
+      let next = request.resource.data;
+      let current = resource.data;
+      let createdAtValid = !current.keys().hasAny(['createdAt'])
+        || (next.keys().hasAny(['createdAt'])
+          && next.createdAt is int
+          && next.createdAt == current.createdAt);
+      let createdByValid = !current.keys().hasAny(['createdByUid'])
+        || (next.keys().hasAny(['createdByUid'])
+          && next.createdByUid is string
+          && next.createdByUid == current.createdByUid);
+      return next.keys().hasAll(['updatedAt', 'updatedByUid'])
+        && next.updatedAt is int
+        && next.updatedAt > 0
+        && next.updatedByUid is string
+        && next.updatedByUid == request.auth.uid
+        && createdAtValid
+        && createdByValid;
+    }
+
+    function softDeleteValid() {
+      let next = request.resource.data;
+      let current = resource.data;
+      let flagValid = !next.keys().hasAny(['isDeleted']) || next.isDeleted is bool;
+      let deleteAuditValid = !next.keys().hasAny(['isDeleted'])
+        || next.isDeleted != true
+        || (
+          next.keys().hasAll(['deletedAt', 'deletedByUid'])
+          && next.deletedAt is int
+          && next.deletedAt > 0
+          && next.deletedByUid is string
+          && next.deletedByUid == request.auth.uid
+        );
+      let cannotUndelete = !current.keys().hasAny(['isDeleted'])
+        || current.isDeleted != true
+        || (next.keys().hasAny(['isDeleted']) && next.isDeleted == true);
+      let deleteAuditPreserved = !current.keys().hasAll(['isDeleted', 'deletedAt', 'deletedByUid'])
+        || current.isDeleted != true
+        || (
+          next.keys().hasAll(['isDeleted', 'deletedAt', 'deletedByUid'])
+          && next.isDeleted == true
+          && next.deletedAt == current.deletedAt
+          && next.deletedByUid == current.deletedByUid
+        );
+      return flagValid && deleteAuditValid && cannotUndelete && deleteAuditPreserved;
+    }
+
+    function isNonEmptyString(value, maxLen) {
+      return value is string && value.size() > 0 && value.size() <= maxLen;
+    }
+
+    function isOptionalString(value, maxLen) {
+      return value == null || (value is string && value.size() <= maxLen);
+    }
+
+    function isDateString(value) {
+      return value is string && value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$');
+    }
+
+    function isOptionalDate(value) {
+      return value == null || value == '' || isDateString(value);
+    }
+
+    function siteDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['name', 'city', 'address', 'prefix'])
+        && isNonEmptyString(data.name, 150)
+        && isNonEmptyString(data.city, 100)
+        && isNonEmptyString(data.address, 250)
+        && data.prefix is string
+        && data.prefix.matches('^[A-Z0-9]{2,8}$');
+      let sequenceValid = !data.keys().hasAny(['assetSeq'])
+        || (data.assetSeq is int && data.assetSeq >= 0);
+      let releasedValid = !data.keys().hasAny(['releasedAssetSeqs'])
+        || (data.releasedAssetSeqs is list && data.releasedAssetSeqs.size() <= 1000);
+      let companyValid = !data.keys().hasAny(['companyId'])
+        || isOptionalString(data.companyId, 100);
+      return identityValid && sequenceValid && releasedValid && companyValid;
+    }
+
+    function assetAssignmentValid() {
+      let data = request.resource.data;
+      let assignedValid = !data.keys().hasAny(['status']) || data.status != 'asignado'
+        || (
+          data.keys().hasAny(['currentAssignment'])
+          && data.currentAssignment is map
+          && data.currentAssignment.keys().hasAll(['assignedToName', 'assignedToPosition', 'assignedToResponsible', 'assignedAt'])
+          && isNonEmptyString(data.currentAssignment.assignedToName, 200)
+          && isNonEmptyString(data.currentAssignment.assignedToPosition, 150)
+          && isNonEmptyString(data.currentAssignment.assignedToResponsible, 200)
+          && data.currentAssignment.assignedAt is int
+          && data.currentAssignment.assignedAt > 0
+        );
+      let unassignedValid = !data.keys().hasAny(['status']) || data.status == 'asignado'
+        || !data.keys().hasAny(['currentAssignment'])
+        || data.currentAssignment == null;
+      return assignedValid && unassignedValid;
+    }
+
+    function assetDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['fixedAssetId', 'type', 'brand', 'model', 'serial', 'status', 'siteId'])
+        && isNonEmptyString(data.fixedAssetId, 50)
+        && data.type in ['laptop', 'desktop', 'monitor', 'keyboard', 'mouse', 'printer', 'scanner', 'network', 'other']
+        && isNonEmptyString(data.brand, 100)
+        && isNonEmptyString(data.model, 150)
+        && isNonEmptyString(data.serial, 150)
+        && data.status in ['bodega', 'asignado', 'mantenimiento', 'baja']
+        && isNonEmptyString(data.siteId, 150);
+      let datesValid = !data.keys().hasAny(['purchaseDate']) || isOptionalDate(data.purchaseDate);
+      let costValid = !data.keys().hasAny(['cost'])
+        || (data.cost == null || ((data.cost is int || data.cost is float) && data.cost >= 0));
+      let optionalFieldsValid = (!data.keys().hasAny(['internalPlate']) || isOptionalString(data.internalPlate, 100))
+        && (!data.keys().hasAny(['processor']) || isOptionalString(data.processor, 150))
+        && (!data.keys().hasAny(['ram']) || isOptionalString(data.ram, 100))
+        && (!data.keys().hasAny(['storage']) || isOptionalString(data.storage, 100))
+        && (!data.keys().hasAny(['os']) || isOptionalString(data.os, 100))
+        && (!data.keys().hasAny(['monitorBrand']) || isOptionalString(data.monitorBrand, 100))
+        && (!data.keys().hasAny(['monitorSize']) || isOptionalString(data.monitorSize, 50))
+        && (!data.keys().hasAny(['monitorSerial']) || isOptionalString(data.monitorSerial, 150))
+        && (!data.keys().hasAny(['notes']) || isOptionalString(data.notes, 2000))
+        && (!data.keys().hasAny(['previousFixedAssetIds']) || (data.previousFixedAssetIds is list && data.previousFixedAssetIds.size() <= 10))
+        && (!data.keys().hasAny(['movedAt']) || data.movedAt is int)
+        && (!data.keys().hasAny(['movedFromSiteId']) || isOptionalString(data.movedFromSiteId, 150));
+      return identityValid && datesValid && costValid && optionalFieldsValid && assetAssignmentValid();
+    }
+
+    function siteReferenceValid() {
+      let data = request.resource.data;
+      return data.keys().hasAny(['siteId'])
+        && data.siteId is string
+        && exists(/databases/$(database)/documents/sites/$(data.siteId));
+    }
+
+    function activityDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['date', 'techName', 'siteId', 'description', 'type', 'priority'])
+        && isDateString(data.date)
+        && isNonEmptyString(data.techName, 200)
+        && isNonEmptyString(data.siteId, 150)
+        && isNonEmptyString(data.description, 4000)
+        && data.type in ['Soporte Usuario', 'Requerimiento', 'Capacitacion', 'Otro']
+        && data.priority in ['alta', 'media', 'baja'];
+      let assetIdValid = !data.keys().hasAny(['assetId'])
+        || data.assetId == null
+        || (data.assetId is string && data.assetId.size() > 0);
+      let timeValid = !data.keys().hasAny(['timeSpentMinutes'])
+        || data.timeSpentMinutes == null
+        || ((data.timeSpentMinutes is int || data.timeSpentMinutes is float) && data.timeSpentMinutes >= 0);
+      return identityValid && assetIdValid && timeValid;
+    }
+
+    function activityReferencesValid() {
+      let data = request.resource.data;
+      let siteValid = data.keys().hasAny(['siteId'])
+        && data.siteId is string
+        && exists(/databases/$(database)/documents/sites/$(data.siteId));
+      let assetValid = !data.keys().hasAny(['assetId'])
+        || data.assetId == null
+        || (
+          data.assetId is string
+          && exists(/databases/$(database)/documents/assets/$(data.assetId))
+          && get(/databases/$(database)/documents/assets/$(data.assetId)).data.siteId == data.siteId
+        );
+      return siteValid && assetValid;
+    }
+
+    function supplierDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['name', 'nit'])
+        && isNonEmptyString(data.name, 200)
+        && isNonEmptyString(data.nit, 80);
+      let optionalValid = (!data.keys().hasAny(['contactName']) || isOptionalString(data.contactName, 200))
+        && (!data.keys().hasAny(['phone']) || isOptionalString(data.phone, 80))
+        && (!data.keys().hasAny(['email']) || isOptionalString(data.email, 254))
+        && (!data.keys().hasAny(['category']) || isOptionalString(data.category, 100));
+      let emailValid = !data.keys().hasAny(['email'])
+        || data.email == null
+        || data.email == ''
+        || (data.email is string && data.email.matches('.*@.*'));
+      return identityValid && optionalValid && emailValid;
+    }
+
+    function invoiceDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['supplierId', 'number', 'siteId', 'description', 'date', 'dueDate', 'total', 'status'])
+        && isNonEmptyString(data.supplierId, 150)
+        && isNonEmptyString(data.number, 100)
+        && isNonEmptyString(data.siteId, 150)
+        && isNonEmptyString(data.description, 4000)
+        && isDateString(data.date)
+        && isOptionalDate(data.dueDate)
+        && (data.total is int || data.total is float)
+        && data.total > 0
+        && data.status in ['paid', 'pending'];
+      let refsValid = data.keys().hasAll(['siteId', 'supplierId'])
+        && data.siteId is string
+        && data.supplierId is string
+        && exists(/databases/$(database)/documents/sites/$(data.siteId))
+        && exists(/databases/$(database)/documents/suppliers/$(data.supplierId));
+      return identityValid && refsValid;
+    }
+
+    function quoteDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['date', 'supplierId', 'siteId', 'status'])
+        && isDateString(data.date)
+        && isNonEmptyString(data.supplierId, 150)
+        && isNonEmptyString(data.siteId, 150)
+        && data.status in ['pending', 'approved', 'rejected'];
+      let notesValid = !data.keys().hasAny(['notes']) || isOptionalString(data.notes, 4000);
+      let refsValid = data.keys().hasAll(['siteId', 'supplierId'])
+        && data.siteId is string
+        && data.supplierId is string
+        && exists(/databases/$(database)/documents/sites/$(data.siteId))
+        && exists(/databases/$(database)/documents/suppliers/$(data.supplierId));
+      return identityValid && notesValid && refsValid;
+    }
+
+    function actDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['assetId', 'siteId', 'companyId', 'templateId', 'fixedAssetIdSnapshot', 'assetSnapshot', 'recipient', 'status'])
+        && isNonEmptyString(data.assetId, 150)
+        && isNonEmptyString(data.siteId, 150)
+        && isNonEmptyString(data.companyId, 100)
+        && isNonEmptyString(data.templateId, 100)
+        && isNonEmptyString(data.fixedAssetIdSnapshot, 50)
+        && data.assetSnapshot is map
+        && data.assetSnapshot.keys().hasAll(['type', 'brand', 'model', 'serial'])
+        && data.recipient is map
+        && data.recipient.keys().hasAll(['fullName', 'position'])
+        && isNonEmptyString(data.recipient.fullName, 200)
+        && isNonEmptyString(data.recipient.position, 150)
+        && data.status in ['draft', 'issued', 'signed', 'void'];
+      let snapshotValid = data.keys().hasAny(['assetSnapshot'])
+        && data.assetSnapshot is map
+        && data.assetSnapshot.keys().hasAll(['type', 'brand', 'model', 'serial'])
+        && isNonEmptyString(data.assetSnapshot.type, 50)
+        && isNonEmptyString(data.assetSnapshot.brand, 100)
+        && isNonEmptyString(data.assetSnapshot.model, 150)
+        && isNonEmptyString(data.assetSnapshot.serial, 150)
+        && (!data.assetSnapshot.keys().hasAny(['processor']) || isOptionalString(data.assetSnapshot.processor, 150))
+        && (!data.assetSnapshot.keys().hasAny(['ram']) || isOptionalString(data.assetSnapshot.ram, 100))
+        && (!data.assetSnapshot.keys().hasAny(['storage']) || isOptionalString(data.assetSnapshot.storage, 100))
+        && (!data.assetSnapshot.keys().hasAny(['os']) || isOptionalString(data.assetSnapshot.os, 100));
+      let recipientEmailValid = data.keys().hasAny(['recipient'])
+        && data.recipient is map
+        && (!data.recipient.keys().hasAny(['email'])
+        || data.recipient.email == null
+        || data.recipient.email == ''
+        || (data.recipient.email is string && data.recipient.email.matches('.*@.*')));
+      let refsValid = data.keys().hasAll(['siteId', 'assetId'])
+        && data.siteId is string
+        && data.assetId is string
+        && exists(/databases/$(database)/documents/sites/$(data.siteId))
+        && exists(/databases/$(database)/documents/assets/$(data.assetId))
+        && get(/databases/$(database)/documents/assets/$(data.assetId)).data.siteId == data.siteId;
+      return identityValid && snapshotValid && recipientEmailValid && refsValid;
+    }
+
+    function maintenanceDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['assetId', 'siteId', 'type', 'status'])
+        && isNonEmptyString(data.assetId, 150)
+        && isNonEmptyString(data.siteId, 150)
+        && data.type in ['preventivo', 'correctivo']
+        && data.status in ['programado', 'en_proceso', 'realizado', 'cancelado'];
+      let datesValid = (!data.keys().hasAny(['scheduledDate']) || isOptionalDate(data.scheduledDate))
+        && (!data.keys().hasAny(['completedDate']) || isOptionalDate(data.completedDate))
+        && (!data.keys().hasAny(['nextMaintenanceDate']) || isOptionalDate(data.nextMaintenanceDate));
+      let costValid = !data.keys().hasAny(['cost'])
+        || data.cost == null
+        || ((data.cost is int || data.cost is float) && data.cost >= 0);
+      let textValid = (!data.keys().hasAny(['technicianName']) || isOptionalString(data.technicianName, 200))
+        && (!data.keys().hasAny(['findings']) || isOptionalString(data.findings, 4000))
+        && (!data.keys().hasAny(['actionsTaken']) || isOptionalString(data.actionsTaken, 4000))
+        && (!data.keys().hasAny(['evidenceUrl']) || isOptionalString(data.evidenceUrl, 2048))
+        && (!data.keys().hasAny(['evidenceName']) || isOptionalString(data.evidenceName, 256));
+      let supplierValid = !data.keys().hasAny(['supplierId'])
+        || data.supplierId == null
+        || data.supplierId == ''
+        || (data.supplierId is string && exists(/databases/$(database)/documents/suppliers/$(data.supplierId)));
+      let refsValid = data.keys().hasAll(['siteId', 'assetId'])
+        && data.siteId is string
+        && data.assetId is string
+        && exists(/databases/$(database)/documents/sites/$(data.siteId))
+        && exists(/databases/$(database)/documents/assets/$(data.assetId))
+        && get(/databases/$(database)/documents/assets/$(data.assetId)).data.siteId == data.siteId;
+      return identityValid && datesValid && costValid && textValid && supplierValid && refsValid;
     }
 
     function invoiceAttachmentValid(invoiceId) {
@@ -263,8 +565,14 @@ service cloud.firestore {
     // SITES
     match /sites/{siteId} {
       allow read: if canReadSite(siteId);
-      allow create: if canWrite() && hasGlobalAccess();
-      allow update: if canWriteSite(siteId); // incluye assetSeq
+      allow create: if canWrite() && hasGlobalAccess()
+        && siteDataValid()
+        && auditCreateValid();
+      allow update: if canWriteSite(siteId)
+        && siteDataValid()
+        && auditUpdateValid()
+        && softDeleteValid()
+        && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin()); // incluye assetSeq
       allow delete: if false;
     }
 
@@ -272,11 +580,19 @@ service cloud.firestore {
     match /assets/{assetId} {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
-        && assetAttachmentValid(assetId) && assetLifecycleValid();
-      allow update: if canWriteSite(resource.data.siteId)
-        && canWriteSite(request.resource.data.siteId)
+        && assetDataValid()
+        && siteReferenceValid()
         && assetAttachmentValid(assetId)
         && assetLifecycleValid()
+        && auditCreateValid();
+      allow update: if canWriteSite(resource.data.siteId)
+        && canWriteSite(request.resource.data.siteId)
+        && assetDataValid()
+        && siteReferenceValid()
+        && assetAttachmentValid(assetId)
+        && assetLifecycleValid()
+        && auditUpdateValid()
+        && softDeleteValid()
         // La baja es un estado final; no se puede reactivar por una edición común.
         && (resource.data.status != 'baja' || request.resource.data.status == 'baja');
       allow delete: if false;
@@ -285,9 +601,16 @@ service cloud.firestore {
     // ACTIVITIES
     match /activities/{activityId} {
       allow read: if canReadSite(resource.data.siteId);
-      allow create: if canWriteSite(request.resource.data.siteId);
+      allow create: if canWriteSite(request.resource.data.siteId)
+        && activityDataValid()
+        && activityReferencesValid()
+        && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
-        && canWriteSite(request.resource.data.siteId);
+        && canWriteSite(request.resource.data.siteId)
+        && activityDataValid()
+        && activityReferencesValid()
+        && auditUpdateValid()
+        && softDeleteValid();
       allow delete: if false;
     }
 
@@ -295,7 +618,13 @@ service cloud.firestore {
     match /suppliers/{supplierId} {
       // Catálogo compartido; las transacciones que lo usan sí están limitadas por sede.
       allow read: if profileActive();
-      allow create, update: if isAdmin() || (isTech() && hasGlobalAccess());
+      allow create: if (isAdmin() || (isTech() && hasGlobalAccess()))
+        && supplierDataValid()
+        && auditCreateValid();
+      allow update: if (isAdmin() || (isTech() && hasGlobalAccess()))
+        && supplierDataValid()
+        && auditUpdateValid()
+        && softDeleteValid();
       allow delete: if false;
     }
 
@@ -303,10 +632,16 @@ service cloud.firestore {
     match /invoices/{invoiceId} {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
-        && invoiceAttachmentValid(invoiceId);
+        && invoiceDataValid()
+        && invoiceAttachmentValid(invoiceId)
+        && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
-        && invoiceAttachmentValid(invoiceId);
+        && invoiceDataValid()
+        && invoiceAttachmentValid(invoiceId)
+        && auditUpdateValid()
+        && softDeleteValid()
+        && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin());
       allow delete: if false;
     }
 
@@ -314,10 +649,16 @@ service cloud.firestore {
     match /quotes/{quoteId} {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
-        && quoteAttachmentValid(quoteId);
+        && quoteDataValid()
+        && quoteAttachmentValid(quoteId)
+        && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
-        && quoteAttachmentValid(quoteId);
+        && quoteDataValid()
+        && quoteAttachmentValid(quoteId)
+        && auditUpdateValid()
+        && softDeleteValid()
+        && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin());
       allow delete: if false;
     }
 
@@ -325,10 +666,16 @@ service cloud.firestore {
     match /acts/{actId} {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
-        && actAttachmentValid(actId);
+        && actDataValid()
+        && actAttachmentValid(actId)
+        && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
-        && actAttachmentValid(actId);
+        && actDataValid()
+        && actAttachmentValid(actId)
+        && auditUpdateValid()
+        && softDeleteValid()
+        && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin());
       allow delete: if false;
     }
 
@@ -336,13 +683,16 @@ service cloud.firestore {
     match /maintenances/{maintenanceId} {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
-        && request.resource.data.type in ['preventivo', 'correctivo']
-        && request.resource.data.status in ['programado', 'en_proceso', 'realizado', 'cancelado'];
+        && maintenanceDataValid()
+        && (!request.resource.data.keys().hasAny(['evidencePath']) || request.resource.data.evidencePath == null || isValidMaintenanceEvidencePath(maintenanceId, request.resource.data.evidencePath))
+        && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
-        && request.resource.data.type in ['preventivo', 'correctivo']
-        && request.resource.data.status in ['programado', 'en_proceso', 'realizado', 'cancelado']
+        && maintenanceDataValid()
         && (!request.resource.data.keys().hasAny(['evidencePath']) || request.resource.data.evidencePath == null || isValidMaintenanceEvidencePath(maintenanceId, request.resource.data.evidencePath))
+        && auditUpdateValid()
+        && softDeleteValid()
+        && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin())
         && (isAdmin() || !request.resource.data.diff(resource.data).affectedKeys().hasAny(['isDeleted', 'deletedAt', 'deletedByUid']));
       allow delete: if false; // physical delete blocked
     }

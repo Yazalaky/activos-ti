@@ -1,7 +1,6 @@
 import {
   addDoc,
   collection,
-  deleteDoc,
   documentId,
   doc,
   getDoc,
@@ -86,13 +85,22 @@ const fetchCollection = async <T extends { isDeleted?: boolean }>(
 // SITES
 export const getSites = () => fetchCollection<Site>('sites', 'documentId');
 export const addSite = (data: Omit<Site, 'id'>, actorUid?: string) => addDoc(collection(db, 'sites'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
-export const deleteSite = (id: string, actorUid?: string) => updateDoc(doc(db, 'sites', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
+export const deleteSite = (id: string, actorUid?: string) => {
+  const now = Date.now();
+  return updateDoc(doc(db, 'sites', id), {
+    isDeleted: true,
+    deletedAt: now,
+    deletedByUid: actorUid,
+    updatedAt: now,
+    updatedByUid: actorUid,
+  });
+};
 export const updateSite = (id: string, data: Partial<Site>, actorUid?: string) => updateDoc(doc(db, 'sites', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
 // ASSETS
 export const getAssets = () => fetchCollection<Asset>('assets', 'siteId');
 
-const generateNextFixedId = async (siteId: string): Promise<string> => {
+const generateNextFixedId = async (siteId: string, actorUid?: string): Promise<string> => {
   const siteRef = doc(db, 'sites', siteId);
   return runTransaction(db, async (tx) => {
     const siteSnap = await tx.get(siteRef);
@@ -104,13 +112,17 @@ const generateNextFixedId = async (siteId: string): Promise<string> => {
 
     // No re-utilizamos secuencias para preservar histórico
     const nextSeq = (data.assetSeq ?? 0) + 1;
-    tx.update(siteRef, { assetSeq: nextSeq });
+    tx.update(siteRef, {
+      assetSeq: nextSeq,
+      updatedAt: Date.now(),
+      updatedByUid: actorUid,
+    });
     return `${prefix}-${String(nextSeq).padStart(3, '0')}`;
   });
 };
 
 export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>, actorUid?: string) => {
-  const fixedAssetId = await generateNextFixedId(data.siteId);
+  const fixedAssetId = await generateNextFixedId(data.siteId, actorUid);
   const finalData = { ...data, fixedAssetId, createdAt: Date.now(), createdByUid: actorUid };
   return addDoc(collection(db, 'assets'), finalData);
 };
@@ -162,7 +174,12 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string, actorU
     const prefix = String(site.prefix || 'GEN');
     
     const nextSeq = (site.assetSeq ?? 0) + 1;
-    tx.update(siteRef, { assetSeq: nextSeq });
+    const now = Date.now();
+    tx.update(siteRef, {
+      assetSeq: nextSeq,
+      updatedAt: now,
+      updatedByUid: actorUid,
+    });
 
     const newFixedAssetId = `${prefix}-${String(nextSeq).padStart(3, '0')}`;
     const prevFixedAssetId = String(asset.fixedAssetId || '').trim();
@@ -175,9 +192,9 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string, actorU
       siteId: newSiteId,
       fixedAssetId: newFixedAssetId,
       previousFixedAssetIds: nextPrevList,
-      movedAt: Date.now(),
+      movedAt: now,
       movedFromSiteId: currentSiteId || null,
-      updatedAt: Date.now(),
+      updatedAt: now,
       updatedByUid: actorUid,
     } as any);
 
@@ -240,7 +257,16 @@ export const addInvoice = async (data: Omit<Invoice, 'id'>, actorUid?: string) =
 
 export const updateInvoice = (id: string, data: Partial<Invoice>, actorUid?: string) =>
   updateDoc(doc(db, 'invoices', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
-export const deleteInvoice = (id: string, actorUid?: string) => updateDoc(doc(db, 'invoices', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
+export const deleteInvoice = (id: string, actorUid?: string) => {
+  const now = Date.now();
+  return updateDoc(doc(db, 'invoices', id), {
+    isDeleted: true,
+    deletedAt: now,
+    deletedByUid: actorUid,
+    updatedAt: now,
+    updatedByUid: actorUid,
+  });
+};
 
 export const bulkDecommissionAssetsForSite = async (siteId: string, assetIds: string[], actorUid?: string) => {
   const now = Date.now();
@@ -298,7 +324,16 @@ export const getQuotes = async () => {
 
 export const addQuote = (data: Omit<Quote, 'id'>, actorUid?: string) => addDoc(collection(db, 'quotes'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateQuote = (id: string, data: Partial<Quote>, actorUid?: string) => updateDoc(doc(db, 'quotes', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
-export const deleteQuote = (id: string, actorUid?: string) => updateDoc(doc(db, 'quotes', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
+export const deleteQuote = (id: string, actorUid?: string) => {
+  const now = Date.now();
+  return updateDoc(doc(db, 'quotes', id), {
+    isDeleted: true,
+    deletedAt: now,
+    deletedByUid: actorUid,
+    updatedAt: now,
+    updatedByUid: actorUid,
+  });
+};
 
 // ACTS (Actas)
 export const getActs = async () => {
@@ -322,7 +357,16 @@ export const getActs = async () => {
 
 export const addAct = (data: Omit<Act, 'id'>, actorUid?: string) => addDoc(collection(db, 'acts'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateAct = (id: string, data: Partial<Act>, actorUid?: string) => updateDoc(doc(db, 'acts', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
-export const deleteAct = (id: string, actorUid?: string) => updateDoc(doc(db, 'acts', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
+export const deleteAct = (id: string, actorUid?: string) => {
+  const now = Date.now();
+  return updateDoc(doc(db, 'acts', id), {
+    isDeleted: true,
+    deletedAt: now,
+    deletedByUid: actorUid,
+    updatedAt: now,
+    updatedByUid: actorUid,
+  });
+};
 
 // MAINTENANCES
 export const getMaintenances = async (filters?: QueryFilters) => {
@@ -338,4 +382,13 @@ export const getMaintenances = async (filters?: QueryFilters) => {
 };
 export const addMaintenance = (data: Omit<Maintenance, 'id'>, actorUid?: string) => addDoc(collection(db, 'maintenances'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateMaintenance = (id: string, data: Partial<Maintenance>, actorUid?: string) => updateDoc(doc(db, 'maintenances', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
-export const softDeleteMaintenance = (id: string, actorUid?: string) => updateDoc(doc(db, 'maintenances', id), { isDeleted: true, deletedAt: Date.now(), deletedByUid: actorUid });
+export const softDeleteMaintenance = (id: string, actorUid?: string) => {
+  const now = Date.now();
+  return updateDoc(doc(db, 'maintenances', id), {
+    isDeleted: true,
+    deletedAt: now,
+    deletedByUid: actorUid,
+    updatedAt: now,
+    updatedByUid: actorUid,
+  });
+};
