@@ -156,7 +156,7 @@ service cloud.firestore {
       let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
       let data = request.resource.data;
       return changedKeys.hasAny(['currentAssignment'])
-        && changedKeys.hasOnly(['currentAssignment', 'updatedAt', 'updatedByUid'])
+        && changedKeys.hasOnly(['currentAssignment', 'status', 'updatedAt', 'updatedByUid'])
         && data.keys().hasAny(['status'])
         && data.status == 'asignado'
         && data.keys().hasAny(['currentAssignment'])
@@ -167,6 +167,58 @@ service cloud.firestore {
         && isNonEmptyString(data.currentAssignment.assignedToResponsible, 200)
         && data.currentAssignment.assignedAt is int
         && data.currentAssignment.assignedAt > 0
+        && auditUpdateValid();
+    }
+
+    function assetStatusUpdateValid() {
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      let data = request.resource.data;
+      return changedKeys.hasAny(['status'])
+        && changedKeys.hasOnly(['status', 'currentAssignment', 'updatedAt', 'updatedByUid'])
+        && data.keys().hasAny(['status'])
+        && data.status in ['bodega', 'mantenimiento']
+        && data.keys().hasAny(['currentAssignment'])
+        && data.currentAssignment == null
+        && auditUpdateValid();
+    }
+
+    // Permite actualizar campos ordinarios de documentos antiguos que todavía
+    // no cumplen todo el esquema nuevo. Los campos críticos y la asignación
+    // siguen teniendo rutas de validación independientes.
+    function assetLegacyFieldUpdateValid() {
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      let data = request.resource.data;
+      let editableKeys = [
+        'type', 'brand', 'model', 'serial', 'internalPlate', 'purchaseDate', 'cost',
+        'processor', 'ram', 'storage', 'os', 'monitorBrand', 'monitorSize',
+        'monitorSerial', 'notes', 'updatedAt', 'updatedByUid'
+      ];
+      let identityValid = (!data.keys().hasAny(['type']) || data.type in ['laptop', 'desktop', 'monitor', 'keyboard', 'mouse', 'printer', 'scanner', 'network', 'other'])
+        && (!data.keys().hasAny(['brand']) || isNonEmptyString(data.brand, 100))
+        && (!data.keys().hasAny(['model']) || isNonEmptyString(data.model, 150))
+        && (!data.keys().hasAny(['serial']) || isNonEmptyString(data.serial, 150));
+      let datesValid = !data.keys().hasAny(['purchaseDate']) || isOptionalDate(data.purchaseDate);
+      let costValid = !data.keys().hasAny(['cost'])
+        || (data.cost == null || ((data.cost is int || data.cost is float) && data.cost >= 0));
+      let optionalFieldsValid = (!data.keys().hasAny(['internalPlate']) || isOptionalString(data.internalPlate, 100))
+        && (!data.keys().hasAny(['processor']) || isOptionalString(data.processor, 150))
+        && (!data.keys().hasAny(['ram']) || isOptionalString(data.ram, 100))
+        && (!data.keys().hasAny(['storage']) || isOptionalString(data.storage, 100))
+        && (!data.keys().hasAny(['os']) || isOptionalString(data.os, 100))
+        && (!data.keys().hasAny(['monitorBrand']) || isOptionalString(data.monitorBrand, 100))
+        && (!data.keys().hasAny(['monitorSize']) || isOptionalString(data.monitorSize, 50))
+        && (!data.keys().hasAny(['monitorSerial']) || isOptionalString(data.monitorSerial, 150))
+        && (!data.keys().hasAny(['notes']) || isOptionalString(data.notes, 2000));
+      return changedKeys.hasAny(['type', 'brand', 'model', 'serial', 'internalPlate', 'purchaseDate', 'cost', 'processor', 'ram', 'storage', 'os', 'monitorBrand', 'monitorSize', 'monitorSerial', 'notes'])
+        && changedKeys.hasOnly(editableKeys)
+        && data.keys().hasAny(['siteId'])
+        && data.siteId == resource.data.siteId
+        && data.keys().hasAny(['status'])
+        && data.status == resource.data.status
+        && identityValid
+        && datesValid
+        && costValid
+        && optionalFieldsValid
         && auditUpdateValid();
     }
 
@@ -616,7 +668,11 @@ service cloud.firestore {
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
         && (
-          (
+          assetImageUpdateValid(assetId)
+          || assetAssignmentUpdateValid()
+          || assetStatusUpdateValid()
+          || assetLegacyFieldUpdateValid()
+          || (
             assetDataValid()
             && siteReferenceValid()
             && assetAttachmentValid(assetId)
@@ -626,8 +682,6 @@ service cloud.firestore {
             // La baja es un estado final; no se puede reactivar por una edición común.
             && (resource.data.status != 'baja' || request.resource.data.status == 'baja')
           )
-          || assetImageUpdateValid(assetId)
-          || assetAssignmentUpdateValid()
         );
       allow delete: if false;
     }

@@ -567,13 +567,17 @@ const Assets = () => {
     try {
       setSaving(true);
       const path = String(formData.imagePath || '').trim();
-      if (path) {
-        await deleteStoragePath(path);
-      }
+      // Primero se elimina la referencia en Firestore. Así un fallo de Storage
+      // no deja la interfaz apuntando a una imagen que ya no existe.
       await updateAsset(editingId, { imageUrl: null, imagePath: null } as any, profile?.uid);
       setFormData((prev) => ({ ...prev, imageUrl: '', imagePath: '' }));
       setPreviewImage(null);
       setImageFile(null);
+      if (path) {
+        await deleteStoragePath(path).catch((error) => {
+          console.warn('La referencia se eliminó, pero no se pudo borrar el archivo de Storage:', error);
+        });
+      }
       setSnackbar({ open: true, message: 'Imagen eliminada.', severity: 'success' });
     } catch (error) {
       console.error('Delete asset image error:', error);
