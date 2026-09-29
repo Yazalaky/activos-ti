@@ -1,7 +1,13 @@
 const admin = require('firebase-admin');
+const { getAuth } = require('firebase-admin/auth');
+const { getFirestore } = require('firebase-admin/firestore');
+const { getStorage } = require('firebase-admin/storage');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 
 admin.initializeApp();
+const auth = getAuth();
+const db = getFirestore();
+const storage = getStorage();
 
 const assertString = (value, field) => {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -19,7 +25,7 @@ const getCallerProfile = async (request) => {
     throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
   }
 
-  const callerSnap = await admin.firestore().doc(`users/${request.auth.uid}`).get();
+  const callerSnap = await db.doc(`users/${request.auth.uid}`).get();
   const callerData = callerSnap.exists ? callerSnap.data() : null;
   const callerRole = callerData?.role || null;
   const callerActive = callerData?.active !== false;
@@ -62,8 +68,8 @@ const normalizeAccess = async (data) => {
   }
 
   if (siteIds.length > 0) {
-    const siteRefs = siteIds.map((siteId) => admin.firestore().doc(`sites/${siteId}`));
-    const siteSnapshots = await admin.firestore().getAll(...siteRefs);
+    const siteRefs = siteIds.map((siteId) => db.doc(`sites/${siteId}`));
+    const siteSnapshots = await db.getAll(...siteRefs);
     if (siteSnapshots.some((snapshot) => !snapshot.exists)) {
       throw new HttpsError('invalid-argument', 'Una o más sedes no existen.');
     }
@@ -95,13 +101,13 @@ exports.createUser = onCall(async (request) => {
   let userRecord;
 
   try {
-    userRecord = await admin.auth().createUser({
+    userRecord = await auth.createUser({
       email,
       password,
       displayName: name,
     });
 
-    await admin.firestore().doc(`users/${userRecord.uid}`).set({
+    await db.doc(`users/${userRecord.uid}`).set({
       email,
       name,
       role,
@@ -115,7 +121,7 @@ exports.createUser = onCall(async (request) => {
   } catch (error) {
     if (userRecord?.uid) {
       try {
-        await admin.auth().deleteUser(userRecord.uid);
+        await auth.deleteUser(userRecord.uid);
       } catch (rollbackError) {
         console.error('No se pudo revertir el usuario creado:', rollbackError);
       }
@@ -138,8 +144,8 @@ exports.setUserStatus = onCall(async (request) => {
   }
 
   try {
-    await admin.auth().updateUser(uid, { disabled });
-    await admin.firestore().doc(`users/${uid}`).set({
+    await auth.updateUser(uid, { disabled });
+    await db.doc(`users/${uid}`).set({
       active: !disabled,
       updatedAt: Date.now(),
       updatedByUid: callerUid,
@@ -169,7 +175,6 @@ exports.resetSiteInventory = onCall(async (request) => {
 
   const siteId = assertString(request.data.siteId, 'siteId');
   const confirmation = assertString(request.data.confirmation, 'confirmation');
-  const db = admin.firestore();
   const siteRef = db.doc(`sites/${siteId}`);
   const siteSnapshot = await siteRef.get();
 
@@ -300,7 +305,7 @@ exports.resetSiteInventory = onCall(async (request) => {
   let deletedStorageFiles = 0;
 
   try {
-    const bucket = admin.storage().bucket();
+    const bucket = storage.bucket();
     for (const assetId of resetResult.assetIds) {
       const prefixPath = `assets/${assetId}/photos/`;
       try {
