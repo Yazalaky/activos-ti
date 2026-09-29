@@ -142,6 +142,13 @@ service cloud.firestore {
       return imagePathOk && imageUrlOk;
     }
 
+    function assetImageUpdateValid(assetId) {
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      return changedKeys.hasOnly(['imageUrl', 'imagePath', 'updatedAt', 'updatedByUid'])
+        && assetAttachmentValid(assetId)
+        && auditUpdateValid();
+    }
+
     function assetLifecycleValid() {
       let data = request.resource.data;
       let statusValid = data.keys().hasAny(['status'])
@@ -587,14 +594,19 @@ service cloud.firestore {
         && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
-        && assetDataValid()
-        && siteReferenceValid()
-        && assetAttachmentValid(assetId)
-        && assetLifecycleValid()
-        && auditUpdateValid()
-        && softDeleteValid()
-        // La baja es un estado final; no se puede reactivar por una edición común.
-        && (resource.data.status != 'baja' || request.resource.data.status == 'baja');
+        && (
+          (
+            assetDataValid()
+            && siteReferenceValid()
+            && assetAttachmentValid(assetId)
+            && assetLifecycleValid()
+            && auditUpdateValid()
+            && softDeleteValid()
+            // La baja es un estado final; no se puede reactivar por una edición común.
+            && (resource.data.status != 'baja' || request.resource.data.status == 'baja')
+          )
+          || assetImageUpdateValid(assetId)
+        );
       allow delete: if false;
     }
 

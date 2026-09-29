@@ -639,6 +639,7 @@ const Assets = () => {
 
       if (editingId) {
         const { id, fixedAssetId, createdAt, ...updatePayload } = dataToSave;
+        let uploadedImage: { url: string; path: string } | null = null;
 
         if (imageFile) {
           previousImagePath = String(formData.imagePath || '').trim();
@@ -648,12 +649,18 @@ const Assets = () => {
             imageFile,
             setImageUploadPct
           );
-          updatePayload.imageUrl = result.url;
-          updatePayload.imagePath = result.path;
+          uploadedImage = result;
           uploadedImagePath = result.path;
         }
 
+        // La foto se guarda en un parche independiente para no volver a validar
+        // campos antiguos o no relacionados del activo durante la carga.
+        delete updatePayload.imageUrl;
+        delete updatePayload.imagePath;
         await updateAsset(editingId, updatePayload, profile?.uid);
+        if (uploadedImage) {
+          await updateAsset(editingId, { imageUrl: uploadedImage.url, imagePath: uploadedImage.path }, profile?.uid);
+        }
         if (previousImagePath && previousImagePath !== uploadedImagePath) {
           await deleteStoragePath(previousImagePath).catch(() => undefined);
         }
