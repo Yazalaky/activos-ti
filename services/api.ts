@@ -32,6 +32,17 @@ type AccessContext = {
   siteIds: string[];
 };
 
+const resolveActorUid = (providedUid?: string) => {
+  const authenticatedUid = auth.currentUser?.uid;
+  if (!authenticatedUid) {
+    throw new Error('No hay una sesión autenticada para realizar esta operación.');
+  }
+  if (providedUid && providedUid !== authenticatedUid) {
+    throw new Error('El usuario de auditoría no coincide con la sesión activa.');
+  }
+  return authenticatedUid;
+};
+
 const getAccessContext = async (): Promise<AccessContext> => {
   const uid = auth.currentUser?.uid;
   if (!uid) return { active: false, global: false, siteIds: [] };
@@ -100,7 +111,8 @@ export const updateSite = (id: string, data: Partial<Site>, actorUid?: string) =
 // ASSETS
 export const getAssets = () => fetchCollection<Asset>('assets', 'siteId');
 
-const generateNextFixedId = async (siteId: string, actorUid?: string): Promise<string> => {
+const generateNextFixedId = async (siteId: string, providedActorUid?: string): Promise<string> => {
+  const actorUid = resolveActorUid(providedActorUid);
   const siteRef = doc(db, 'sites', siteId);
   return runTransaction(db, async (tx) => {
     const siteSnap = await tx.get(siteRef);
@@ -122,8 +134,9 @@ const generateNextFixedId = async (siteId: string, actorUid?: string): Promise<s
 };
 
 export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>, actorUid?: string) => {
-  const fixedAssetId = await generateNextFixedId(data.siteId, actorUid);
-  const finalData = { ...data, fixedAssetId, createdAt: Date.now(), createdByUid: actorUid };
+  const resolvedActorUid = resolveActorUid(actorUid);
+  const fixedAssetId = await generateNextFixedId(data.siteId, resolvedActorUid);
+  const finalData = { ...data, fixedAssetId, createdAt: Date.now(), createdByUid: resolvedActorUid };
   return addDoc(collection(db, 'assets'), finalData);
 };
 
