@@ -45,8 +45,10 @@ import PhotoCameraOutlinedIcon from '@mui/icons-material/PhotoCameraOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { addAsset, bulkDecommissionAssetsForSite, decommissionAsset, getAssets, getSites, moveAssetToSite, updateAsset, updateAssetAssignment, getMaintenances } from '../services/api';
+import { resetSiteInventory } from '../services/adminApi';
 import type { Asset, AssetType, Assignment, Site, Status, Maintenance } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
@@ -265,6 +267,7 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
 const Assets = () => {
   const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
+  const isAdmin = role === 'admin';
   const [assets, setAssets] = useState<Asset[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [filterText, setFilterText] = useState('');
@@ -290,6 +293,9 @@ const Assets = () => {
   const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState('');
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [resetInventoryOpen, setResetInventoryOpen] = useState(false);
+  const [resetInventoryConfirm, setResetInventoryConfirm] = useState('');
+  const [resettingInventory, setResettingInventory] = useState(false);
   const [decommissionOpen, setDecommissionOpen] = useState(false);
   const [decommissionTarget, setDecommissionTarget] = useState<Asset | null>(null);
   const [decommissionReason, setDecommissionReason] = useState('');
@@ -355,9 +361,19 @@ const Assets = () => {
     [assets, selectedSiteFilter]
   );
 
+  const siteAssetsForReset = useMemo(
+    () => assets.filter((asset) => asset.siteId === selectedSiteFilter),
+    [assets, selectedSiteFilter]
+  );
+
   const bulkConfirmPhrase = useMemo(() => {
     const prefix = selectedSite?.prefix ? selectedSite.prefix.toUpperCase() : '';
     return prefix ? `DAR DE BAJA ${prefix}` : 'DAR DE BAJA';
+  }, [selectedSite]);
+
+  const resetInventoryPhrase = useMemo(() => {
+    const prefix = selectedSite?.prefix ? selectedSite.prefix.toUpperCase() : '';
+    return prefix ? `REINICIAR INVENTARIO ${prefix}` : 'REINICIAR INVENTARIO';
   }, [selectedSite]);
 
   const loadData = async () => {
@@ -874,6 +890,49 @@ const Assets = () => {
     }
   };
 
+  const openResetInventory = useCallback(() => {
+    setResetInventoryConfirm('');
+    setResetInventoryOpen(true);
+  }, []);
+
+  const closeResetInventory = useCallback(() => {
+    if (resettingInventory) return;
+    setResetInventoryOpen(false);
+    setResetInventoryConfirm('');
+  }, [resettingInventory]);
+
+  const handleResetInventory = async () => {
+    if (!isAdmin || !selectedSiteFilter) return;
+    if (resetInventoryConfirm.trim().toUpperCase() !== resetInventoryPhrase) {
+      setSnackbar({ open: true, message: 'La frase de confirmación no coincide.', severity: 'warning' });
+      return;
+    }
+
+    try {
+      setResettingInventory(true);
+      const result = await resetSiteInventory({
+        siteId: selectedSiteFilter,
+        confirmation: resetInventoryConfirm,
+      });
+      const storageMessage = result.storageCleanupPending
+        ? ' Algunas fotos quedaron pendientes de limpieza en Storage.'
+        : '';
+      setSnackbar({
+        open: true,
+        message: `Inventario de ${selectedSite?.name || 'la sede'} reiniciado. ${result.deletedAssets} activo(s) eliminado(s); el próximo código será ${selectedSite?.prefix || 'GEN'}-001.${storageMessage}`,
+        severity: result.storageCleanupPending ? 'warning' : 'success',
+      });
+      closeResetInventory();
+      await loadData();
+    } catch (error) {
+      console.error('Reset site inventory error:', error);
+      const message = error instanceof Error ? error.message : 'No se pudo reiniciar el inventario de la sede.';
+      setSnackbar({ open: true, message, severity: 'error' });
+    } finally {
+      setResettingInventory(false);
+    }
+  };
+
   const handleReturn = async () => {
     if (!returnAsset) return;
     await updateAsset(returnAsset.id, { status: 'bodega', currentAssignment: null }, profile?.uid);
@@ -1029,6 +1088,19 @@ const Assets = () => {
                   disabled={bodegaAssetsForSite.length === 0}
                 >
                   Dar de baja equipos en bodega
+                </Button>
+              </Grid>
+            )}
+            {isAdmin && selectedSiteFilter && (
+              <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Button
+                  variant="outlined"
+                  color="error"
+                  startIcon={<DeleteSweepOutlinedIcon />}
+                  onClick={openResetInventory}
+                  disabled={resettingInventory || (siteAssetsForReset.length === 0 && (selectedSite?.assetSeq ?? 0) === 0)}
+                >
+                  Eliminar y reiniciar inventario de sede
                 </Button>
               </Grid>
             )}
@@ -1485,6 +1557,48 @@ const Assets = () => {
             disabled={bulkDeleting || bulkDeleteConfirm.trim().toUpperCase() !== bulkConfirmPhrase}
           >
             Dar de baja
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={resetInventoryOpen} onClose={closeResetInventory} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Eliminar y reiniciar inventario</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Alert severity="error">
+              Esta operación es exclusiva para administradores y eliminará todos los activos de{' '}
+              <strong>{selectedSite?.name || 'la sede seleccionada'}</strong>, incluyendo sus registros de baja. También eliminará sus fotos y reiniciará el consecutivo.
+            </Alert>
+            <Alert severity="info">
+              No es una baja de equipos. “Dar de baja” conserva el historial; esta operación solo está prevista para reiniciar una sede que aún no tiene actas, mantenimientos, actividades ni reportes históricos.
+            </Alert>
+            <Typography variant="body2" color="text.secondary">
+              Activos detectados: <strong>{siteAssetsForReset.length}</strong>. Antes de eliminar, el sistema creará un respaldo técnico y bloqueará la operación si encuentra información histórica relacionada.
+            </Typography>
+            <Typography variant="body2" color="text.secondary">
+              Para confirmar, escribe exactamente: <strong>{resetInventoryPhrase}</strong>
+            </Typography>
+            <TextField
+              label="Confirmación"
+              value={resetInventoryConfirm}
+              onChange={(e) => setResetInventoryConfirm(e.target.value)}
+              fullWidth
+              disabled={resettingInventory}
+              autoFocus
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={closeResetInventory} disabled={resettingInventory}>
+            Cancelar
+          </Button>
+          <Button
+            variant="contained"
+            color="error"
+            onClick={handleResetInventory}
+            disabled={resettingInventory || resetInventoryConfirm.trim().toUpperCase() !== resetInventoryPhrase}
+          >
+            {resettingInventory ? 'Reiniciando…' : 'Eliminar y reiniciar'}
           </Button>
         </DialogActions>
       </Dialog>

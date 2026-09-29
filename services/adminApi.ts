@@ -36,3 +36,22 @@ export const setUserStatus = async (input: SetUserStatusInput) => {
   const result = await callable(input);
   return result.data;
 };
+
+export type ResetSiteInventoryInput = {
+  siteId: string;
+  confirmation: string;
+};
+
+export type ResetSiteInventoryOutput = {
+  resetId: string;
+  siteId: string;
+  deletedAssets: number;
+  deletedStorageFiles: number;
+  storageCleanupPending: boolean;
+};
+
+export const resetSiteInventory = async (input: ResetSiteInventoryInput) => {
+  const callable = httpsCallable<ResetSiteInventoryInput, ResetSiteInventoryOutput>(functions, 'resetSiteInventory');
+  const result = await callable(input);
+  return result.data;
+};
