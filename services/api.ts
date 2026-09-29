@@ -13,7 +13,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../firebaseAuth';
 import { db } from '../firebaseDb';
-import type { Act, Activity, Asset, Invoice, Quote, Site, Supplier, Maintenance } from '../types';
+import type { Act, Activity, Asset, Assignment, Invoice, Quote, Site, Supplier, Maintenance } from '../types';
 
 export interface QueryFilters {
   siteId?: string;
@@ -148,6 +148,15 @@ export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>, actorUi
 export const updateAsset = (id: string, data: Partial<Asset>, actorUid?: string) => {
   const resolvedActorUid = resolveActorUid(actorUid);
   return updateDoc(doc(db, 'assets', id), { ...data, updatedAt: Date.now(), updatedByUid: resolvedActorUid });
+};
+
+export const updateAssetAssignment = (id: string, assignment: Assignment, actorUid?: string) => {
+  const resolvedActorUid = resolveActorUid(actorUid);
+  return updateDoc(doc(db, 'assets', id), {
+    currentAssignment: assignment,
+    updatedAt: Date.now(),
+    updatedByUid: resolvedActorUid,
+  });
 };
 
 export const decommissionAsset = async (id: string, reason: string, actorUid?: string) => {

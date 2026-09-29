@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Avatar,
@@ -46,7 +46,7 @@ import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
-import { addAsset, bulkDecommissionAssetsForSite, decommissionAsset, getAssets, getSites, moveAssetToSite, updateAsset, getMaintenances } from '../services/api';
+import { addAsset, bulkDecommissionAssetsForSite, decommissionAsset, getAssets, getSites, moveAssetToSite, updateAsset, updateAssetAssignment, getMaintenances } from '../services/api';
 import type { Asset, AssetType, Assignment, Site, Status, Maintenance } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
@@ -329,6 +329,7 @@ const Assets = () => {
 
   const [assignmentData, setAssignmentData] = useState({ name: '', position: '', responsible: '' });
   const [inlineAssignment, setInlineAssignment] = useState({ name: '', position: '', responsible: '' });
+  const originalAssetRef = useRef<Asset | null>(null);
 
   const [assetMaintenances, setAssetMaintenances] = useState<Maintenance[]>([]);
   const loadMaintenances = useCallback(async (assetId: string) => {
@@ -427,6 +428,7 @@ const Assets = () => {
   const openCreate = () => {
     setEditingId(null);
     setEditorMode('create');
+    originalAssetRef.current = null;
     setFormData(initialFormState);
     setInlineAssignment({ name: '', position: '', responsible: '' });
     setPreviewImage(null);
@@ -438,6 +440,7 @@ const Assets = () => {
   const openEdit = useCallback((asset: Asset) => {
     setEditingId(asset.id);
     setEditorMode('edit');
+    originalAssetRef.current = asset;
     setFormData(asset);
     setInlineAssignment({
       name: asset.currentAssignment?.assignedToName ?? '',
@@ -455,6 +458,7 @@ const Assets = () => {
   const openView = useCallback((asset: Asset) => {
     setEditingId(asset.id);
     setEditorMode('view');
+    originalAssetRef.current = asset;
     setFormData(asset);
     setInlineAssignment({
       name: asset.currentAssignment?.assignedToName ?? '',
@@ -476,6 +480,7 @@ const Assets = () => {
     setEditorOpen(false);
     setEditingId(null);
     setEditorMode('create');
+    originalAssetRef.current = null;
     setFormData(initialFormState);
     setInlineAssignment({ name: '', position: '', responsible: '' });
     setMoveSiteOpen(false);
@@ -620,11 +625,15 @@ const Assets = () => {
 
     if (dataToSave.status === 'asignado') {
       const existingAssignedAt = dataToSave.currentAssignment?.assignedAt;
+      const existingAssignedToDoc = dataToSave.currentAssignment?.assignedToDoc;
       dataToSave.currentAssignment = {
         assignedToName: inlineAssignment.name.trim(),
         assignedToPosition: inlineAssignment.position.trim(),
         assignedToResponsible: inlineAssignment.responsible.trim(),
         assignedAt: typeof existingAssignedAt === 'number' ? existingAssignedAt : Date.now(),
+        ...(typeof existingAssignedToDoc === 'string'
+          ? { assignedToDoc: existingAssignedToDoc }
+          : {}),
       };
     } else {
       dataToSave.currentAssignment = null;
@@ -635,6 +644,23 @@ const Assets = () => {
     let createdAssetId = '';
     let imageMetadataSaved = false;
     let savePhase = 'validación';
+
+    const originalAsset = originalAssetRef.current;
+    const assignmentChanged = Boolean(
+      editingId
+      && originalAsset
+      && JSON.stringify(dataToSave.currentAssignment ?? null) !== JSON.stringify(originalAsset.currentAssignment ?? null),
+    );
+    const editableFields = [
+      'type', 'status', 'siteId', 'brand', 'model', 'serial', 'internalPlate',
+      'purchaseDate', 'cost', 'processor', 'ram', 'storage', 'os',
+      'monitorBrand', 'monitorSize', 'monitorSerial', 'notes',
+    ] as const;
+    const otherFieldsChanged = Boolean(
+      editingId
+      && originalAsset
+      && editableFields.some((field) => JSON.stringify(dataToSave[field]) !== JSON.stringify(originalAsset[field])),
+    );
 
     try {
       setSaving(true);
@@ -667,8 +693,13 @@ const Assets = () => {
         delete updatePayload.imageUrl;
         delete updatePayload.imagePath;
         try {
-          savePhase = 'guardar datos del activo';
-          await updateAsset(editingId, updatePayload, profile?.uid);
+          if (assignmentChanged && !otherFieldsChanged && dataToSave.status === 'asignado') {
+            savePhase = 'guardar asignación';
+            await updateAssetAssignment(editingId, dataToSave.currentAssignment as Assignment, profile?.uid);
+          } else if (otherFieldsChanged || assignmentChanged) {
+            savePhase = 'guardar datos del activo';
+            await updateAsset(editingId, updatePayload, profile?.uid);
+          }
         } catch (assetUpdateError) {
           if (!imageMetadataSaved) throw assetUpdateError;
 
