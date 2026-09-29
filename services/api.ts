@@ -111,37 +111,44 @@ export const updateSite = (id: string, data: Partial<Site>, actorUid?: string) =
 // ASSETS
 export const getAssets = () => fetchCollection<Asset>('assets', 'siteId');
 
-const generateNextFixedId = async (siteId: string, providedActorUid?: string): Promise<string> => {
-  const actorUid = resolveActorUid(providedActorUid);
-  const siteRef = doc(db, 'sites', siteId);
+export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>, actorUid?: string) => {
+  const resolvedActorUid = resolveActorUid(actorUid);
+  const siteRef = doc(db, 'sites', data.siteId);
+  const assetRef = doc(collection(db, 'assets'));
+
   return runTransaction(db, async (tx) => {
     const siteSnap = await tx.get(siteRef);
     if (!siteSnap.exists()) {
       throw new Error('Sede no encontrada.');
     }
-    const data = siteSnap.data() as Partial<Site> & { assetSeq?: number };
-    const prefix = data.prefix || 'GEN';
 
-    // No re-utilizamos secuencias para preservar histórico
-    const nextSeq = (data.assetSeq ?? 0) + 1;
+    const site = siteSnap.data() as Partial<Site> & { assetSeq?: number };
+    const prefix = site.prefix || 'GEN';
+    // El consecutivo y el activo se guardan juntos para evitar saltos si una escritura falla.
+    const nextSeq = (site.assetSeq ?? 0) + 1;
+    const fixedAssetId = `${prefix}-${String(nextSeq).padStart(3, '0')}`;
+    const now = Date.now();
+
     tx.update(siteRef, {
       assetSeq: nextSeq,
-      updatedAt: Date.now(),
-      updatedByUid: actorUid,
+      updatedAt: now,
+      updatedByUid: resolvedActorUid,
     });
-    return `${prefix}-${String(nextSeq).padStart(3, '0')}`;
+    tx.set(assetRef, {
+      ...data,
+      fixedAssetId,
+      createdAt: now,
+      createdByUid: resolvedActorUid,
+    });
+
+    return assetRef;
   });
 };
 
-export const addAsset = async (data: Omit<Asset, 'id' | 'fixedAssetId'>, actorUid?: string) => {
+export const updateAsset = (id: string, data: Partial<Asset>, actorUid?: string) => {
   const resolvedActorUid = resolveActorUid(actorUid);
-  const fixedAssetId = await generateNextFixedId(data.siteId, resolvedActorUid);
-  const finalData = { ...data, fixedAssetId, createdAt: Date.now(), createdByUid: resolvedActorUid };
-  return addDoc(collection(db, 'assets'), finalData);
+  return updateDoc(doc(db, 'assets', id), { ...data, updatedAt: Date.now(), updatedByUid: resolvedActorUid });
 };
-
-export const updateAsset = (id: string, data: Partial<Asset>, actorUid?: string) =>
-  updateDoc(doc(db, 'assets', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 
 export const decommissionAsset = async (id: string, reason: string, actorUid?: string) => {
   const normalizedReason = reason.trim();
@@ -150,21 +157,21 @@ export const decommissionAsset = async (id: string, reason: string, actorUid?: s
   }
 
   const now = Date.now();
-  const audit = actorUid
-    ? { decommissionedByUid: actorUid, updatedByUid: actorUid }
-    : {};
+  const resolvedActorUid = resolveActorUid(actorUid);
 
   return updateDoc(doc(db, 'assets', id), {
     status: 'baja',
     currentAssignment: null,
     decommissionReason: normalizedReason,
     decommissionedAt: now,
+    decommissionedByUid: resolvedActorUid,
     updatedAt: now,
-    ...audit,
+    updatedByUid: resolvedActorUid,
   });
 };
 
 export const moveAssetToSite = async (assetId: string, newSiteId: string, actorUid?: string) => {
+  const resolvedActorUid = resolveActorUid(actorUid);
   const assetRef = doc(db, 'assets', assetId);
   const siteRef = doc(db, 'sites', newSiteId);
 
@@ -191,7 +198,7 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string, actorU
     tx.update(siteRef, {
       assetSeq: nextSeq,
       updatedAt: now,
-      updatedByUid: actorUid,
+      updatedByUid: resolvedActorUid,
     });
 
     const newFixedAssetId = `${prefix}-${String(nextSeq).padStart(3, '0')}`;
@@ -208,7 +215,7 @@ export const moveAssetToSite = async (assetId: string, newSiteId: string, actorU
       movedAt: now,
       movedFromSiteId: currentSiteId || null,
       updatedAt: now,
-      updatedByUid: actorUid,
+      updatedByUid: resolvedActorUid,
     } as any);
 
     return { changed: true, fixedAssetId: newFixedAssetId, siteId: newSiteId };
@@ -282,6 +289,7 @@ export const deleteInvoice = (id: string, actorUid?: string) => {
 };
 
 export const bulkDecommissionAssetsForSite = async (siteId: string, assetIds: string[], actorUid?: string) => {
+  const resolvedActorUid = resolveActorUid(actorUid);
   const now = Date.now();
   const reason = 'Baja masiva de equipos en bodega';
 
@@ -308,7 +316,8 @@ export const bulkDecommissionAssetsForSite = async (siteId: string, assetIds: st
         currentAssignment: null,
         decommissionReason: reason,
         decommissionedAt: now,
-        ...(actorUid ? { decommissionedByUid: actorUid, updatedByUid: actorUid } : {}),
+        decommissionedByUid: resolvedActorUid,
+        updatedByUid: resolvedActorUid,
         updatedAt: now,
       });
     });
