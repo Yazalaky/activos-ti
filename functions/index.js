@@ -158,17 +158,152 @@ exports.setUserStatus = onCall(async (request) => {
   }
 });
 
-const resetDependencyCollections = [
+const resetBlockingCollections = [
   'acts',
   'activities',
   'maintenances',
-  'invoices',
-  'quotes',
   'reports',
   'inventoryReports',
 ];
 
+const resetInformationalCollections = ['invoices', 'quotes'];
+
+const resetCollectionLabels = {
+  acts: 'Actas',
+  activities: 'Actividades vinculadas a activos',
+  maintenances: 'Mantenimientos',
+  reports: 'Reportes vinculados a activos',
+  inventoryReports: 'Reportes de inventario vinculados a activos',
+  invoices: 'Facturas que se conservarán',
+  quotes: 'Cotizaciones que se conservarán',
+};
+
 const getSiteResetConfirmation = (prefix) => `REINICIAR INVENTARIO ${String(prefix).trim().toUpperCase()}`;
+
+const hasDirectAssetReference = (data, assetIds) => {
+  if (typeof data?.assetId === 'string' && data.assetId.trim().length > 0) return true;
+  if (!Array.isArray(data?.assetIds)) return false;
+  return data.assetIds.some((assetId) => typeof assetId === 'string' && assetIds.has(assetId));
+};
+
+const getResetItem = (snapshot, assetMap) => {
+  const data = snapshot.data() || {};
+  const assetId = typeof data.assetId === 'string' ? data.assetId : '';
+  const asset = assetMap.get(assetId);
+  return {
+    id: snapshot.id,
+    date: String(data.date || data.scheduledDate || data.createdAt || ''),
+    assetLabel: String(data.fixedAssetIdSnapshot || asset?.fixedAssetId || assetId || ''),
+    title: String(data.description || data.number || data.findings || data.type || 'Registro'),
+    status: String(data.status || ''),
+    isDeleted: data.isDeleted === true,
+  };
+};
+
+const buildResetAnalysis = ({
+  assetSnapshot,
+  blockingSnapshots,
+  blockingCollectionNames,
+  informationalSnapshots = [],
+  informationalCollectionNames = [],
+}) => {
+  const assetMap = new Map(assetSnapshot.docs.map((snapshot) => [snapshot.id, snapshot.data() || {}]));
+  const assetIds = new Set(assetSnapshot.docs.map((snapshot) => snapshot.id));
+  const blocking = [];
+  const preserved = [];
+
+  blockingSnapshots.forEach((snapshot, index) => {
+    const collectionName = blockingCollectionNames[index];
+    const docs = snapshot.docs;
+    const relatedDocs = ['acts', 'maintenances'].includes(collectionName)
+      ? docs
+      : docs.filter((item) => hasDirectAssetReference(item.data(), assetIds));
+    const preservedDocs = docs.filter((item) => !relatedDocs.some((related) => related.id === item.id));
+
+    if (relatedDocs.length > 0) {
+      blocking.push({
+        collection: collectionName,
+        label: resetCollectionLabels[collectionName] || collectionName,
+        count: relatedDocs.length,
+        items: relatedDocs.slice(0, 8).map((item) => getResetItem(item, assetMap)),
+      });
+    }
+    if (preservedDocs.length > 0) {
+      preserved.push({
+        collection: collectionName,
+        label: `${resetCollectionLabels[collectionName] || collectionName} que se conservarán`,
+        count: preservedDocs.length,
+      });
+    }
+  });
+
+  informationalSnapshots.forEach((snapshot, index) => {
+    if (snapshot.size === 0) return;
+    const collectionName = informationalCollectionNames[index];
+    preserved.push({
+      collection: collectionName,
+      label: resetCollectionLabels[collectionName] || collectionName,
+      count: snapshot.size,
+    });
+  });
+
+  return {
+    assetCount: assetSnapshot.size,
+    blocking,
+    preserved,
+  };
+};
+
+const getSiteResetSnapshots = async (siteId, collectionNames, transaction) => {
+  const assetsQuery = db.collection('assets').where('siteId', '==', siteId);
+  const queries = collectionNames.map((collectionName) => (
+    db.collection(collectionName).where('siteId', '==', siteId)
+  ));
+
+  if (transaction) {
+    const assetSnapshot = await transaction.get(assetsQuery);
+    const snapshots = [];
+    for (const queryRef of queries) snapshots.push(await transaction.get(queryRef));
+    return { assetSnapshot, snapshots };
+  }
+
+  const [assetSnapshot, ...snapshots] = await Promise.all([
+    assetsQuery.get(),
+    ...queries.map((queryRef) => queryRef.get()),
+  ]);
+  return { assetSnapshot, snapshots };
+};
+
+const getSiteResetAnalysis = async (siteId) => {
+  const collectionNames = [...resetBlockingCollections, ...resetInformationalCollections];
+  const { assetSnapshot, snapshots } = await getSiteResetSnapshots(siteId, collectionNames);
+  return buildResetAnalysis({
+    assetSnapshot,
+    blockingSnapshots: snapshots.slice(0, resetBlockingCollections.length),
+    blockingCollectionNames: resetBlockingCollections,
+    informationalSnapshots: snapshots.slice(resetBlockingCollections.length),
+    informationalCollectionNames: resetInformationalCollections,
+  });
+};
+
+exports.previewSiteInventoryReset = onCall(async (request) => {
+  await getCallerProfile(request);
+
+  const siteId = assertString(request.data.siteId, 'siteId');
+  const siteSnapshot = await db.doc(`sites/${siteId}`).get();
+  if (!siteSnapshot.exists || siteSnapshot.data()?.isDeleted === true) {
+    throw new HttpsError('not-found', 'La sede seleccionada no existe.');
+  }
+
+  const siteData = siteSnapshot.data() || {};
+  const analysis = await getSiteResetAnalysis(siteId);
+  return {
+    siteId,
+    siteName: String(siteData.name || ''),
+    prefix: String(siteData.prefix || ''),
+    ...analysis,
+  };
+});
 
 exports.resetSiteInventory = onCall(async (request) => {
   await getCallerProfile(request);
@@ -193,18 +328,9 @@ exports.resetSiteInventory = onCall(async (request) => {
     throw new HttpsError('failed-precondition', 'La frase de confirmación no coincide.');
   }
 
-  const assetsQuery = db.collection('assets').where('siteId', '==', siteId);
-  const dependencySnapshots = await Promise.all(
-    resetDependencyCollections.map((collectionName) => (
-      db.collection(collectionName).where('siteId', '==', siteId).get()
-    )),
-  );
-  const dependencies = dependencySnapshots
-    .map((snapshot, index) => ({ collection: resetDependencyCollections[index], count: snapshot.size }))
-    .filter((item) => item.count > 0);
-
-  if (dependencies.length > 0) {
-    const dependencySummary = dependencies.map((item) => `${item.collection}: ${item.count}`).join(', ');
+  const analysis = await getSiteResetAnalysis(siteId);
+  if (analysis.blocking.length > 0) {
+    const dependencySummary = analysis.blocking.map((item) => `${item.label}: ${item.count}`).join(', ');
     throw new HttpsError(
       'failed-precondition',
       `No se puede reiniciar la sede porque tiene información histórica relacionada (${dependencySummary}).`,
@@ -221,14 +347,11 @@ exports.resetSiteInventory = onCall(async (request) => {
       // Todas las lecturas se realizan antes de cualquier escritura para que el
       // respaldo, la eliminación y el reinicio del consecutivo sean atómicos.
       const currentSiteSnapshot = await transaction.get(siteRef);
-      const currentAssetsSnapshot = await transaction.get(assetsQuery);
-      const currentDependencySnapshots = [];
-
-      for (const collectionName of resetDependencyCollections) {
-        currentDependencySnapshots.push(
-          await transaction.get(db.collection(collectionName).where('siteId', '==', siteId)),
-        );
-      }
+      const { assetSnapshot: currentAssetsSnapshot, snapshots: currentDependencySnapshots } = await getSiteResetSnapshots(
+        siteId,
+        resetBlockingCollections,
+        transaction,
+      );
 
       if (!currentSiteSnapshot.exists || currentSiteSnapshot.data()?.isDeleted === true) {
         throw new HttpsError('not-found', 'La sede seleccionada no existe.');
@@ -240,11 +363,13 @@ exports.resetSiteInventory = onCall(async (request) => {
         throw new HttpsError('failed-precondition', 'El prefijo de la sede cambió. Vuelve a cargar la página e inténtalo de nuevo.');
       }
 
-      const currentDependencies = currentDependencySnapshots
-        .map((snapshot, index) => ({ collection: resetDependencyCollections[index], count: snapshot.size }))
-        .filter((item) => item.count > 0);
-      if (currentDependencies.length > 0) {
-        const dependencySummary = currentDependencies.map((item) => `${item.collection}: ${item.count}`).join(', ');
+      const currentAnalysis = buildResetAnalysis({
+        assetSnapshot: currentAssetsSnapshot,
+        blockingSnapshots: currentDependencySnapshots,
+        blockingCollectionNames: resetBlockingCollections,
+      });
+      if (currentAnalysis.blocking.length > 0) {
+        const dependencySummary = currentAnalysis.blocking.map((item) => `${item.label}: ${item.count}`).join(', ');
         throw new HttpsError(
           'failed-precondition',
           `No se puede reiniciar la sede porque tiene información histórica relacionada (${dependencySummary}).`,

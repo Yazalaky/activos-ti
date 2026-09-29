@@ -42,6 +42,37 @@ export type ResetSiteInventoryInput = {
   confirmation: string;
 };
 
+export type ResetDependencyItem = {
+  id: string;
+  date: string;
+  assetLabel: string;
+  title: string;
+  status: string;
+  isDeleted: boolean;
+};
+
+export type ResetDependencyGroup = {
+  collection: string;
+  label: string;
+  count: number;
+  items?: ResetDependencyItem[];
+};
+
+export type PreviewSiteInventoryResetOutput = {
+  siteId: string;
+  siteName: string;
+  prefix: string;
+  assetCount: number;
+  blocking: ResetDependencyGroup[];
+  preserved: ResetDependencyGroup[];
+};
+
+export const previewSiteInventoryReset = async (siteId: string) => {
+  const callable = httpsCallable<{ siteId: string }, PreviewSiteInventoryResetOutput>(functions, 'previewSiteInventoryReset');
+  const result = await callable({ siteId });
+  return result.data;
+};
+
 export type ResetSiteInventoryOutput = {
   resetId: string;
   siteId: string;

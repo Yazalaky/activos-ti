@@ -7,6 +7,7 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -48,7 +49,7 @@ import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined
 import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { addAsset, bulkDecommissionAssetsForSite, decommissionAsset, getAssets, getSites, moveAssetToSite, updateAsset, updateAssetAssignment, getMaintenances } from '../services/api';
-import { resetSiteInventory } from '../services/adminApi';
+import { previewSiteInventoryReset, resetSiteInventory, type PreviewSiteInventoryResetOutput } from '../services/adminApi';
 import type { Asset, AssetType, Assignment, Site, Status, Maintenance } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { useAuth } from '../auth/AuthContext';
@@ -296,6 +297,9 @@ const Assets = () => {
   const [resetInventoryOpen, setResetInventoryOpen] = useState(false);
   const [resetInventoryConfirm, setResetInventoryConfirm] = useState('');
   const [resettingInventory, setResettingInventory] = useState(false);
+  const [loadingResetAnalysis, setLoadingResetAnalysis] = useState(false);
+  const [resetAnalysis, setResetAnalysis] = useState<PreviewSiteInventoryResetOutput | null>(null);
+  const [resetAnalysisError, setResetAnalysisError] = useState('');
   const [decommissionOpen, setDecommissionOpen] = useState(false);
   const [decommissionTarget, setDecommissionTarget] = useState<Asset | null>(null);
   const [decommissionReason, setDecommissionReason] = useState('');
@@ -890,19 +894,48 @@ const Assets = () => {
     }
   };
 
+  const loadResetAnalysis = useCallback(async () => {
+    if (!selectedSiteFilter) return;
+    setLoadingResetAnalysis(true);
+    setResetAnalysisError('');
+    try {
+      const analysis = await previewSiteInventoryReset(selectedSiteFilter);
+      setResetAnalysis(analysis);
+    } catch (error) {
+      console.error('Preview site inventory reset error:', error);
+      setResetAnalysis(null);
+      setResetAnalysisError(error instanceof Error ? error.message : 'No se pudo consultar la información relacionada.');
+    } finally {
+      setLoadingResetAnalysis(false);
+    }
+  }, [selectedSiteFilter]);
+
   const openResetInventory = useCallback(() => {
     setResetInventoryConfirm('');
+    setResetAnalysis(null);
+    setResetAnalysisError('');
     setResetInventoryOpen(true);
-  }, []);
+    void loadResetAnalysis();
+  }, [loadResetAnalysis]);
 
   const closeResetInventory = useCallback(() => {
     if (resettingInventory) return;
     setResetInventoryOpen(false);
     setResetInventoryConfirm('');
+    setResetAnalysis(null);
+    setResetAnalysisError('');
   }, [resettingInventory]);
 
   const handleResetInventory = async () => {
     if (!isAdmin || !selectedSiteFilter) return;
+    if (loadingResetAnalysis || !resetAnalysis) {
+      setSnackbar({ open: true, message: 'Espera a que termine la consulta de dependencias.', severity: 'warning' });
+      return;
+    }
+    if (resetAnalysis.blocking.length > 0) {
+      setSnackbar({ open: true, message: 'Primero debes revisar o resolver la información que bloquea el reinicio.', severity: 'warning' });
+      return;
+    }
     if (resetInventoryConfirm.trim().toUpperCase() !== resetInventoryPhrase) {
       setSnackbar({ open: true, message: 'La frase de confirmación no coincide.', severity: 'warning' });
       return;
@@ -1570,11 +1603,56 @@ const Assets = () => {
               <strong>{selectedSite?.name || 'la sede seleccionada'}</strong>, incluyendo sus registros de baja. También eliminará sus fotos y reiniciará el consecutivo.
             </Alert>
             <Alert severity="info">
-              No es una baja de equipos. “Dar de baja” conserva el historial; esta operación solo está prevista para reiniciar una sede que aún no tiene actas, mantenimientos, actividades ni reportes históricos.
+              No es una baja de equipos. “Dar de baja” conserva el historial. Esta operación elimina únicamente los activos y sus fotos; las facturas, cotizaciones y actividades generales de la sede se conservarán.
             </Alert>
             <Typography variant="body2" color="text.secondary">
-              Activos detectados: <strong>{siteAssetsForReset.length}</strong>. Antes de eliminar, el sistema creará un respaldo técnico y bloqueará la operación si encuentra información histórica relacionada.
+              Activos detectados: <strong>{resetAnalysis?.assetCount ?? siteAssetsForReset.length}</strong>. Antes de eliminar, el sistema creará un respaldo técnico y bloqueará la operación si encuentra actas, mantenimientos o registros vinculados a los activos.
             </Typography>
+            {loadingResetAnalysis && (
+              <Alert severity="info" icon={<CircularProgress size={18} />}>
+                Consultando actas, mantenimientos, bitácora y registros relacionados…
+              </Alert>
+            )}
+            {resetAnalysisError && (
+              <Alert severity="error" action={<Button color="inherit" size="small" onClick={() => void loadResetAnalysis()}>Reintentar</Button>}>
+                {resetAnalysisError}
+              </Alert>
+            )}
+            {resetAnalysis && !loadingResetAnalysis && (
+              <Stack spacing={1.25}>
+                <Alert severity={resetAnalysis.blocking.length > 0 ? 'warning' : 'success'}>
+                  {resetAnalysis.blocking.length > 0
+                    ? 'El reinicio está bloqueado hasta resolver las dependencias mostradas.'
+                    : 'No se encontraron registros que dependan directamente de los activos. El reinicio puede continuar.'}
+                </Alert>
+                {resetAnalysis.blocking.map((group) => (
+                  <Box key={group.collection} sx={{ border: '1px solid', borderColor: 'warning.light', borderRadius: 2, p: 1.25 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                      {group.label}: {group.count}
+                    </Typography>
+                    <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+                      {(group.items || []).map((item) => (
+                        <Typography key={item.id} variant="caption" color="text.secondary">
+                          {item.date || 'Sin fecha'} · {item.assetLabel || 'Activo no identificado'} · {item.title}
+                          {item.isDeleted ? ' · registro eliminado' : ''}
+                        </Typography>
+                      ))}
+                      {group.count > (group.items || []).length && (
+                        <Typography variant="caption" color="text.secondary">
+                          … y {group.count - (group.items || []).length} registro(s) más.
+                        </Typography>
+                      )}
+                    </Stack>
+                  </Box>
+                ))}
+                {resetAnalysis.preserved.length > 0 && (
+                  <Alert severity="info">
+                    Se conservarán:{' '}
+                    {resetAnalysis.preserved.map((group) => `${group.label}: ${group.count}`).join(' · ')}.
+                  </Alert>
+                )}
+              </Stack>
+            )}
             <Typography variant="body2" color="text.secondary">
               Para confirmar, escribe exactamente: <strong>{resetInventoryPhrase}</strong>
             </Typography>
@@ -1596,7 +1674,7 @@ const Assets = () => {
             variant="contained"
             color="error"
             onClick={handleResetInventory}
-            disabled={resettingInventory || resetInventoryConfirm.trim().toUpperCase() !== resetInventoryPhrase}
+            disabled={resettingInventory || loadingResetAnalysis || !resetAnalysis || resetAnalysis.blocking.length > 0 || resetInventoryConfirm.trim().toUpperCase() !== resetInventoryPhrase}
           >
             {resettingInventory ? 'Reiniciando…' : 'Eliminar y reiniciar'}
           </Button>
