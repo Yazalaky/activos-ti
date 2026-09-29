@@ -633,15 +633,17 @@ const Assets = () => {
     let uploadedImagePath = '';
     let previousImagePath = '';
     let createdAssetId = '';
+    let imageMetadataSaved = false;
+    let savePhase = 'validación';
 
     try {
       setSaving(true);
 
       if (editingId) {
         const { id, fixedAssetId, createdAt, ...updatePayload } = dataToSave;
-        let uploadedImage: { url: string; path: string } | null = null;
 
         if (imageFile) {
+          savePhase = 'subida de imagen';
           previousImagePath = String(formData.imagePath || '').trim();
           const ts = Date.now();
           const result = await uploadFileToStorage(
@@ -649,28 +651,47 @@ const Assets = () => {
             imageFile,
             setImageUploadPct
           );
-          uploadedImage = result;
           uploadedImagePath = result.path;
+
+          // Guardar primero la foto evita que la validación estricta de campos
+          // antiguos del activo bloquee el cambio de imagen.
+          savePhase = 'guardar metadatos de imagen';
+          await updateAsset(editingId, { imageUrl: result.url, imagePath: result.path }, profile?.uid);
+          imageMetadataSaved = true;
+
+          if (previousImagePath && previousImagePath !== uploadedImagePath) {
+            await deleteStoragePath(previousImagePath).catch(() => undefined);
+          }
         }
 
-        // La foto se guarda en un parche independiente para no volver a validar
-        // campos antiguos o no relacionados del activo durante la carga.
         delete updatePayload.imageUrl;
         delete updatePayload.imagePath;
-        await updateAsset(editingId, updatePayload, profile?.uid);
-        if (uploadedImage) {
-          await updateAsset(editingId, { imageUrl: uploadedImage.url, imagePath: uploadedImage.path }, profile?.uid);
+        try {
+          savePhase = 'guardar datos del activo';
+          await updateAsset(editingId, updatePayload, profile?.uid);
+        } catch (assetUpdateError) {
+          if (!imageMetadataSaved) throw assetUpdateError;
+
+          console.error('Asset fields update after image error:', assetUpdateError);
+          setSnackbar({
+            open: true,
+            message: 'Foto actualizada. Algunos datos antiguos no se pudieron actualizar.',
+            severity: 'warning',
+          });
+          closeEditor();
+          loadData();
+          return;
         }
-        if (previousImagePath && previousImagePath !== uploadedImagePath) {
-          await deleteStoragePath(previousImagePath).catch(() => undefined);
-        }
+
         setSnackbar({ open: true, message: 'Activo actualizado.', severity: 'success' });
       } else {
         const { id, fixedAssetId, createdAt, imageUrl, imagePath, ...createPayload } = dataToSave;
+        savePhase = 'crear activo';
         const docRef: any = await addAsset(createPayload as any, profile?.uid);
         createdAssetId = docRef.id;
 
         if (imageFile) {
+          savePhase = 'subida de imagen';
           const ts = Date.now();
           const result = await uploadFileToStorage(
             `assets/${docRef.id}/photos/${ts}-${imageFile.name}`,
@@ -678,6 +699,7 @@ const Assets = () => {
             setImageUploadPct
           );
           uploadedImagePath = result.path;
+          savePhase = 'guardar metadatos de imagen';
           await updateAsset(docRef.id, { imageUrl: result.url, imagePath: result.path }, profile?.uid);
         }
 
@@ -689,8 +711,9 @@ const Assets = () => {
       if (uploadedImagePath) {
         await deleteStoragePath(uploadedImagePath).catch(() => undefined);
       }
-      console.error('Error saving asset:', error);
       const errorCode = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code || '') : '';
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('Error saving asset:', { phase: savePhase, code: errorCode, message: errorMessage }, error);
       const message = errorCode.startsWith('storage/')
         ? createdAssetId
           ? 'El activo fue creado, pero la foto no pudo cargarse. Verifica que sea una imagen menor de 5 MB.'

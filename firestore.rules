@@ -149,6 +149,27 @@ service cloud.firestore {
         && auditUpdateValid();
     }
 
+    // Permite reparar la asignación de activos antiguos sin volver a validar
+    // todos sus campos históricos. Solo se pueden modificar la asignación y
+    // los campos de auditoría, y la asignación debe quedar completa.
+    function assetAssignmentUpdateValid() {
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      let data = request.resource.data;
+      return changedKeys.hasAny(['currentAssignment'])
+        && changedKeys.hasOnly(['currentAssignment', 'updatedAt', 'updatedByUid'])
+        && data.keys().hasAny(['status'])
+        && data.status == 'asignado'
+        && data.keys().hasAny(['currentAssignment'])
+        && data.currentAssignment is map
+        && data.currentAssignment.keys().hasAll(['assignedToName', 'assignedToPosition', 'assignedToResponsible', 'assignedAt'])
+        && isNonEmptyString(data.currentAssignment.assignedToName, 200)
+        && isNonEmptyString(data.currentAssignment.assignedToPosition, 150)
+        && isNonEmptyString(data.currentAssignment.assignedToResponsible, 200)
+        && data.currentAssignment.assignedAt is int
+        && data.currentAssignment.assignedAt > 0
+        && auditUpdateValid();
+    }
+
     function assetLifecycleValid() {
       let data = request.resource.data;
       let statusValid = data.keys().hasAny(['status'])
@@ -606,6 +627,7 @@ service cloud.firestore {
             && (resource.data.status != 'baja' || request.resource.data.status == 'baja')
           )
           || assetImageUpdateValid(assetId)
+          || assetAssignmentUpdateValid()
         );
       allow delete: if false;
     }
