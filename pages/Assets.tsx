@@ -62,6 +62,17 @@ const statusLabel: Record<Status, string> = {
   baja: 'De baja',
 };
 
+const MAX_ASSET_IMAGE_SIZE = 5 * 1024 * 1024;
+const supportedAssetImageExtensions = /\.(avif|gif|jpe?g|png|webp)$/i;
+
+const getAssetImageValidationMessage = (file?: File | null) => {
+  if (!file) return '';
+  const isImage = file.type.startsWith('image/') || supportedAssetImageExtensions.test(file.name);
+  if (!isImage) return 'La foto debe ser una imagen válida (JPG, PNG, WEBP, GIF o AVIF).';
+  if (file.size >= MAX_ASSET_IMAGE_SIZE) return 'La foto debe pesar menos de 5 MB.';
+  return '';
+};
+
 const statusColor = (status: Status) => {
   switch (status) {
     case 'asignado':
@@ -517,6 +528,11 @@ const Assets = () => {
 
   const handleImageChange = (file?: File) => {
     if (!file) return;
+    const validationMessage = getAssetImageValidationMessage(file);
+    if (validationMessage) {
+      setSnackbar({ open: true, message: validationMessage, severity: 'warning' });
+      return;
+    }
     if (previewImage?.startsWith('blob:')) {
       URL.revokeObjectURL(previewImage);
     }
@@ -582,6 +598,12 @@ const Assets = () => {
       }
     }
 
+    const imageValidationMessage = getAssetImageValidationMessage(imageFile);
+    if (imageValidationMessage) {
+      setSnackbar({ open: true, message: imageValidationMessage, severity: 'warning' });
+      return;
+    }
+
     const dataToSave: any = { ...formData };
 
     if (dataToSave.type !== 'desktop') {
@@ -608,6 +630,10 @@ const Assets = () => {
       dataToSave.currentAssignment = null;
     }
 
+    let uploadedImagePath = '';
+    let previousImagePath = '';
+    let createdAssetId = '';
+
     try {
       setSaving(true);
 
@@ -615,7 +641,7 @@ const Assets = () => {
         const { id, fixedAssetId, createdAt, ...updatePayload } = dataToSave;
 
         if (imageFile) {
-          const prevPath = String(formData.imagePath || '').trim();
+          previousImagePath = String(formData.imagePath || '').trim();
           const ts = Date.now();
           const result = await uploadFileToStorage(
             `assets/${editingId}/photos/${ts}-${imageFile.name}`,
@@ -624,18 +650,18 @@ const Assets = () => {
           );
           updatePayload.imageUrl = result.url;
           updatePayload.imagePath = result.path;
-
-          // Best-effort cleanup of previous image
-          if (prevPath && prevPath !== result.path) {
-            deleteStoragePath(prevPath).catch(() => undefined);
-          }
+          uploadedImagePath = result.path;
         }
 
         await updateAsset(editingId, updatePayload, profile?.uid);
+        if (previousImagePath && previousImagePath !== uploadedImagePath) {
+          await deleteStoragePath(previousImagePath).catch(() => undefined);
+        }
         setSnackbar({ open: true, message: 'Activo actualizado.', severity: 'success' });
       } else {
         const { id, fixedAssetId, createdAt, imageUrl, imagePath, ...createPayload } = dataToSave;
         const docRef: any = await addAsset(createPayload as any, profile?.uid);
+        createdAssetId = docRef.id;
 
         if (imageFile) {
           const ts = Date.now();
@@ -644,6 +670,7 @@ const Assets = () => {
             imageFile,
             setImageUploadPct
           );
+          uploadedImagePath = result.path;
           await updateAsset(docRef.id, { imageUrl: result.url, imagePath: result.path }, profile?.uid);
         }
 
@@ -652,8 +679,19 @@ const Assets = () => {
       closeEditor();
       loadData();
     } catch (error) {
+      if (uploadedImagePath) {
+        await deleteStoragePath(uploadedImagePath).catch(() => undefined);
+      }
       console.error('Error saving asset:', error);
-      setSnackbar({ open: true, message: 'No se pudo guardar el activo.', severity: 'error' });
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error ? String((error as { code?: unknown }).code || '') : '';
+      const message = errorCode.startsWith('storage/')
+        ? createdAssetId
+          ? 'El activo fue creado, pero la foto no pudo cargarse. Verifica que sea una imagen menor de 5 MB.'
+          : 'La foto no pudo cargarse. Verifica que sea una imagen menor de 5 MB.'
+        : createdAssetId && imageFile
+          ? 'El activo fue creado, pero no se pudo guardar la foto.'
+          : 'No se pudo guardar el activo.';
+      setSnackbar({ open: true, message, severity: 'error' });
     } finally {
       setSaving(false);
     }
@@ -1257,7 +1295,15 @@ const Assets = () => {
                     {!readOnly && (
                       <Button component="label" variant="outlined" startIcon={<PhotoCameraOutlinedIcon />} disabled={saving}>
                         {formData.imageUrl || imageFile ? 'Reemplazar foto' : 'Cargar foto'}
-                        <input hidden type="file" accept="image/*" onChange={(e) => handleImageChange(e.target.files?.[0])} />
+                        <input
+                          hidden
+                          type="file"
+                          accept="image/*,.avif"
+                          onChange={(e) => {
+                            handleImageChange(e.target.files?.[0]);
+                            e.target.value = '';
+                          }}
+                        />
                       </Button>
                     )}
 

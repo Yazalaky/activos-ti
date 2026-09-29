@@ -15,6 +15,21 @@ const sanitizeFilename = (name: string) =>
     .replace(/\s+/g, '-')
     .replace(/[^a-zA-Z0-9._-]/g, '');
 
+const contentTypeByExtension: Record<string, string> = {
+  avif: 'image/avif',
+  gif: 'image/gif',
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+};
+
+const resolveContentType = (file: File) => {
+  if (file.type) return file.type;
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
+  return contentTypeByExtension[extension] || '';
+};
+
 export const uploadFileToStorage = (
   storagePath: string,
   file: File,
@@ -23,9 +38,10 @@ export const uploadFileToStorage = (
   new Promise<UploadResult>((resolve, reject) => {
     const safePath = storagePath.replace(/\/+/g, '/');
     const storageRef = ref(storage, safePath);
+    const contentType = resolveContentType(file);
 
     const task = uploadBytesResumable(storageRef, file, {
-      contentType: file.type || undefined,
+      contentType: contentType || undefined,
       customMetadata: {
         originalName: sanitizeFilename(file.name) || file.name,
       },
@@ -46,7 +62,7 @@ export const uploadFileToStorage = (
           path: safePath,
           name: file.name,
           size: file.size,
-          contentType: file.type || task.snapshot.metadata.contentType || '',
+          contentType: contentType || task.snapshot.metadata.contentType || '',
         });
       }
     );
