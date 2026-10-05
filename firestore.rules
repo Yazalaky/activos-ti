@@ -595,7 +595,7 @@ service cloud.firestore {
       return transitionValid && signedLocked && voidRestricted;
     }
 
-    function actTemplateDataValid() {
+    function actTemplateDataValid(companyId) {
       let data = request.resource.data;
       let identityValid = data.keys().hasAll(['companyId', 'companyName', 'version', 'active'])
         && data.companyId == companyId
@@ -887,8 +887,8 @@ service cloud.firestore {
     // Plantillas generales por empresa: solo administradores pueden crearlas o reemplazarlas.
     match /actTemplates/{companyId} {
       allow read: if profileActive();
-      allow create: if isAdmin() && actTemplateDataValid() && auditCreateValid();
-      allow update: if isAdmin() && actTemplateDataValid() && auditUpdateValid();
+      allow create: if isAdmin() && actTemplateDataValid(companyId) && auditCreateValid();
+      allow update: if isAdmin() && actTemplateDataValid(companyId) && auditUpdateValid();
       allow delete: if false;
     }
 
