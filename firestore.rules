@@ -656,6 +656,12 @@ service cloud.firestore {
         || isAdmin();
     }
 
+    function isLegacyActDocument() {
+      return resource.data.keys().hasAll(['assetId', 'siteId', 'status', 'pdfUrl'])
+        && resource.data.status in ['draft', 'issued', 'signed']
+        && !resource.data.keys().hasAny(['generatedPdf', 'signedPdf', 'signatureMethod']);
+    }
+
     function actTemplateDataValid(companyId) {
       let data = request.resource.data;
       let identityValid = data.keys().hasAll(['companyId', 'companyName', 'version', 'active'])
@@ -936,7 +942,7 @@ service cloud.firestore {
         && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
-        && actDataValid()
+        && (actDataValid() || (isLegacyActDocument() && isAdmin()))
         && actSignatureValid(actId)
         && actLegacyReviewDataValid(actId)
         && actAttachmentValid(actId)
