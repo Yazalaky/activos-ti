@@ -546,6 +546,11 @@ service cloud.firestore {
         );
     }
 
+    function actPdfHistoryValid(value) {
+      return value == null
+        || (value is list && value.size() <= 10);
+    }
+
     function actSignatureValid(actId) {
       let data = request.resource.data;
       let methodValid = !data.keys().hasAny(['signatureMethod'])
@@ -576,7 +581,10 @@ service cloud.firestore {
       let methodStateValid = !data.keys().hasAny(['signatureMethod'])
         || (data.status == 'signed' && data.keys().hasAny(['signedPdf']) && actPdfFileValid(actId, data.signedPdf));
       let generatedValid = !data.keys().hasAny(['generatedPdf']) || actPdfFileValid(actId, data.generatedPdf);
-      return methodValid && signedValid && methodStateValid && generatedValid;
+      let historyValid = !data.keys().hasAny(['signedPdfHistory']) || actPdfHistoryValid(data.signedPdfHistory);
+      let historyStateValid = !data.keys().hasAny(['signedPdfHistory'])
+        || (data.status == 'signed' && data.signatureMethod == 'uploaded_pdf');
+      return methodValid && signedValid && methodStateValid && generatedValid && historyValid && historyStateValid;
     }
 
     function actLifecycleUpdateValid() {
@@ -589,8 +597,18 @@ service cloud.firestore {
         || (currentStatus == 'issued' && nextStatus in ['issued', 'signed', 'void'])
         || (currentStatus == 'signed' && nextStatus in ['signed', 'void'])
         || (currentStatus == 'void' && nextStatus == 'void');
+      let auditFields = ['updatedAt', 'updatedByUid', 'isDeleted', 'deletedAt', 'deletedByUid'];
+      let signedAuditOnly = changed.hasOnly(auditFields);
+      let uploadedPdfReplacement = currentStatus == 'signed'
+        && current.keys().hasAny(['signatureMethod'])
+        && current.signatureMethod == 'uploaded_pdf'
+        && next.keys().hasAny(['signatureMethod'])
+        && next.signatureMethod == 'uploaded_pdf'
+        && changed.hasAll(['signedPdf', 'signedPdfHistory'])
+        && changed.hasOnly(['signedPdf', 'signedPdfHistory', 'signatureMethod', 'signedAt', 'signedByUid', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize', 'updatedAt', 'updatedByUid', 'isDeleted', 'deletedAt', 'deletedByUid']);
       let signedLocked = currentStatus != 'signed'
-        || changed.hasOnly(['signedPdf', 'signatureMethod', 'signedAt', 'signedByUid', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize', 'updatedAt', 'updatedByUid', 'isDeleted', 'deletedAt', 'deletedByUid']);
+        || signedAuditOnly
+        || uploadedPdfReplacement;
       let voidRestricted = nextStatus != 'void' || isAdmin();
       return transitionValid && signedLocked && voidRestricted;
     }

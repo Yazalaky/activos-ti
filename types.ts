@@ -179,6 +179,12 @@ export interface ActPdfFile {
   createdByUid?: string;
 }
 
+export interface ActPdfHistoryEntry extends ActPdfFile {
+  replacedAt: number;
+  replacedByUid: string;
+  replacementReason: string;
+}
+
 export interface Act extends AuditFields {
   id: string;
   assetId: string;
@@ -202,6 +208,7 @@ export interface Act extends AuditFields {
   status: ActStatus;
   generatedPdf?: ActPdfFile;
   signedPdf?: ActPdfFile;
+  signedPdfHistory?: ActPdfHistoryEntry[];
   signatureMethod?: ActSignatureMethod;
   signedByUid?: string;
   pdfUrl?: string;

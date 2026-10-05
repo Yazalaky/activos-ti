@@ -119,7 +119,8 @@ const Acts = () => {
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadAct, setUploadAct] = useState<Act | null>(null);
-  const [uploadMode, setUploadMode] = useState<'issued' | 'signed'>('signed');
+  const [uploadMode, setUploadMode] = useState<'issued' | 'signed' | 'replace_signed'>('signed');
+  const [replacementReason, setReplacementReason] = useState('');
   const [generatingActId, setGeneratingActId] = useState<string | null>(null);
   const [signingAct, setSigningAct] = useState<Act | null>(null);
   const [signing, setSigning] = useState(false);
@@ -268,11 +269,12 @@ const Acts = () => {
     }
   };
 
-  const openUpload = (act: Act, mode: 'issued' | 'signed' = 'signed') => {
+  const openUpload = (act: Act, mode: 'issued' | 'signed' | 'replace_signed' = 'signed') => {
     setUploadAct(act);
     setUploadMode(mode);
     setUploadFile(null);
     setUploadPct(0);
+    setReplacementReason('');
     setUploadOpen(true);
   };
 
@@ -438,6 +440,14 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'El PDF no puede superar los 10 MB.', severity: 'warning' });
       return;
     }
+    if (uploadMode === 'replace_signed' && replacementReason.trim().length < 5) {
+      setSnackbar({ open: true, message: 'Indique un motivo de al menos 5 caracteres para reemplazar el PDF firmado.', severity: 'warning' });
+      return;
+    }
+    if (uploadMode === 'replace_signed' && !profile?.uid) {
+      setSnackbar({ open: true, message: 'No se pudo identificar al usuario que realiza el reemplazo.', severity: 'error' });
+      return;
+    }
 
     try {
       setUploading(true);
@@ -445,7 +455,10 @@ const Acts = () => {
       if (uploadMode === 'signed' && (uploadAct.status !== 'issued' || uploadAct.signatureMethod)) {
         throw new Error('El acta no está disponible para recibir otra firma.');
       }
-      const kind = uploadMode === 'signed' ? 'signed' : 'generated';
+      if (uploadMode === 'replace_signed' && (uploadAct.status !== 'signed' || uploadAct.signatureMethod !== 'uploaded_pdf' || !uploadAct.signedPdf)) {
+        throw new Error('Solo se puede reemplazar un PDF firmado que fue cargado manualmente.');
+      }
+      const kind = uploadMode === 'issued' ? 'generated' : 'signed';
       const result = await uploadFileToStorage(`acts/${uploadAct.id}/${kind}/${ts}-${uploadFile.name}`, uploadFile, setUploadPct);
       const fileInfo = {
         url: result.url,
@@ -469,6 +482,20 @@ const Acts = () => {
         update.signedByUid = profile?.uid;
         update.signedAt = Date.now();
         update.status = 'signed';
+      } else if (uploadMode === 'replace_signed') {
+        const previousPdf = uploadAct.signedPdf;
+        update.signedPdf = fileInfo;
+        update.signedPdfHistory = [
+          ...(uploadAct.signedPdfHistory || []),
+          {
+            ...previousPdf,
+            replacedAt: Date.now(),
+            replacedByUid: profile.uid,
+            replacementReason: replacementReason.trim(),
+          },
+        ].slice(-10);
+        update.signedAt = Date.now();
+        update.status = 'signed';
       } else {
         update.generatedPdf = fileInfo;
         update.status = 'issued';
@@ -478,7 +505,11 @@ const Acts = () => {
 
       setSnackbar({
         open: true,
-        message: uploadMode === 'signed' ? 'PDF firmado cargado y acta cerrada.' : 'PDF emitido cargado correctamente.',
+        message: uploadMode === 'signed'
+          ? 'PDF firmado cargado y acta cerrada.'
+          : uploadMode === 'replace_signed'
+            ? 'PDF firmado reemplazado. La versión anterior se conservó.'
+            : 'PDF emitido cargado correctamente.',
         severity: 'success',
       });
       setUploadOpen(false);
@@ -670,7 +701,29 @@ const Acts = () => {
                               </Button>
                             </>
                           )}
-                          {act.status === 'signed' && <Chip size="small" icon={<LockOutlinedIcon />} label="Bloqueada" variant="outlined" />}
+                          {act.status === 'signed' && act.signatureMethod === 'uploaded_pdf' && canWrite && (
+                            <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'replace_signed')}>
+                              Reemplazar PDF firmado
+                            </Button>
+                          )}
+                          {act.status === 'signed' && (
+                            <>
+                              <Button
+                                size="small"
+                                variant="outlined"
+                                startIcon={<DrawOutlinedIcon />}
+                                disabled
+                              >
+                                Firma electrónica
+                              </Button>
+                              <Chip
+                                size="small"
+                                icon={<LockOutlinedIcon />}
+                                label={act.signatureMethod === 'uploaded_pdf' ? 'Firmada por PDF' : 'Firma electrónica aplicada'}
+                                variant="outlined"
+                              />
+                            </>
+                          )}
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -833,19 +886,36 @@ const Acts = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={uploadOpen} onClose={() => setUploadOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>{uploadMode === 'signed' ? 'Cargar PDF firmado' : 'Registrar PDF emitido'}</DialogTitle>
+      <Dialog open={uploadOpen} onClose={() => !uploading && setUploadOpen(false)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>
+          {uploadMode === 'signed' ? 'Cargar PDF firmado' : uploadMode === 'replace_signed' ? 'Reemplazar PDF firmado' : 'Registrar PDF emitido'}
+        </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="info">
               {uploadMode === 'signed'
-                ? 'Esta opción cierra el acta como Firmada. Después de cargar el archivo no se podrá firmar electrónicamente ni reemplazar la firma.'
+                ? 'Esta opción cierra el acta como Firmada. Después de cargar el archivo no se podrá firmar electrónicamente. Si se cargó el archivo equivocado, un usuario autorizado podrá reemplazarlo conservando la versión anterior.'
+                : uploadMode === 'replace_signed'
+                  ? 'El acta ya está firmada mediante un PDF cargado. El archivo anterior no se eliminará: quedará conservado como versión reemplazada y la firma electrónica seguirá deshabilitada.'
                 : 'Usa esta opción únicamente para conservar compatibilidad con actas antiguas que ya tenían un PDF emitido fuera del sistema.'}
             </Alert>
             {uploadAct?.pdfUrl && (
               <Typography variant="body2" color="text.secondary">
                 Archivo actual: <strong>{uploadAct.pdfName || 'PDF del acta'}</strong>
               </Typography>
+            )}
+            {uploadMode === 'replace_signed' && (
+              <TextField
+                label="Motivo del reemplazo"
+                value={replacementReason}
+                onChange={(event) => setReplacementReason(event.target.value)}
+                helperText="Registre por qué se reemplaza el PDF firmado."
+                required
+                fullWidth
+                multiline
+                minRows={2}
+                disabled={uploading}
+              />
             )}
             {uploading && (
               <Box>
@@ -876,7 +946,7 @@ const Acts = () => {
             Cancelar
           </Button>
           <Button variant="contained" onClick={handleUploadPdf} disabled={!canWrite || uploading}>
-            {uploadMode === 'signed' ? 'Cerrar acta como firmada' : 'Registrar PDF emitido'}
+            {uploadMode === 'signed' ? 'Cerrar acta como firmada' : uploadMode === 'replace_signed' ? 'Reemplazar PDF firmado' : 'Registrar PDF emitido'}
           </Button>
         </DialogActions>
       </Dialog>
