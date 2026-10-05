@@ -580,6 +580,8 @@ service cloud.firestore {
     function actSignatureValid(actId) {
       let data = request.resource.data;
       let methodValid = !data.keys().hasAny(['signatureMethod'])
+        || data.signatureMethod == null
+        || data.signatureMethod == ''
         || data.signatureMethod in ['electronic', 'uploaded_pdf'];
       let signerValid = !data.keys().hasAny(['signedByUid'])
         || (
@@ -610,6 +612,8 @@ service cloud.firestore {
           && signerValid
         );
       let methodStateValid = !data.keys().hasAny(['signatureMethod'])
+        || data.signatureMethod == null
+        || data.signatureMethod == ''
         || (data.status == 'signed' && data.keys().hasAny(['signedPdf']) && actPdfFileValid(actId, data.signedPdf));
       let generatedValid = !data.keys().hasAny(['generatedPdf']) || actPdfFileValid(actId, data.generatedPdf);
       let historyValid = !data.keys().hasAny(['signedPdfHistory']) || actPdfHistoryValid(data.signedPdfHistory);
@@ -625,7 +629,9 @@ service cloud.firestore {
       let currentStatus = current.status;
       let nextStatus = next.status;
       let legacyReviewUpdate = current.keys().hasAny(['pdfUrl'])
-        && !current.keys().hasAny(['generatedPdf', 'signedPdf', 'signatureMethod'])
+        && (!current.keys().hasAny(['generatedPdf']) || current.generatedPdf == null)
+        && (!current.keys().hasAny(['signedPdf']) || current.signedPdf == null)
+        && (!current.keys().hasAny(['signatureMethod']) || current.signatureMethod == null || current.signatureMethod == '')
         && isAdmin()
         && changed.hasAny(['legacyClassification'])
         && changed.hasOnly(['status', 'generatedPdf', 'signedPdf', 'signatureMethod', 'signedAt', 'signedByUid', 'issuedAt', 'legacyClassification', 'legacyClassificationReason', 'legacyClassifiedAt', 'legacyClassifiedByUid', 'legacySignatureDateUnknown', 'legacySignerUnknown', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize', 'updatedAt', 'updatedByUid']);
@@ -658,8 +664,56 @@ service cloud.firestore {
 
     function isLegacyActDocument() {
       return resource.data.keys().hasAll(['assetId', 'siteId', 'status', 'pdfUrl'])
+        && resource.data.pdfUrl is string
+        && resource.data.pdfUrl.size() > 0
         && resource.data.status in ['draft', 'issued', 'signed']
-        && !resource.data.keys().hasAny(['generatedPdf', 'signedPdf', 'signatureMethod']);
+        && (!resource.data.keys().hasAny(['generatedPdf']) || resource.data.generatedPdf == null)
+        && (!resource.data.keys().hasAny(['signedPdf']) || resource.data.signedPdf == null)
+        && (!resource.data.keys().hasAny(['signatureMethod']) || resource.data.signatureMethod == null || resource.data.signatureMethod == '');
+    }
+
+    // Migración controlada de actas antiguas: no permite editar el contenido
+    // del acta ni sus referencias; únicamente clasifica el PDF heredado.
+    function legacyClassificationUpdateValid(actId) {
+      let current = resource.data;
+      let next = request.resource.data;
+      let changed = next.diff(current).affectedKeys();
+      let allowedFields = [
+        'status', 'generatedPdf', 'signedPdf', 'signatureMethod', 'signedAt',
+        'signedByUid', 'issuedAt', 'legacyClassification',
+        'legacyClassificationReason', 'legacyClassifiedAt',
+        'legacyClassifiedByUid', 'legacySignatureDateUnknown',
+        'legacySignerUnknown', 'updatedAt', 'updatedByUid'
+      ];
+      let baseValid = isLegacyActDocument()
+        && isAdmin()
+        && canReadSite(current.siteId)
+        && next.keys().hasAll(['assetId', 'siteId'])
+        && next.assetId == current.assetId
+        && next.siteId == current.siteId
+        && changed.hasAny(['legacyClassification'])
+        && changed.hasOnly(allowedFields)
+        && auditUpdateValid()
+        && softDeleteValid()
+        && actLegacyReviewDataValid(actId);
+      let pendingValid = next.legacyClassification == 'pending'
+        && next.status == current.status
+        && (!next.keys().hasAny(['generatedPdf']) || next.generatedPdf == null)
+        && (!next.keys().hasAny(['signedPdf']) || next.signedPdf == null)
+        && (!next.keys().hasAny(['signatureMethod']) || next.signatureMethod == null || next.signatureMethod == '');
+      let issuedValid = next.legacyClassification == 'issued'
+        && next.status == 'issued'
+        && next.keys().hasAny(['generatedPdf'])
+        && actPdfFileValid(actId, next.generatedPdf);
+      let signedValid = next.legacyClassification == 'signed_uploaded'
+        && next.status == 'signed'
+        && next.signatureMethod == 'uploaded_pdf'
+        && next.keys().hasAll(['signedAt', 'signedByUid', 'signedPdf'])
+        && next.signedAt is int
+        && next.signedAt > 0
+        && next.signedByUid == request.auth.uid
+        && actPdfFileValid(actId, next.signedPdf);
+      return baseValid && (pendingValid || issuedValid || signedValid);
     }
 
     function actTemplateDataValid(companyId) {
@@ -951,6 +1005,7 @@ service cloud.firestore {
         && actLifecycleUpdateValid()
         && actLegacyReviewUpdateAllowed()
         && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin());
+      allow update: if legacyClassificationUpdateValid(actId);
       allow delete: if false;
     }
 
