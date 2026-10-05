@@ -30,6 +30,7 @@ import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import { auth } from '../firebaseAuth';
 import { useAuth } from '../auth/AuthContext';
 import type { Role } from '../types';
@@ -58,6 +59,7 @@ const routeMeta: Record<string, { title: string; subtitle: string }> = {
   '/finance': { title: 'Finanzas', subtitle: 'Facturas, proveedores y costos' },
   '/admin/users': { title: 'Usuarios', subtitle: 'Gestión de accesos y roles' },
   '/act-templates': { title: 'Plantillas de actas', subtitle: 'Configuración por empresa' },
+  '/act-legacy': { title: 'Revisión de actas antiguas', subtitle: 'Clasificación de PDFs heredados' },
 };
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
@@ -102,6 +104,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             items: [
               { path: '/admin/users', label: 'Usuarios', icon: <ManageAccountsOutlinedIcon /> },
               { path: '/act-templates', label: 'Plantillas de actas', icon: <SettingsOutlinedIcon /> },
+              { path: '/act-legacy', label: 'Actas antiguas', icon: <FactCheckOutlinedIcon /> },
             ],
           },
         ]

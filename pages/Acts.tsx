@@ -41,6 +41,7 @@ import { addAct, getActs, getActTemplates, getAssets, getSites, updateAct } from
 import { uploadFileToStorage } from '../services/storageUpload';
 import { generateActPdf, signActPdfElectronically, signatureFileToDataUrl } from '../services/actPdf';
 import { companyLabel } from '../services/actTemplates';
+import { isLegacyActPending } from '../services/actLegacy';
 import type { Act, ActStatus, ActTemplate, Asset, Site } from '../types';
 
 const stripUndefinedDeep = (value: any): any => {
@@ -279,7 +280,7 @@ const Acts = () => {
   };
 
   const handleGeneratePdf = async (act: Act) => {
-    if (!canWrite || act.status === 'signed' || act.status === 'void') return;
+    if (!canWrite || isLegacyActPending(act) || act.status === 'signed' || act.status === 'void') return;
     const site = sites.find((item) => item.id === act.siteId);
     const template = templates.find((item) => item.companyId === act.companyId && item.active !== false);
     if (!site || !template) {
@@ -326,7 +327,7 @@ const Acts = () => {
   };
 
   const openElectronicSignature = (act: Act) => {
-    if (act.status !== 'issued' || act.signatureMethod) return;
+    if (isLegacyActPending(act) || act.status !== 'issued' || act.signatureMethod) return;
     setSigningAct(act);
     setSignatureDataUrl('');
     window.setTimeout(() => {
@@ -379,7 +380,7 @@ const Acts = () => {
   };
 
   const handleElectronicSignature = async () => {
-    if (!canWrite || !signingAct || signingAct.status !== 'issued' || signingAct.signatureMethod) return;
+    if (!canWrite || !signingAct || isLegacyActPending(signingAct) || signingAct.status !== 'issued' || signingAct.signatureMethod) return;
     if (!signatureDataUrl) {
       setSnackbar({ open: true, message: 'Dibuje o cargue una firma antes de continuar.', severity: 'warning' });
       return;
@@ -452,6 +453,9 @@ const Acts = () => {
     try {
       setUploading(true);
       const ts = Date.now();
+      if (isLegacyActPending(uploadAct) && uploadMode !== 'replace_signed') {
+        throw new Error('El acta antigua debe ser clasificada por un administrador antes de cargar o firmar un PDF.');
+      }
       if (uploadMode === 'signed' && (uploadAct.status !== 'issued' || uploadAct.signatureMethod)) {
         throw new Error('El acta no está disponible para recibir otra firma.');
       }
@@ -632,6 +636,7 @@ const Acts = () => {
               <TableBody>
                 {filteredActs.map((act) => {
                   const site = sites.find((s) => s.id === act.siteId);
+                  const legacyPending = isLegacyActPending(act);
                   return (
                     <TableRow key={act.id} hover>
                       <TableCell>
@@ -657,7 +662,10 @@ const Acts = () => {
                         <Chip label={companyLabel(act.companyId)} variant="outlined" />
                       </TableCell>
                       <TableCell>
-                        <Chip label={statusLabel[act.status]} color={statusColor(act.status) as any} />
+                        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
+                          <Chip label={statusLabel[act.status]} color={statusColor(act.status) as any} />
+                          {legacyPending && <Chip label="Revisión pendiente" color="warning" variant="outlined" />}
+                        </Stack>
                       </TableCell>
                       <TableCell>
                         <Button
@@ -675,7 +683,7 @@ const Acts = () => {
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
-                          {canWrite && act.status === 'draft' && (
+                          {canWrite && act.status === 'draft' && !legacyPending && (
                             <Button
                               size="small"
                               variant="outlined"
@@ -686,12 +694,12 @@ const Acts = () => {
                               {generatingActId === act.id ? 'Generando…' : 'Generar PDF'}
                             </Button>
                           )}
-                          {canWrite && act.status === 'draft' && act.pdfUrl && !act.generatedPdf && (
+                          {canWrite && act.status === 'draft' && act.pdfUrl && !act.generatedPdf && !legacyPending && (
                             <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'issued')}>
                               Registrar PDF emitido
                             </Button>
                           )}
-                          {canWrite && act.status === 'issued' && !act.signatureMethod && (
+                          {canWrite && act.status === 'issued' && !act.signatureMethod && !legacyPending && (
                             <>
                               <Button size="small" variant="outlined" startIcon={<DrawOutlinedIcon />} onClick={() => openElectronicSignature(act)}>
                                 Firma electrónica

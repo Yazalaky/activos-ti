@@ -10,6 +10,7 @@ const Assets = lazy(() => import('./pages/Assets'));
 const Activities = lazy(() => import('./pages/Activities'));
 const Quotes = lazy(() => import('./pages/Quotes'));
 const Acts = lazy(() => import('./pages/Acts'));
+const LegacyActs = lazy(() => import('./pages/LegacyActs'));
 const ActTemplates = lazy(() => import('./pages/ActTemplates'));
 const Finance = lazy(() => import('./pages/Finance'));
 const Sites = lazy(() => import('./pages/Sites'));
@@ -148,6 +149,19 @@ function App() {
               <RequireAdmin>
                 <AppLayout>
                   <ActTemplates />
+                </AppLayout>
+              </RequireAdmin>
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/act-legacy"
+          element={
+            <RequireAuth>
+              <RequireAdmin>
+                <AppLayout>
+                  <LegacyActs />
                 </AppLayout>
               </RequireAdmin>
             </RequireAuth>

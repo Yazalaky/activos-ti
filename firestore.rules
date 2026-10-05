@@ -551,6 +551,32 @@ service cloud.firestore {
         || (value is list && value.size() <= 10);
     }
 
+    function actLegacyReviewDataValid(actId) {
+      let data = request.resource.data;
+      let classificationValid = !data.keys().hasAny(['legacyClassification'])
+        || data.legacyClassification in ['pending', 'issued', 'signed_uploaded'];
+      let reasonValid = !data.keys().hasAny(['legacyClassificationReason'])
+        || isOptionalString(data.legacyClassificationReason, 2000);
+      let dateValid = !data.keys().hasAny(['legacyClassifiedAt'])
+        || (data.legacyClassifiedAt == null || (data.legacyClassifiedAt is int && data.legacyClassifiedAt > 0));
+      let reviewerValid = !data.keys().hasAny(['legacyClassifiedByUid'])
+        || isOptionalString(data.legacyClassifiedByUid, 150);
+      let unknownDateValid = !data.keys().hasAny(['legacySignatureDateUnknown'])
+        || data.legacySignatureDateUnknown is bool;
+      let unknownSignerValid = !data.keys().hasAny(['legacySignerUnknown'])
+        || data.legacySignerUnknown is bool;
+      let issuedStateValid = !data.keys().hasAny(['legacyClassification'])
+        || data.legacyClassification != 'issued'
+        || (data.status == 'issued' && data.keys().hasAny(['generatedPdf']) && actPdfFileValid(actId, data.generatedPdf));
+      let signedStateValid = !data.keys().hasAny(['legacyClassification'])
+        || data.legacyClassification != 'signed_uploaded'
+        || (data.status == 'signed'
+          && data.signatureMethod == 'uploaded_pdf'
+          && data.keys().hasAny(['signedPdf'])
+          && actPdfFileValid(actId, data.signedPdf));
+      return classificationValid && reasonValid && dateValid && reviewerValid && unknownDateValid && unknownSignerValid && issuedStateValid && signedStateValid;
+    }
+
     function actSignatureValid(actId) {
       let data = request.resource.data;
       let methodValid = !data.keys().hasAny(['signatureMethod'])
@@ -565,6 +591,11 @@ service cloud.firestore {
               && (
                 (resource.data.status != 'signed' && data.signedByUid == request.auth.uid)
                 || (resource.data.status == 'signed' && resource.data.keys().hasAny(['signedByUid']) && data.signedByUid == resource.data.signedByUid)
+                || (resource.data.status == 'signed'
+                  && resource.data.keys().hasAny(['pdfUrl'])
+                  && !resource.data.keys().hasAny(['signatureMethod', 'signedPdf'])
+                  && isAdmin()
+                  && data.signedByUid == request.auth.uid)
               )
             )
           )
@@ -593,12 +624,17 @@ service cloud.firestore {
       let changed = next.diff(current).affectedKeys();
       let currentStatus = current.status;
       let nextStatus = next.status;
+      let legacyReviewUpdate = current.keys().hasAny(['pdfUrl'])
+        && !current.keys().hasAny(['generatedPdf', 'signedPdf', 'signatureMethod'])
+        && isAdmin()
+        && changed.hasAny(['legacyClassification'])
+        && changed.hasOnly(['status', 'generatedPdf', 'signedPdf', 'signatureMethod', 'signedAt', 'signedByUid', 'issuedAt', 'legacyClassification', 'legacyClassificationReason', 'legacyClassifiedAt', 'legacyClassifiedByUid', 'legacySignatureDateUnknown', 'legacySignerUnknown', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize', 'updatedAt', 'updatedByUid']);
       let transitionValid = (currentStatus == 'draft' && nextStatus in ['draft', 'issued', 'void'])
         || (currentStatus == 'issued' && nextStatus in ['issued', 'signed', 'void'])
         || (currentStatus == 'signed' && nextStatus in ['signed', 'void'])
-        || (currentStatus == 'void' && nextStatus == 'void');
-      let auditFields = ['updatedAt', 'updatedByUid', 'isDeleted', 'deletedAt', 'deletedByUid'];
-      let signedAuditOnly = changed.hasOnly(auditFields);
+        || (currentStatus == 'void' && nextStatus == 'void')
+        || (legacyReviewUpdate && nextStatus in ['draft', 'issued', 'signed']);
+      let signedAuditOnly = changed.hasOnly(['updatedAt', 'updatedByUid', 'isDeleted', 'deletedAt', 'deletedByUid']);
       let uploadedPdfReplacement = currentStatus == 'signed'
         && current.keys().hasAny(['signatureMethod'])
         && current.signatureMethod == 'uploaded_pdf'
@@ -608,9 +644,16 @@ service cloud.firestore {
         && changed.hasOnly(['signedPdf', 'signedPdfHistory', 'signatureMethod', 'signedAt', 'signedByUid', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize', 'updatedAt', 'updatedByUid', 'isDeleted', 'deletedAt', 'deletedByUid']);
       let signedLocked = currentStatus != 'signed'
         || signedAuditOnly
-        || uploadedPdfReplacement;
+        || uploadedPdfReplacement
+        || legacyReviewUpdate;
       let voidRestricted = nextStatus != 'void' || isAdmin();
       return transitionValid && signedLocked && voidRestricted;
+    }
+
+    function actLegacyReviewUpdateAllowed() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      return !changed.hasAny(['legacyClassification', 'legacyClassificationReason', 'legacyClassifiedAt', 'legacyClassifiedByUid', 'legacySignatureDateUnknown', 'legacySignerUnknown'])
+        || isAdmin();
     }
 
     function actTemplateDataValid(companyId) {
@@ -888,16 +931,19 @@ service cloud.firestore {
       allow create: if canWriteSite(request.resource.data.siteId)
         && actCreateDataValid()
         && actSignatureValid(actId)
+        && actLegacyReviewDataValid(actId)
         && actAttachmentValid(actId)
         && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
         && actDataValid()
         && actSignatureValid(actId)
+        && actLegacyReviewDataValid(actId)
         && actAttachmentValid(actId)
         && auditUpdateValid()
         && softDeleteValid()
         && actLifecycleUpdateValid()
+        && actLegacyReviewUpdateAllowed()
         && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin());
       allow delete: if false;
     }

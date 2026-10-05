@@ -145,6 +145,8 @@ export type ActStatus = 'draft' | 'issued' | 'signed' | 'void';
 
 export type ActSignatureMethod = 'electronic' | 'uploaded_pdf';
 
+export type ActLegacyClassification = 'pending' | 'issued' | 'signed_uploaded';
+
 export interface ActSignaturePlacement {
   page: number;
   x: number;
@@ -211,6 +213,12 @@ export interface Act extends AuditFields {
   signedPdfHistory?: ActPdfHistoryEntry[];
   signatureMethod?: ActSignatureMethod;
   signedByUid?: string;
+  legacyClassification?: ActLegacyClassification;
+  legacyClassificationReason?: string;
+  legacyClassifiedAt?: number;
+  legacyClassifiedByUid?: string;
+  legacySignatureDateUnknown?: boolean;
+  legacySignerUnknown?: boolean;
   pdfUrl?: string;
   pdfPath?: string;
   pdfName?: string;
