@@ -143,21 +143,67 @@ export interface Quote extends AuditFields {
 
 export type ActStatus = 'draft' | 'issued' | 'signed' | 'void';
 
+export type ActSignatureMethod = 'electronic' | 'uploaded_pdf';
+
+export interface ActSignaturePlacement {
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+export interface ActTemplate extends AuditFields {
+  id: string;
+  companyId: string;
+  companyName: string;
+  nit?: string;
+  sourceDocxUrl?: string;
+  sourceDocxPath?: string;
+  sourceDocxName?: string;
+  pdfTemplateUrl?: string;
+  pdfTemplatePath?: string;
+  pdfTemplateName?: string;
+  version: number;
+  active: boolean;
+  signaturePlacement?: ActSignaturePlacement;
+}
+
+export interface ActPdfFile {
+  url: string;
+  path: string;
+  name: string;
+  contentType: string;
+  size: number;
+  createdAt?: number;
+  createdByUid?: string;
+}
+
 export interface Act extends AuditFields {
   id: string;
   assetId: string;
   siteId: string;
   companyId: string;
-  templateId: string; // Por ahora igual a companyId
+  templateId: string;
+  templateVersion?: number;
   fixedAssetIdSnapshot: string;
   assetSnapshot: Pick<Asset, 'type' | 'brand' | 'model' | 'serial' | 'processor' | 'ram' | 'storage' | 'os'>;
   recipient: {
     fullName: string;
     position: string;
     email?: string;
+    documentNumber?: string;
+    area?: string;
+    phone?: string;
+    extension?: string;
+    networkUser?: string;
   };
   observations?: string;
   status: ActStatus;
+  generatedPdf?: ActPdfFile;
+  signedPdf?: ActPdfFile;
+  signatureMethod?: ActSignatureMethod;
+  signedByUid?: string;
   pdfUrl?: string;
   pdfPath?: string;
   pdfName?: string;

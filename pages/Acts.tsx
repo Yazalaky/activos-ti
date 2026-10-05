@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Alert,
   Box,
@@ -29,16 +29,19 @@ import {
   Typography,
 } from '@mui/material';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
-import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+import DrawOutlinedIcon from '@mui/icons-material/DrawOutlined';
+import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useAuth } from '../auth/AuthContext';
-import { addAct, getActs, getAssets, getSites, updateAct } from '../services/api';
+import { addAct, getActs, getActTemplates, getAssets, getSites, updateAct } from '../services/api';
 import { uploadFileToStorage } from '../services/storageUpload';
-import { deleteStoragePath } from '../services/storageFiles';
-import type { Act, ActStatus, Asset, Site } from '../types';
+import { generateActPdf, signActPdfElectronically, signatureFileToDataUrl } from '../services/actPdf';
+import { companyLabel } from '../services/actTemplates';
+import type { Act, ActStatus, ActTemplate, Asset, Site } from '../types';
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -84,12 +87,13 @@ const statusColor = (status: ActStatus) => {
 const MAX_ACT_PDF_SIZE = 10 * 1024 * 1024;
 
 const Acts = () => {
-  const { role, user, profile } = useAuth();
+  const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
 
   const [acts, setActs] = useState<Act[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  const [templates, setTemplates] = useState<ActTemplate[]>([]);
   const [loading, setLoading] = useState(true);
 
   const [filterText, setFilterText] = useState('');
@@ -103,6 +107,11 @@ const Acts = () => {
   const [recipientName, setRecipientName] = useState('');
   const [recipientPosition, setRecipientPosition] = useState('');
   const [recipientEmail, setRecipientEmail] = useState('');
+  const [recipientDocument, setRecipientDocument] = useState('');
+  const [recipientArea, setRecipientArea] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
+  const [recipientExtension, setRecipientExtension] = useState('');
+  const [recipientNetworkUser, setRecipientNetworkUser] = useState('');
   const [observations, setObservations] = useState('');
 
   const [uploadOpen, setUploadOpen] = useState(false);
@@ -110,6 +119,13 @@ const Acts = () => {
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadAct, setUploadAct] = useState<Act | null>(null);
+  const [uploadMode, setUploadMode] = useState<'issued' | 'signed'>('signed');
+  const [generatingActId, setGeneratingActId] = useState<string | null>(null);
+  const [signingAct, setSigningAct] = useState<Act | null>(null);
+  const [signing, setSigning] = useState(false);
+  const [signatureDataUrl, setSignatureDataUrl] = useState('');
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const drawingSignature = useRef(false);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'warning' | 'error' }>({
     open: false,
@@ -119,10 +135,11 @@ const Acts = () => {
 
   const load = async () => {
     setLoading(true);
-    const [a, s, ac] = await Promise.all([getAssets(), getSites(), getActs()]);
+    const [a, s, ac, t] = await Promise.all([getAssets(), getSites(), getActs(), getActTemplates()]);
     setAssets(a);
     setSites(s);
     setActs(ac);
+    setTemplates(t);
     setLoading(false);
   };
 
@@ -132,9 +149,14 @@ const Acts = () => {
 
   const selectedAsset = useMemo(() => assets.find((a) => a.id === assetId) || null, [assets, assetId]);
   const selectedSite = useMemo(() => sites.find((s) => s.id === createSiteId) || null, [sites, createSiteId]);
+  const selectedTemplate = useMemo(
+    () => templates.find((template) => template.companyId === selectedSite?.companyId && template.active !== false) || null,
+    [templates, selectedSite?.companyId]
+  );
   const assetsForCreateSite = useMemo(
     () => assets
       .filter((asset) => !createSiteId || asset.siteId === createSiteId)
+      .filter((asset) => asset.status === 'asignado' && Boolean(asset.currentAssignment?.assignedToName && asset.currentAssignment?.assignedToPosition && asset.currentAssignment?.assignedToResponsible))
       .slice()
       .sort((a, b) => String(a.fixedAssetId).localeCompare(String(b.fixedAssetId))),
     [assets, createSiteId]
@@ -158,6 +180,11 @@ const Acts = () => {
     setRecipientName('');
     setRecipientPosition('');
     setRecipientEmail('');
+    setRecipientDocument('');
+    setRecipientArea('');
+    setRecipientPhone('');
+    setRecipientExtension('');
+    setRecipientNetworkUser('');
     setObservations('');
     setCreateOpen(true);
   };
@@ -169,8 +196,8 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'Seleccione un activo.', severity: 'warning' });
       return;
     }
-    if (!recipientName.trim() || !recipientPosition.trim()) {
-      setSnackbar({ open: true, message: 'Complete nombre completo y cargo.', severity: 'warning' });
+    if (!recipientName.trim() || !recipientPosition.trim() || !recipientDocument.trim()) {
+      setSnackbar({ open: true, message: 'Complete nombre completo, documento y cargo.', severity: 'warning' });
       return;
     }
 
@@ -188,6 +215,14 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'La sede no tiene empresa asignada. Configura companyId en Sedes.', severity: 'warning' });
       return;
     }
+    if (asset.status !== 'asignado' || !asset.currentAssignment?.assignedToName || !asset.currentAssignment?.assignedToPosition || !asset.currentAssignment?.assignedToResponsible) {
+      setSnackbar({ open: true, message: 'Solo se pueden crear actas para activos asignados con asignación completa.', severity: 'warning' });
+      return;
+    }
+    if (acts.some((act) => act.assetId === asset.id && act.status !== 'void')) {
+      setSnackbar({ open: true, message: 'El activo ya tiene un acta vigente. Anule la anterior antes de crear otra.', severity: 'warning' });
+      return;
+    }
 
     try {
       setCreating(true);
@@ -196,6 +231,7 @@ const Acts = () => {
         siteId: asset.siteId,
         companyId: site.companyId,
         templateId: site.companyId,
+        templateVersion: selectedTemplate?.version,
         fixedAssetIdSnapshot: asset.fixedAssetId,
         assetSnapshot: {
           type: asset.type,
@@ -211,6 +247,11 @@ const Acts = () => {
           fullName: recipientName.trim(),
           position: recipientPosition.trim(),
           email: recipientEmail.trim() || undefined,
+          documentNumber: recipientDocument.trim(),
+          area: recipientArea.trim() || undefined,
+          phone: recipientPhone.trim() || undefined,
+          extension: recipientExtension.trim() || undefined,
+          networkUser: recipientNetworkUser.trim() || undefined,
         },
         observations: observations.trim() || undefined,
         status: 'draft',
@@ -227,11 +268,159 @@ const Acts = () => {
     }
   };
 
-  const openUpload = (act: Act) => {
+  const openUpload = (act: Act, mode: 'issued' | 'signed' = 'signed') => {
     setUploadAct(act);
+    setUploadMode(mode);
     setUploadFile(null);
     setUploadPct(0);
     setUploadOpen(true);
+  };
+
+  const handleGeneratePdf = async (act: Act) => {
+    if (!canWrite || act.status === 'signed' || act.status === 'void') return;
+    const site = sites.find((item) => item.id === act.siteId);
+    const template = templates.find((item) => item.companyId === act.companyId && item.active !== false);
+    if (!site || !template) {
+      setSnackbar({ open: true, message: 'No se encontró la sede o plantilla activa de la empresa.', severity: 'warning' });
+      return;
+    }
+    if (!template.pdfTemplateUrl) {
+      setSnackbar({ open: true, message: 'La empresa no tiene PDF operativo. Un administrador debe cargar la plantilla rellenable.', severity: 'warning' });
+      return;
+    }
+
+    try {
+      setGeneratingActId(act.id);
+      const file = await generateActPdf(act, site, template);
+      const result = await uploadFileToStorage(`acts/${act.id}/generated/${Date.now()}-${file.name}`, file);
+      const generatedPdf = {
+        url: result.url,
+        path: result.path,
+        name: result.name,
+        contentType: result.contentType,
+        size: result.size,
+        createdAt: Date.now(),
+        createdByUid: profile?.uid,
+      };
+      await updateAct(act.id, {
+        generatedPdf,
+        templateVersion: template.version,
+        pdfUrl: result.url,
+        pdfPath: result.path,
+        pdfName: result.name,
+        pdfContentType: result.contentType,
+        pdfSize: result.size,
+        status: 'issued',
+        issuedAt: act.issuedAt ?? Date.now(),
+      } as any, profile?.uid);
+      setSnackbar({ open: true, message: 'PDF generado y acta emitida.', severity: 'success' });
+      await load();
+    } catch (error) {
+      console.error('Generate act PDF error:', error);
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo generar el PDF.', severity: 'error' });
+    } finally {
+      setGeneratingActId(null);
+    }
+  };
+
+  const openElectronicSignature = (act: Act) => {
+    if (act.status !== 'issued' || act.signatureMethod) return;
+    setSigningAct(act);
+    setSignatureDataUrl('');
+    window.setTimeout(() => {
+      const canvas = signatureCanvasRef.current;
+      if (!canvas) return;
+      const context = canvas.getContext('2d');
+      if (!context) return;
+      context.clearRect(0, 0, canvas.width, canvas.height);
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, canvas.width, canvas.height);
+      context.strokeStyle = '#222222';
+      context.lineWidth = 2;
+      context.lineCap = 'round';
+    }, 0);
+  };
+
+  const getSignaturePoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = event.currentTarget;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
+      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
+    };
+  };
+
+  const handleSignaturePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = event.currentTarget;
+    canvas.setPointerCapture(event.pointerId);
+    const context = canvas.getContext('2d');
+    if (!context) return;
+    const point = getSignaturePoint(event);
+    context.beginPath();
+    context.moveTo(point.x, point.y);
+    drawingSignature.current = true;
+  };
+
+  const handleSignaturePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!drawingSignature.current) return;
+    const context = event.currentTarget.getContext('2d');
+    if (!context) return;
+    const point = getSignaturePoint(event);
+    context.lineTo(point.x, point.y);
+    context.stroke();
+  };
+
+  const handleSignaturePointerUp = () => {
+    drawingSignature.current = false;
+    const canvas = signatureCanvasRef.current;
+    if (canvas) setSignatureDataUrl(canvas.toDataURL('image/png'));
+  };
+
+  const handleElectronicSignature = async () => {
+    if (!canWrite || !signingAct || signingAct.status !== 'issued' || signingAct.signatureMethod) return;
+    if (!signatureDataUrl) {
+      setSnackbar({ open: true, message: 'Dibuje o cargue una firma antes de continuar.', severity: 'warning' });
+      return;
+    }
+    const template = templates.find((item) => item.companyId === signingAct.companyId && item.active !== false);
+    if (!template) {
+      setSnackbar({ open: true, message: 'No se encontró la plantilla de firma de la empresa.', severity: 'warning' });
+      return;
+    }
+    try {
+      setSigning(true);
+      const file = await signActPdfElectronically(signingAct, template, signatureDataUrl);
+      const result = await uploadFileToStorage(`acts/${signingAct.id}/signed/${Date.now()}-${file.name}`, file);
+      const signedPdf = {
+        url: result.url,
+        path: result.path,
+        name: result.name,
+        contentType: result.contentType,
+        size: result.size,
+        createdAt: Date.now(),
+        createdByUid: profile?.uid,
+      };
+      await updateAct(signingAct.id, {
+        signedPdf,
+        signatureMethod: 'electronic',
+        signedByUid: profile?.uid,
+        signedAt: Date.now(),
+        pdfUrl: result.url,
+        pdfPath: result.path,
+        pdfName: result.name,
+        pdfContentType: result.contentType,
+        pdfSize: result.size,
+        status: 'signed',
+      } as any, profile?.uid);
+      setSigningAct(null);
+      setSnackbar({ open: true, message: 'Acta firmada electrónicamente.', severity: 'success' });
+      await load();
+    } catch (error) {
+      console.error('Electronic act signature error:', error);
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo firmar el acta.', severity: 'error' });
+    } finally {
+      setSigning(false);
+    }
   };
 
   const handleUploadPdf = async () => {
@@ -250,51 +439,53 @@ const Acts = () => {
       return;
     }
 
-    const previousPdfPath = uploadAct.pdfPath;
-    let newPdfPath = '';
     try {
       setUploading(true);
       const ts = Date.now();
-      const result = await uploadFileToStorage(`acts/${uploadAct.id}/pdf/${ts}-${uploadFile.name}`, uploadFile, setUploadPct);
-      newPdfPath = result.path;
-      await updateAct(uploadAct.id, {
+      if (uploadMode === 'signed' && (uploadAct.status !== 'issued' || uploadAct.signatureMethod)) {
+        throw new Error('El acta no está disponible para recibir otra firma.');
+      }
+      const kind = uploadMode === 'signed' ? 'signed' : 'generated';
+      const result = await uploadFileToStorage(`acts/${uploadAct.id}/${kind}/${ts}-${uploadFile.name}`, uploadFile, setUploadPct);
+      const fileInfo = {
+        url: result.url,
+        path: result.path,
+        name: result.name,
+        contentType: result.contentType,
+        size: result.size,
+        createdAt: Date.now(),
+        createdByUid: profile?.uid,
+      };
+      const update: Record<string, unknown> = {
         pdfUrl: result.url,
         pdfPath: result.path,
         pdfName: result.name,
         pdfContentType: result.contentType,
         pdfSize: result.size,
-        status: uploadAct.status === 'draft' ? 'issued' : uploadAct.status,
-        issuedAt: uploadAct.issuedAt ?? Date.now(),
-      } as any, profile?.uid);
-
-      if (previousPdfPath && previousPdfPath !== result.path) {
-        try {
-          await deleteStoragePath(previousPdfPath);
-        } catch (cleanupError) {
-          // La sustitución ya fue guardada; un fallo de limpieza no debe ocultar el resultado.
-          console.warn('No se pudo eliminar el PDF anterior del acta:', cleanupError);
-        }
+      };
+      if (uploadMode === 'signed') {
+        update.signedPdf = fileInfo;
+        update.signatureMethod = 'uploaded_pdf';
+        update.signedByUid = profile?.uid;
+        update.signedAt = Date.now();
+        update.status = 'signed';
+      } else {
+        update.generatedPdf = fileInfo;
+        update.status = 'issued';
+        update.issuedAt = uploadAct.issuedAt ?? Date.now();
       }
-      // Desde este punto el nuevo archivo ya está referenciado por el acta.
-      newPdfPath = '';
+      await updateAct(uploadAct.id, update as Partial<Act>, profile?.uid);
 
       setSnackbar({
         open: true,
-        message: uploadAct.pdfUrl ? 'PDF reemplazado correctamente.' : 'PDF cargado correctamente.',
+        message: uploadMode === 'signed' ? 'PDF firmado cargado y acta cerrada.' : 'PDF emitido cargado correctamente.',
         severity: 'success',
       });
       setUploadOpen(false);
       await load();
     } catch (error) {
-      if (newPdfPath) {
-        try {
-          await deleteStoragePath(newPdfPath);
-        } catch (cleanupError) {
-          console.warn('No se pudo limpiar el PDF nuevo después de un error:', cleanupError);
-        }
-      }
       console.error('Upload act PDF error:', error);
-      setSnackbar({ open: true, message: 'No se pudo guardar el PDF.', severity: 'error' });
+      setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo guardar el PDF.', severity: 'error' });
     } finally {
       setUploading(false);
     }
@@ -432,7 +623,7 @@ const Acts = () => {
                         <Typography variant="body2">{site?.name || '—'}</Typography>
                       </TableCell>
                       <TableCell>
-                        <Chip label={String(act.companyId || '—')} variant="outlined" />
+                        <Chip label={companyLabel(act.companyId)} variant="outlined" />
                       </TableCell>
                       <TableCell>
                         <Chip label={statusLabel[act.status]} color={statusColor(act.status) as any} />
@@ -452,17 +643,34 @@ const Acts = () => {
                         </Button>
                       </TableCell>
                       <TableCell align="right">
-                        <Stack direction="row" spacing={1} justifyContent="flex-end">
-                          {canWrite && (
+                        <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
+                          {canWrite && act.status === 'draft' && (
                             <Button
                               size="small"
                               variant="outlined"
-                              startIcon={act.pdfUrl ? <EditOutlinedIcon /> : <UploadFileOutlinedIcon />}
-                              onClick={() => openUpload(act)}
+                              startIcon={<DescriptionOutlinedIcon />}
+                              onClick={() => handleGeneratePdf(act)}
+                              disabled={generatingActId === act.id}
                             >
-                              {act.pdfUrl ? 'Editar PDF' : 'Subir PDF'}
+                              {generatingActId === act.id ? 'Generando…' : 'Generar PDF'}
                             </Button>
                           )}
+                          {canWrite && act.status === 'draft' && act.pdfUrl && !act.generatedPdf && (
+                            <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'issued')}>
+                              Registrar PDF emitido
+                            </Button>
+                          )}
+                          {canWrite && act.status === 'issued' && !act.signatureMethod && (
+                            <>
+                              <Button size="small" variant="outlined" startIcon={<DrawOutlinedIcon />} onClick={() => openElectronicSignature(act)}>
+                                Firma electrónica
+                              </Button>
+                              <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'signed')}>
+                                Cargar firmado
+                              </Button>
+                            </>
+                          )}
+                          {act.status === 'signed' && <Chip size="small" icon={<LockOutlinedIcon />} label="Bloqueada" variant="outlined" />}
                         </Stack>
                       </TableCell>
                     </TableRow>
@@ -502,6 +710,11 @@ const Acts = () => {
                     setRecipientName('');
                     setRecipientPosition('');
                     setRecipientEmail('');
+                    setRecipientDocument('');
+                    setRecipientArea('');
+                    setRecipientPhone('');
+                    setRecipientExtension('');
+                    setRecipientNetworkUser('');
                   }}
                 >
                   <MenuItem value="">Seleccione una sede...</MenuItem>
@@ -509,7 +722,7 @@ const Acts = () => {
                     .slice()
                     .sort((a, b) => a.name.localeCompare(b.name))
                     .map((site) => {
-                      const siteAssetCount = assets.filter((asset) => asset.siteId === site.id).length;
+                      const siteAssetCount = assets.filter((asset) => asset.siteId === site.id && asset.status === 'asignado' && Boolean(asset.currentAssignment?.assignedToName && asset.currentAssignment?.assignedToPosition && asset.currentAssignment?.assignedToResponsible)).length;
                       return (
                         <MenuItem key={site.id} value={site.id}>
                           {site.name} · {siteAssetCount} activo{siteAssetCount === 1 ? '' : 's'}
@@ -551,7 +764,7 @@ const Acts = () => {
               {selectedAsset && (
                 <Alert severity={selectedSite?.companyId ? 'info' : 'warning'}>
                   {selectedSite?.companyId
-                    ? `Plantilla del acta: ${selectedSite.companyId} · Sede: ${selectedSite.name}`
+                    ? `Plantilla del acta: ${companyLabel(selectedSite.companyId)}${selectedTemplate?.pdfTemplateUrl ? '' : ' (PDF operativo pendiente)'} · Sede: ${selectedSite.name}`
                     : 'La sede de este activo no tiene empresa asignada (companyId). Configúrala en Sedes para elegir plantilla.'}
                 </Alert>
               )}
@@ -573,12 +786,32 @@ const Acts = () => {
                 disabled={!canWrite || creating}
               />
               <TextField
+                label="Documento de identidad"
+                value={recipientDocument}
+                onChange={(e) => setRecipientDocument(e.target.value)}
+                required
+                fullWidth
+                disabled={!canWrite || creating}
+              />
+              <TextField
                 label="Correo (opcional)"
                 value={recipientEmail}
                 onChange={(e) => setRecipientEmail(e.target.value)}
                 fullWidth
                 disabled={!canWrite || creating}
               />
+              <Grid container spacing={2}>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField label="Área (opcional)" value={recipientArea} onChange={(e) => setRecipientArea(e.target.value)} fullWidth disabled={!canWrite || creating} />
+                </Grid>
+                <Grid size={{ xs: 8, sm: 4 }}>
+                  <TextField label="Teléfono (opcional)" value={recipientPhone} onChange={(e) => setRecipientPhone(e.target.value)} fullWidth disabled={!canWrite || creating} />
+                </Grid>
+                <Grid size={{ xs: 4, sm: 2 }}>
+                  <TextField label="Ext." value={recipientExtension} onChange={(e) => setRecipientExtension(e.target.value)} fullWidth disabled={!canWrite || creating} />
+                </Grid>
+              </Grid>
+              <TextField label="Usuario de red (opcional)" value={recipientNetworkUser} onChange={(e) => setRecipientNetworkUser(e.target.value)} fullWidth disabled={!canWrite || creating} />
               <TextField
                 label="Observaciones (opcional)"
                 value={observations}
@@ -601,13 +834,13 @@ const Acts = () => {
       </Dialog>
 
       <Dialog open={uploadOpen} onClose={() => setUploadOpen(false)} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>{uploadAct?.pdfUrl ? 'Editar PDF del acta' : 'Subir PDF del acta'}</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 900 }}>{uploadMode === 'signed' ? 'Cargar PDF firmado' : 'Registrar PDF emitido'}</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="info">
-              {uploadAct?.pdfUrl
-                ? 'Selecciona un nuevo PDF para reemplazar el archivo actual. El documento anterior se conservará hasta que el reemplazo se guarde correctamente.'
-                : 'Adjunta el PDF emitido o escaneado firmado. La generación automática con plantilla se implementará en el siguiente paso.'}
+              {uploadMode === 'signed'
+                ? 'Esta opción cierra el acta como Firmada. Después de cargar el archivo no se podrá firmar electrónicamente ni reemplazar la firma.'
+                : 'Usa esta opción únicamente para conservar compatibilidad con actas antiguas que ya tenían un PDF emitido fuera del sistema.'}
             </Alert>
             {uploadAct?.pdfUrl && (
               <Typography variant="body2" color="text.secondary">
@@ -643,7 +876,72 @@ const Acts = () => {
             Cancelar
           </Button>
           <Button variant="contained" onClick={handleUploadPdf} disabled={!canWrite || uploading}>
-            {uploadAct?.pdfUrl ? 'Reemplazar PDF' : 'Subir PDF'}
+            {uploadMode === 'signed' ? 'Cerrar acta como firmada' : 'Registrar PDF emitido'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      <Dialog open={Boolean(signingAct)} onClose={() => !signing && setSigningAct(null)} fullWidth maxWidth="sm">
+        <DialogTitle sx={{ fontWeight: 900 }}>Firma electrónica simple</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ mt: 1 }}>
+            <Alert severity="warning">
+              Esta es una firma electrónica simple, sin certificado criptográfico. Al finalizar, el PDF quedará firmado y se deshabilitará la carga de otro PDF firmado.
+            </Alert>
+            <Box
+              component="canvas"
+              ref={signatureCanvasRef}
+              width={720}
+              height={220}
+              onPointerDown={handleSignaturePointerDown}
+              onPointerMove={handleSignaturePointerMove}
+              onPointerUp={handleSignaturePointerUp}
+              onPointerLeave={handleSignaturePointerUp}
+              sx={{ width: '100%', height: 220, border: '1px solid', borderColor: 'divider', borderRadius: 2, backgroundColor: '#fff', touchAction: 'none', cursor: 'crosshair' }}
+            />
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+              <Button
+                size="small"
+                onClick={() => {
+                  const canvas = signatureCanvasRef.current;
+                  const context = canvas?.getContext('2d');
+                  if (canvas && context) {
+                    context.clearRect(0, 0, canvas.width, canvas.height);
+                    context.fillStyle = '#ffffff';
+                    context.fillRect(0, 0, canvas.width, canvas.height);
+                  }
+                  setSignatureDataUrl('');
+                }}
+                disabled={signing}
+              >
+                Limpiar firma
+              </Button>
+              <Button component="label" size="small" variant="outlined" disabled={signing}>
+                Insertar imagen de firma
+                <input
+                  hidden
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={async (event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = '';
+                    if (!file) return;
+                    try {
+                      setSignatureDataUrl(await signatureFileToDataUrl(file));
+                    } catch (error) {
+                      setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo cargar la firma.', severity: 'warning' });
+                    }
+                  }}
+                />
+              </Button>
+              {signatureDataUrl && <Typography variant="caption" color="success.main">Firma lista para insertar</Typography>}
+            </Stack>
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={() => setSigningAct(null)} disabled={signing}>Cancelar</Button>
+          <Button variant="contained" startIcon={<DrawOutlinedIcon />} onClick={handleElectronicSignature} disabled={signing || !signatureDataUrl}>
+            {signing ? 'Firmando…' : 'Firmar acta'}
           </Button>
         </DialogActions>
       </Dialog>

@@ -13,7 +13,7 @@
 - `Dashboard`: KPIs y actividad.
 - `Inventario`: activos, asignacion, retorno a bodega, cambio de sede, adjuntos de foto.
 - `Bitacora`: registro y edicion de actividades.
-- `Actas`: actas por activo (borrador + carga PDF).
+- `Actas`: actas por activo, generación desde plantilla, firma electrónica simple o carga de PDF firmado.
 - `Cotizaciones`: cotizaciones por sede/proveedor, estado y PDF.
 - `Proveedores y Costos`: proveedores, facturas, reporte basico.
 - `Sedes`: administracion de sedes/prefijos/companyId.
@@ -26,13 +26,17 @@
 - `activities`: bitacora.
 - `suppliers`: proveedores.
 - `invoices`: facturas + adjunto.
-- `acts`: actas + adjunto PDF.
+- `acts`: actas + PDF generado + PDF firmado.
+- `actTemplates`: plantilla general por empresa, NIT, DOCX fuente y PDF rellenable operativo.
 - `quotes`: cotizaciones + adjunto PDF.
 
 ## 4. Storage (rutas)
 - `assets/{assetId}/photos/{file}` fotos de activos.
 - `invoices/{invoiceId}/attachments/{file}` PDF/imagen factura.
-- `acts/{actId}/pdf/{file}` PDF de acta.
+- `acts/{actId}/generated/{file}` PDF generado por el sistema.
+- `acts/{actId}/signed/{file}` PDF firmado electrónicamente o cargado por el usuario.
+- `act-templates/{companyId}/source/{file}` DOCX fuente de la plantilla.
+- `act-templates/{companyId}/pdf/{file}` PDF rellenable operativo.
 - `quotes/{quoteId}/attachments/{file}` PDF de cotizacion.
 
 ## 5. Generacion de codigo activo fijo
@@ -59,4 +63,3 @@
 2. `npm install`
 3. `npm run dev`
 4. `npm run build` antes de publicar.
-

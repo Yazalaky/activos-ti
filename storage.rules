@@ -111,13 +111,23 @@ service firebase.storage {
       allow delete: if canWrite() && quoteBelongsToAllowedSite(quoteId);
     }
 
-    match /acts/{actId}/pdf/{fileName} {
+    match /acts/{actId}/{folder}/{fileName} {
       allow read: if actBelongsToAllowedSite(actId);
       allow create, update: if canWrite()
         && actBelongsToAllowedSite(actId)
+        && folder in ['pdf', 'generated', 'signed']
         && isPdf()
         && underLimit(10 * 1024 * 1024);
-      allow delete: if canWrite() && actBelongsToAllowedSite(actId);
+      allow delete: if canWrite() && actBelongsToAllowedSite(actId) && folder in ['pdf', 'generated', 'signed'];
+    }
+
+    match /act-templates/{companyId}/{kind}/{fileName} {
+      allow read: if (kind == 'pdf' && profileActive()) || (kind == 'source' && role() == 'admin');
+      allow create, update: if role() == 'admin'
+        && kind in ['pdf', 'source']
+        && ((kind == 'pdf' && isPdf()) || (kind == 'source' && (request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || request.resource.contentType == 'application/zip')))
+        && underLimit(20 * 1024 * 1024);
+      allow delete: if role() == 'admin' && kind in ['pdf', 'source'];
     }
 
     match /maintenances/{maintenanceId}/attachments/{fileName} {

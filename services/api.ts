@@ -8,12 +8,13 @@ import {
   orderBy,
   query,
   runTransaction,
+  setDoc,
   updateDoc,
   where,
 } from 'firebase/firestore';
 import { auth } from '../firebaseAuth';
 import { db } from '../firebaseDb';
-import type { Act, Activity, Asset, Assignment, Invoice, Quote, Site, Supplier, Maintenance } from '../types';
+import type { Act, ActTemplate, Activity, Asset, Assignment, Invoice, Quote, Site, Supplier, Maintenance } from '../types';
 
 export interface QueryFilters {
   siteId?: string;
@@ -367,6 +368,35 @@ export const deleteQuote = (id: string, actorUid?: string) => {
 };
 
 // ACTS (Actas)
+export const getActTemplates = async () => {
+  try {
+    const access = await getAccessContext();
+    if (!access.active) return [];
+    const snap = await getDocs(collection(db, 'actTemplates'));
+    return snap.docs
+      .map((item) => ({ id: item.id, ...item.data() } as ActTemplate))
+      .sort((a, b) => a.companyName.localeCompare(b.companyName));
+  } catch (error) {
+    console.error('Error fetching act templates:', error);
+    return [];
+  }
+};
+
+export const upsertActTemplate = async (id: string, data: Partial<ActTemplate>, actorUid?: string) => {
+  const resolvedActorUid = resolveActorUid(actorUid);
+  const now = Date.now();
+  const reference = doc(db, 'actTemplates', id);
+  const existing = await getDoc(reference);
+  const payload = {
+    ...data,
+    id,
+    updatedAt: now,
+    updatedByUid: resolvedActorUid,
+    ...(existing.exists() ? {} : { createdAt: now, createdByUid: resolvedActorUid }),
+  };
+  await setDoc(reference, payload, { merge: true });
+};
+
 export const getActs = async () => {
   try {
     const access = await getAccessContext();

@@ -10,6 +10,7 @@ const Assets = lazy(() => import('./pages/Assets'));
 const Activities = lazy(() => import('./pages/Activities'));
 const Quotes = lazy(() => import('./pages/Quotes'));
 const Acts = lazy(() => import('./pages/Acts'));
+const ActTemplates = lazy(() => import('./pages/ActTemplates'));
 const Finance = lazy(() => import('./pages/Finance'));
 const Sites = lazy(() => import('./pages/Sites'));
 const AdminUsers = lazy(() => import('./pages/AdminUsers'));
@@ -136,6 +137,19 @@ function App() {
               <AppLayout>
                 <Acts />
               </AppLayout>
+            </RequireAuth>
+          }
+        />
+
+        <Route
+          path="/act-templates"
+          element={
+            <RequireAuth>
+              <RequireAdmin>
+                <AppLayout>
+                  <ActTemplates />
+                </AppLayout>
+              </RequireAdmin>
             </RequireAuth>
           }
         />

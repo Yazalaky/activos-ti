@@ -29,6 +29,7 @@ import LocationCityOutlinedIcon from '@mui/icons-material/LocationCityOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import { auth } from '../firebaseAuth';
 import { useAuth } from '../auth/AuthContext';
 import type { Role } from '../types';
@@ -56,6 +57,7 @@ const routeMeta: Record<string, { title: string; subtitle: string }> = {
   '/sites': { title: 'Sedes', subtitle: 'Administración y prefijos' },
   '/finance': { title: 'Finanzas', subtitle: 'Facturas, proveedores y costos' },
   '/admin/users': { title: 'Usuarios', subtitle: 'Gestión de accesos y roles' },
+  '/act-templates': { title: 'Plantillas de actas', subtitle: 'Configuración por empresa' },
 };
 
 const Layout: React.FC<LayoutProps> = ({ children }) => {
@@ -97,7 +99,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       ? [
           {
             title: 'Administración',
-            items: [{ path: '/admin/users', label: 'Usuarios', icon: <ManageAccountsOutlinedIcon /> }],
+            items: [
+              { path: '/admin/users', label: 'Usuarios', icon: <ManageAccountsOutlinedIcon /> },
+              { path: '/act-templates', label: 'Plantillas de actas', icon: <SettingsOutlinedIcon /> },
+            ],
           },
         ]
       : []),

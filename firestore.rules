@@ -113,7 +113,12 @@ service cloud.firestore {
 
     function isValidActPdfPath(actId, value) {
       return value is string
-        && value.matches('acts/' + actId + '/pdf/[^/]+');
+        && value.matches('acts/' + actId + '/(pdf|generated|signed)/[^/]+');
+    }
+
+    function isValidActTemplatePath(companyId, kind, value) {
+      return value is string
+        && value.matches('act-templates/' + companyId + '/' + kind + '/[^/]+');
     }
 
     function isValidMaintenanceEvidencePath(maintenanceId, value) {
@@ -486,6 +491,12 @@ service cloud.firestore {
         && data.recipient.keys().hasAll(['fullName', 'position'])
         && isNonEmptyString(data.recipient.fullName, 200)
         && isNonEmptyString(data.recipient.position, 150)
+        && (!data.recipient.keys().hasAny(['email']) || isOptionalString(data.recipient.email, 254))
+        && (!data.recipient.keys().hasAny(['documentNumber']) || isOptionalString(data.recipient.documentNumber, 80))
+        && (!data.recipient.keys().hasAny(['area']) || isOptionalString(data.recipient.area, 150))
+        && (!data.recipient.keys().hasAny(['phone']) || isOptionalString(data.recipient.phone, 80))
+        && (!data.recipient.keys().hasAny(['extension']) || isOptionalString(data.recipient.extension, 30))
+        && (!data.recipient.keys().hasAny(['networkUser']) || isOptionalString(data.recipient.networkUser, 150))
         && data.status in ['draft', 'issued', 'signed', 'void'];
       let snapshotValid = data.keys().hasAny(['assetSnapshot'])
         && data.assetSnapshot is map
@@ -511,6 +522,109 @@ service cloud.firestore {
         && exists(/databases/$(database)/documents/assets/$(data.assetId))
         && get(/databases/$(database)/documents/assets/$(data.assetId)).data.siteId == data.siteId;
       return identityValid && snapshotValid && recipientEmailValid && refsValid;
+    }
+
+    function actCreateDataValid() {
+      let data = request.resource.data;
+      return actDataValid()
+        && data.recipient.keys().hasAll(['documentNumber'])
+        && isNonEmptyString(data.recipient.documentNumber, 80);
+    }
+
+    function actPdfFileValid(actId, value) {
+      return value == null
+        || (
+          value is map
+          && value.keys().hasAll(['url', 'path', 'name', 'contentType', 'size'])
+          && isNonEmptyString(value.url, 2048)
+          && isValidActPdfPath(actId, value.path)
+          && isNonEmptyString(value.name, 256)
+          && value.contentType == 'application/pdf'
+          && (value.size is int || value.size is float)
+          && value.size > 0
+          && value.size <= 10 * 1024 * 1024
+        );
+    }
+
+    function actSignatureValid(actId) {
+      let data = request.resource.data;
+      let methodValid = !data.keys().hasAny(['signatureMethod'])
+        || data.signatureMethod in ['electronic', 'uploaded_pdf'];
+      let signerValid = !data.keys().hasAny(['signedByUid'])
+        || (
+          data.signedByUid is string
+          && (
+            (!exists(/databases/$(database)/documents/acts/$(actId)) && data.signedByUid == request.auth.uid)
+            || (
+              exists(/databases/$(database)/documents/acts/$(actId))
+              && (
+                (resource.data.status != 'signed' && data.signedByUid == request.auth.uid)
+                || (resource.data.status == 'signed' && resource.data.keys().hasAny(['signedByUid']) && data.signedByUid == resource.data.signedByUid)
+              )
+            )
+          )
+        );
+      let signedValid = data.status != 'signed'
+        || (
+          data.keys().hasAll(['signatureMethod', 'signedAt', 'signedByUid', 'signedPdf'])
+          && data.signatureMethod in ['electronic', 'uploaded_pdf']
+          && data.signedAt is int
+          && data.signedAt > 0
+          && actPdfFileValid(actId, data.signedPdf)
+          && signerValid
+        );
+      let methodStateValid = !data.keys().hasAny(['signatureMethod'])
+        || (data.status == 'signed' && data.keys().hasAny(['signedPdf']) && actPdfFileValid(actId, data.signedPdf));
+      let generatedValid = !data.keys().hasAny(['generatedPdf']) || actPdfFileValid(actId, data.generatedPdf);
+      return methodValid && signedValid && methodStateValid && generatedValid;
+    }
+
+    function actLifecycleUpdateValid() {
+      let current = resource.data;
+      let next = request.resource.data;
+      let changed = next.diff(current).affectedKeys();
+      let currentStatus = current.status;
+      let nextStatus = next.status;
+      let transitionValid = (currentStatus == 'draft' && nextStatus in ['draft', 'issued', 'void'])
+        || (currentStatus == 'issued' && nextStatus in ['issued', 'signed', 'void'])
+        || (currentStatus == 'signed' && nextStatus in ['signed', 'void'])
+        || (currentStatus == 'void' && nextStatus == 'void');
+      let signedLocked = currentStatus != 'signed'
+        || changed.hasOnly(['signedPdf', 'signatureMethod', 'signedAt', 'signedByUid', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize', 'updatedAt', 'updatedByUid', 'isDeleted', 'deletedAt', 'deletedByUid']);
+      let voidRestricted = nextStatus != 'void' || isAdmin();
+      return transitionValid && signedLocked && voidRestricted;
+    }
+
+    function actTemplateDataValid() {
+      let data = request.resource.data;
+      let identityValid = data.keys().hasAll(['companyId', 'companyName', 'version', 'active'])
+        && data.companyId == companyId
+        && isNonEmptyString(data.companyId, 100)
+        && isNonEmptyString(data.companyName, 150)
+        && data.version is int
+        && data.version >= 1
+        && data.active is bool;
+      let nitValid = !data.keys().hasAny(['nit']) || isOptionalString(data.nit, 80);
+      let sourceValid = !data.keys().hasAny(['sourceDocxPath'])
+        || data.sourceDocxPath == null
+        || isValidActTemplatePath(data.companyId, 'source', data.sourceDocxPath);
+      let pdfValid = !data.keys().hasAny(['pdfTemplatePath'])
+        || data.pdfTemplatePath == null
+        || isValidActTemplatePath(data.companyId, 'pdf', data.pdfTemplatePath);
+      let placementValid = !data.keys().hasAny(['signaturePlacement'])
+        || (
+          data.signaturePlacement is map
+          && data.signaturePlacement.keys().hasAll(['page', 'x', 'y', 'width', 'height'])
+          && data.signaturePlacement.page is int
+          && data.signaturePlacement.page >= 1
+          && (data.signaturePlacement.x is int || data.signaturePlacement.x is float)
+          && (data.signaturePlacement.y is int || data.signaturePlacement.y is float)
+          && (data.signaturePlacement.width is int || data.signaturePlacement.width is float)
+          && (data.signaturePlacement.height is int || data.signaturePlacement.height is float)
+          && data.signaturePlacement.width > 0
+          && data.signaturePlacement.height > 0
+        );
+      return identityValid && nitValid && sourceValid && pdfValid && placementValid;
     }
 
     function maintenanceDataValid() {
@@ -754,16 +868,27 @@ service cloud.firestore {
     match /acts/{actId} {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
-        && actDataValid()
+        && actCreateDataValid()
+        && actSignatureValid(actId)
         && actAttachmentValid(actId)
         && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
         && actDataValid()
+        && actSignatureValid(actId)
         && actAttachmentValid(actId)
         && auditUpdateValid()
         && softDeleteValid()
+        && actLifecycleUpdateValid()
         && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin());
+      allow delete: if false;
+    }
+
+    // Plantillas generales por empresa: solo administradores pueden crearlas o reemplazarlas.
+    match /actTemplates/{companyId} {
+      allow read: if profileActive();
+      allow create: if isAdmin() && actTemplateDataValid() && auditCreateValid();
+      allow update: if isAdmin() && actTemplateDataValid() && auditUpdateValid();
       allow delete: if false;
     }
 

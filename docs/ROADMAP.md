@@ -5,7 +5,7 @@
 - Reutilizacion de codigos activo fijo al eliminar activos en bodega por sede.
 - Bitacora con creacion y edicion.
 - Finanzas con facturas/proveedores, validaciones anti-duplicado y filtros.
-- Actas con borrador + subida PDF.
+- Actas con borrador, generación desde plantilla por empresa, firma electrónica simple o carga de PDF firmado.
 - Cotizaciones con estados (`pending/approved/rejected`) + PDF.
 
 ## Prioridad alta (siguiente iteracion)
@@ -22,7 +22,8 @@
 
 ## Prioridad media
 1. Actas:
-- Generacion automatica de PDF desde plantilla por `companyId`.
+- Preparar cada DOCX como PDF rellenable con los nombres de campos estándar del sistema y cargarlo desde Administración → Plantillas de actas.
+- Integrar firma digital certificada únicamente si posteriormente se requiere validez criptográfica.
 2. Inventario:
 - Historial de cambios por activo (mini log).
 3. Dashboard:
@@ -38,4 +39,3 @@
 - `npm run build`
 - `firebase deploy --only firestore:rules,storage` cuando cambien reglas
 - `firebase deploy --only hosting` cuando cambie UI
-

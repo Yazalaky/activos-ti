@@ -13,6 +13,9 @@ dist-ssr
 *.local
 .firebase/
 
+# Plantillas/documentos locales pendientes de carga controlada a Storage
+incoming/
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

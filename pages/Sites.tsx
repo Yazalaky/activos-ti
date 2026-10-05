@@ -33,19 +33,8 @@ import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { addSite, deleteSite, getSites, updateSite } from '../services/api';
+import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
 import type { Site } from '../types';
-
-const COMPANY_OPTIONS = [
-  { id: 'medicuc', label: 'Medicuc' },
-  { id: 'redinsalud', label: 'Redinsalud' },
-  { id: 'saludfamilia', label: 'Salud Familia' },
-  { id: 'gestionbienestar', label: 'Gestionar Bienestar' },
-] as const;
-
-const companyLabel = (companyId?: string) => {
-  const found = COMPANY_OPTIONS.find((c) => c.id === companyId);
-  return found?.label || (companyId ? companyId : 'Sin asignar');
-};
 
 const STOP_WORDS = new Set(['DE', 'DEL', 'LA', 'LAS', 'LOS', 'Y', 'E', 'EN', 'EL', 'AL']);
 
@@ -400,7 +389,7 @@ const Sites = () => {
 	                  onChange={(e) => setForm({ ...form, companyId: String(e.target.value) })}
 	                >
 	                  <MenuItem value="">Seleccione...</MenuItem>
-	                  {COMPANY_OPTIONS.map((c) => (
+                  {ACT_COMPANIES.map((c) => (
 	                    <MenuItem key={c.id} value={c.id}>
 	                      {c.label}
 	                    </MenuItem>
