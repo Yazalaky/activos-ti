@@ -694,8 +694,24 @@ service cloud.firestore {
         && changed.hasAny(['legacyClassification'])
         && changed.hasOnly(allowedFields)
         && auditUpdateValid()
-        && softDeleteValid()
-        && actLegacyReviewDataValid(actId);
+        && softDeleteValid();
+      let reviewMetadataValid = next.keys().hasAny(['legacyClassification'])
+        && next.legacyClassification in ['pending', 'issued', 'signed_uploaded']
+        && next.keys().hasAny(['legacyClassificationReason'])
+        && next.legacyClassificationReason is string
+        && next.legacyClassificationReason.size() >= 5
+        && next.legacyClassificationReason.size() <= 2000
+        && next.keys().hasAny(['legacyClassifiedAt'])
+        && next.legacyClassifiedAt is int
+        && next.legacyClassifiedAt > 0
+        && next.keys().hasAny(['legacyClassifiedByUid'])
+        && next.legacyClassifiedByUid is string
+        && next.legacyClassifiedByUid.size() > 0
+        && next.legacyClassifiedByUid.size() <= 150
+        && next.legacyClassifiedByUid == request.auth.uid
+        && next.keys().hasAll(['legacySignatureDateUnknown', 'legacySignerUnknown'])
+        && next.legacySignatureDateUnknown is bool
+        && next.legacySignerUnknown is bool;
       let pendingValid = next.legacyClassification == 'pending'
         && next.status == current.status
         && (!next.keys().hasAny(['generatedPdf']) || next.generatedPdf == null)
@@ -713,7 +729,9 @@ service cloud.firestore {
         && next.signedAt > 0
         && next.signedByUid == request.auth.uid
         && actPdfFileValid(actId, next.signedPdf);
-      return baseValid && (pendingValid || issuedValid || signedValid);
+      return baseValid
+        && reviewMetadataValid
+        && (pendingValid || issuedValid || signedValid);
     }
 
     function actTemplateDataValid(companyId) {
@@ -994,9 +1012,10 @@ service cloud.firestore {
         && actLegacyReviewDataValid(actId)
         && actAttachmentValid(actId)
         && auditCreateValid();
-      allow update: if canWriteSite(resource.data.siteId)
+      allow update: if !isLegacyActDocument()
+        && canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
-        && (actDataValid() || (isLegacyActDocument() && isAdmin()))
+        && actDataValid()
         && actSignatureValid(actId)
         && actLegacyReviewDataValid(actId)
         && actAttachmentValid(actId)
