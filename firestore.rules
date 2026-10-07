@@ -524,11 +524,63 @@ service cloud.firestore {
       return identityValid && snapshotValid && recipientEmailValid && refsValid;
     }
 
-    function actCreateDataValid() {
+    function actDraftCreateDataValid() {
       let data = request.resource.data;
-      return actDataValid()
-        && data.recipient.keys().hasAll(['documentNumber'])
-        && isNonEmptyString(data.recipient.documentNumber, 80);
+      let identityValid = data.keys().hasAll([
+          'assetId', 'siteId', 'companyId', 'templateId', 'fixedAssetIdSnapshot',
+          'assetSnapshot', 'recipient', 'status', 'createdAt', 'createdByUid'
+        ])
+        && data.keys().hasOnly([
+          'assetId', 'siteId', 'companyId', 'templateId', 'templateVersion',
+          'fixedAssetIdSnapshot', 'assetSnapshot', 'recipient', 'observations',
+          'status', 'createdAt', 'createdByUid'
+        ])
+        && isNonEmptyString(data.assetId, 150)
+        && isNonEmptyString(data.siteId, 150)
+        && isNonEmptyString(data.companyId, 100)
+        && data.templateId == data.companyId
+        && isNonEmptyString(data.fixedAssetIdSnapshot, 50)
+        && data.status == 'draft'
+        && data.createdAt is int
+        && data.createdAt > 0
+        && data.createdByUid == request.auth.uid
+        && (!data.keys().hasAny(['templateVersion']) || (data.templateVersion is int && data.templateVersion >= 1))
+        && (!data.keys().hasAny(['observations']) || isOptionalString(data.observations, 4000));
+      let snapshotValid = data.assetSnapshot is map
+        && data.assetSnapshot.keys().hasAll(['type', 'brand', 'model', 'serial'])
+        && data.assetSnapshot.keys().hasOnly(['type', 'brand', 'model', 'serial', 'processor', 'ram', 'storage', 'os'])
+        && isNonEmptyString(data.assetSnapshot.type, 50)
+        && isNonEmptyString(data.assetSnapshot.brand, 100)
+        && isNonEmptyString(data.assetSnapshot.model, 150)
+        && isNonEmptyString(data.assetSnapshot.serial, 150)
+        && (!data.assetSnapshot.keys().hasAny(['processor']) || isOptionalString(data.assetSnapshot.processor, 150))
+        && (!data.assetSnapshot.keys().hasAny(['ram']) || isOptionalString(data.assetSnapshot.ram, 100))
+        && (!data.assetSnapshot.keys().hasAny(['storage']) || isOptionalString(data.assetSnapshot.storage, 100))
+        && (!data.assetSnapshot.keys().hasAny(['os']) || isOptionalString(data.assetSnapshot.os, 100));
+      let recipientValid = data.recipient is map
+        && data.recipient.keys().hasAll(['fullName', 'position', 'documentNumber'])
+        && data.recipient.keys().hasOnly(['fullName', 'position', 'email', 'documentNumber', 'area', 'phone', 'extension', 'networkUser'])
+        && isNonEmptyString(data.recipient.fullName, 200)
+        && isNonEmptyString(data.recipient.position, 150)
+        && isNonEmptyString(data.recipient.documentNumber, 80)
+        && (!data.recipient.keys().hasAny(['email']) || isOptionalString(data.recipient.email, 254))
+        && (!data.recipient.keys().hasAny(['area']) || isOptionalString(data.recipient.area, 150))
+        && (!data.recipient.keys().hasAny(['phone']) || isOptionalString(data.recipient.phone, 80))
+        && (!data.recipient.keys().hasAny(['extension']) || isOptionalString(data.recipient.extension, 30))
+        && (!data.recipient.keys().hasAny(['networkUser']) || isOptionalString(data.recipient.networkUser, 150))
+        && (!data.recipient.keys().hasAny(['email']) || data.recipient.email == null || data.recipient.email == '' || (data.recipient.email is string && data.recipient.email.matches('.*@.*')));
+      let site = get(/databases/$(database)/documents/sites/$(data.siteId)).data;
+      let asset = get(/databases/$(database)/documents/assets/$(data.assetId)).data;
+      let referencesValid = exists(/databases/$(database)/documents/sites/$(data.siteId))
+        && exists(/databases/$(database)/documents/assets/$(data.assetId))
+        && asset.siteId == data.siteId
+        && site.companyId == data.companyId
+        && asset.status == 'asignado'
+        && asset.currentAssignment is map
+        && isNonEmptyString(asset.currentAssignment.assignedToName, 200)
+        && isNonEmptyString(asset.currentAssignment.assignedToPosition, 150)
+        && isNonEmptyString(asset.currentAssignment.assignedToResponsible, 200);
+      return identityValid && snapshotValid && recipientValid && referencesValid;
     }
 
     function actPdfFileValid(actId, value) {
@@ -1007,11 +1059,7 @@ service cloud.firestore {
     match /acts/{actId} {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
-        && actCreateDataValid()
-        && actSignatureValid(actId)
-        && actLegacyReviewDataValid(actId)
-        && actAttachmentValid(actId)
-        && auditCreateValid();
+        && actDraftCreateDataValid();
       allow update: if !isLegacyActDocument()
         && canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
