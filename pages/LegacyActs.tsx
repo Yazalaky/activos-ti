@@ -313,9 +313,9 @@ const LegacyActs = () => {
             </FormControl>
             <Alert severity={classification === 'signed_uploaded' ? 'success' : classification === 'issued' ? 'info' : 'warning'}>
               {classification === 'signed_uploaded'
-                ? 'El acta quedará firmada, se bloqueará la firma electrónica y podrá reemplazarse el PDF si fue cargado por error. El sistema registrará al administrador como responsable de la clasificación, no como firmante original.'
+                ? 'El acta quedará clasificada como firmada manualmente y podrá reemplazarse el PDF si fue cargado por error. El sistema registrará al administrador como responsable de la clasificación, no como firmante original.'
                 : classification === 'issued'
-                  ? 'El acta seguirá emitida y podrá continuar con firma electrónica o carga de PDF firmado.'
+                  ? 'El acta seguirá emitida; podrá imprimirse desde Actas y luego cargar el PDF con las firmas manuales.'
                   : 'El acta seguirá bloqueada para firma hasta que exista una clasificación definitiva.'}
             </Alert>
             <TextField

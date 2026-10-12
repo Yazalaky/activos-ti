@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   Box,
@@ -6,12 +6,15 @@ import {
   Card,
   CardContent,
   Chip,
+  Checkbox,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
   Divider,
   FormControl,
+  FormControlLabel,
+  FormGroup,
   Grid,
   InputAdornment,
   InputLabel,
@@ -33,16 +36,14 @@ import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
-import DrawOutlinedIcon from '@mui/icons-material/DrawOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
-import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { addAct, getActs, getActTemplates, getAssets, getSites, updateAct } from '../services/api';
 import { uploadFileToStorage } from '../services/storageUpload';
-import { generateActPdf, signActPdfElectronically, signatureFileToDataUrl } from '../services/actPdf';
-import { companyLabel } from '../services/actTemplates';
+import { generateActPdf } from '../services/actPdf';
+import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
 import { isLegacyActPending } from '../services/actLegacy';
-import type { Act, ActStatus, ActTemplate, Asset, Site } from '../types';
+import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site } from '../types';
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -87,6 +88,41 @@ const statusColor = (status: ActStatus) => {
 
 const MAX_ACT_PDF_SIZE = 10 * 1024 * 1024;
 
+const createEmptyDocumentDetails = (): ActDocumentDetails => ({
+  deviceTypes: { desktop: false, laptop: false, printer: false, tablet: false, cellphone: false, other: false },
+  standardSoftware: { office365: false, antivirus: false, adobeReader: false, sevenZip: false, chrome: false, mozilla: false },
+  requestedSoftware: { tns: false, tipificador: false, progsalud: false, ccleaner: false, ipscan: false, anydesk: false },
+  discountSources: { fees: false, salary: false, benefits: false },
+  partyType: 'employee',
+});
+
+const deviceTypeOptions: Array<{ key: keyof ActDocumentDetails['deviceTypes']; label: string }> = [
+  { key: 'desktop', label: 'Desktop' },
+  { key: 'laptop', label: 'Laptop' },
+  { key: 'printer', label: 'Impresora' },
+  { key: 'tablet', label: 'Tablet' },
+  { key: 'cellphone', label: 'Celular' },
+  { key: 'other', label: 'Otro tipo' },
+];
+
+const standardSoftwareOptions: Array<{ key: keyof ActDocumentDetails['standardSoftware']; label: string }> = [
+  { key: 'office365', label: 'Microsoft Office 365' },
+  { key: 'antivirus', label: 'Antivirus' },
+  { key: 'adobeReader', label: 'Adobe Reader' },
+  { key: 'sevenZip', label: 'Compresor 7 Zip' },
+  { key: 'chrome', label: 'Explorador Chrome' },
+  { key: 'mozilla', label: 'Explorador Mozilla' },
+];
+
+const requestedSoftwareOptions: Array<{ key: keyof ActDocumentDetails['requestedSoftware']; label: string }> = [
+  { key: 'tns', label: 'TNS' },
+  { key: 'tipificador', label: 'Tipificador' },
+  { key: 'progsalud', label: 'Progsalud' },
+  { key: 'ccleaner', label: 'CCleaner' },
+  { key: 'ipscan', label: 'IPScan' },
+  { key: 'anydesk', label: 'AnyDesk' },
+];
+
 const Acts = () => {
   const { role, profile } = useAuth();
   const canWrite = role === 'admin' || role === 'tech';
@@ -103,6 +139,7 @@ const Acts = () => {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [createCompanyId, setCreateCompanyId] = useState('');
   const [createSiteId, setCreateSiteId] = useState('');
   const [assetId, setAssetId] = useState('');
   const [recipientName, setRecipientName] = useState('');
@@ -114,20 +151,16 @@ const Acts = () => {
   const [recipientExtension, setRecipientExtension] = useState('');
   const [recipientNetworkUser, setRecipientNetworkUser] = useState('');
   const [observations, setObservations] = useState('');
+  const [documentDetails, setDocumentDetails] = useState<ActDocumentDetails>(createEmptyDocumentDetails);
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
   const [uploadAct, setUploadAct] = useState<Act | null>(null);
-  const [uploadMode, setUploadMode] = useState<'issued' | 'signed' | 'replace_signed'>('signed');
+  const [uploadMode, setUploadMode] = useState<'signed' | 'replace_signed'>('signed');
   const [replacementReason, setReplacementReason] = useState('');
   const [generatingActId, setGeneratingActId] = useState<string | null>(null);
-  const [signingAct, setSigningAct] = useState<Act | null>(null);
-  const [signing, setSigning] = useState(false);
-  const [signatureDataUrl, setSignatureDataUrl] = useState('');
-  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  const drawingSignature = useRef(false);
 
   const [snackbar, setSnackbar] = useState<{ open: boolean; message: string; severity: 'success' | 'warning' | 'error' }>({
     open: false,
@@ -152,8 +185,16 @@ const Acts = () => {
   const selectedAsset = useMemo(() => assets.find((a) => a.id === assetId) || null, [assets, assetId]);
   const selectedSite = useMemo(() => sites.find((s) => s.id === createSiteId) || null, [sites, createSiteId]);
   const selectedTemplate = useMemo(
-    () => templates.find((template) => template.companyId === selectedSite?.companyId && template.active !== false) || null,
-    [templates, selectedSite?.companyId]
+    () => templates.find((template) => template.companyId === createCompanyId) || null,
+    [templates, createCompanyId]
+  );
+  const sitesForCreateCompany = useMemo(
+    () => sites.filter((site) => site.companyId === createCompanyId).slice().sort((a, b) => a.name.localeCompare(b.name)),
+    [sites, createCompanyId]
+  );
+  const availableCompanies = useMemo(
+    () => ACT_COMPANIES.filter((company) => sites.some((site) => site.companyId === company.id)),
+    [sites]
   );
   const assetsForCreateSite = useMemo(
     () => assets
@@ -177,6 +218,7 @@ const Acts = () => {
   }, [acts, filterText, filterStatus, filterSiteId]);
 
   const openCreate = () => {
+    setCreateCompanyId('');
     setCreateSiteId('');
     setAssetId('');
     setRecipientName('');
@@ -188,6 +230,7 @@ const Acts = () => {
     setRecipientExtension('');
     setRecipientNetworkUser('');
     setObservations('');
+    setDocumentDetails(createEmptyDocumentDetails());
     setCreateOpen(true);
   };
 
@@ -198,8 +241,26 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'Seleccione un activo.', severity: 'warning' });
       return;
     }
+    if (!createCompanyId) {
+      setSnackbar({ open: true, message: 'Seleccione la empresa para el acta.', severity: 'warning' });
+      return;
+    }
     if (!recipientName.trim() || !recipientPosition.trim() || !recipientDocument.trim()) {
       setSnackbar({ open: true, message: 'Complete nombre completo, documento y cargo.', severity: 'warning' });
+      return;
+    }
+    const overLimit = [
+      [recipientName, 200], [recipientPosition, 150], [recipientDocument, 80], [recipientEmail, 254],
+      [recipientArea, 150], [recipientPhone, 80], [recipientExtension, 30], [recipientNetworkUser, 150],
+      [observations, 4000], [documentDetails.otherDeviceType || '', 100], [documentDetails.charger || '', 100], [documentDetails.mouse || '', 100],
+      [documentDetails.monitor || '', 150], [documentDetails.license || '', 150], [documentDetails.keyboard || '', 100],
+      [documentDetails.phoneSerial || '', 100], [documentDetails.phoneImei || '', 100],
+      [documentDetails.otherSoftware || '', 1000], [documentDetails.discountAmountWords || '', 300],
+      [documentDetails.discountAmountValue || '', 80],
+    ].some(([value, max]) => String(value).length > Number(max));
+    const otherSoftwareCount = String(documentDetails.otherSoftware || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean).length;
+    if (overLimit || otherSoftwareCount > 6) {
+      setSnackbar({ open: true, message: otherSoftwareCount > 6 ? 'Registre máximo 6 programas en “Otro software”.' : 'Hay campos que superan la longitud permitida.', severity: 'warning' });
       return;
     }
 
@@ -215,6 +276,14 @@ const Acts = () => {
     }
     if (!site?.companyId) {
       setSnackbar({ open: true, message: 'La sede no tiene empresa asignada. Configura companyId en Sedes.', severity: 'warning' });
+      return;
+    }
+    if (site.companyId !== createCompanyId) {
+      setSnackbar({ open: true, message: 'La empresa seleccionada no corresponde a la sede del activo.', severity: 'error' });
+      return;
+    }
+    if (!selectedTemplate?.nit?.trim()) {
+      setSnackbar({ open: true, message: 'Un administrador debe configurar el NIT de la empresa antes de crear el acta.', severity: 'warning' });
       return;
     }
     if (asset.status !== 'asignado' || !asset.currentAssignment?.assignedToName || !asset.currentAssignment?.assignedToPosition || !asset.currentAssignment?.assignedToResponsible) {
@@ -233,7 +302,8 @@ const Acts = () => {
         siteId: asset.siteId,
         companyId: site.companyId,
         templateId: site.companyId,
-        templateVersion: selectedTemplate?.version,
+        templateVersion: selectedTemplate.version || 1,
+        companyNitSnapshot: selectedTemplate.nit.trim(),
         fixedAssetIdSnapshot: asset.fixedAssetId,
         assetSnapshot: {
           type: asset.type,
@@ -256,6 +326,10 @@ const Acts = () => {
           networkUser: recipientNetworkUser.trim() || undefined,
         },
         observations: observations.trim() || undefined,
+        documentDetails: {
+          ...documentDetails,
+          deliveredByName: profile?.name || '',
+        },
         status: 'draft',
       }) as Omit<Act, 'id'>;
       await addAct(payload, profile?.uid);
@@ -270,7 +344,7 @@ const Acts = () => {
     }
   };
 
-  const openUpload = (act: Act, mode: 'issued' | 'signed' | 'replace_signed' = 'signed') => {
+  const openUpload = (act: Act, mode: 'signed' | 'replace_signed' = 'signed') => {
     setUploadAct(act);
     setUploadMode(mode);
     setUploadFile(null);
@@ -282,19 +356,21 @@ const Acts = () => {
   const handleGeneratePdf = async (act: Act) => {
     if (!canWrite || isLegacyActPending(act) || act.status === 'signed' || act.status === 'void') return;
     const site = sites.find((item) => item.id === act.siteId);
-    const template = templates.find((item) => item.companyId === act.companyId && item.active !== false);
+    const template = templates.find((item) => item.companyId === act.companyId);
     if (!site || !template) {
-      setSnackbar({ open: true, message: 'No se encontró la sede o plantilla activa de la empresa.', severity: 'warning' });
+      setSnackbar({ open: true, message: 'No se encontró la sede o la configuración de empresa del acta.', severity: 'warning' });
       return;
     }
-    if (!template.pdfTemplateUrl) {
-      setSnackbar({ open: true, message: 'La empresa no tiene PDF operativo. Un administrador debe cargar la plantilla rellenable.', severity: 'warning' });
+    if (!(act.companyNitSnapshot || template.nit)?.trim()) {
+      setSnackbar({ open: true, message: 'La empresa no tiene NIT configurado. Un administrador debe completar ese dato.', severity: 'warning' });
       return;
     }
 
+    const printWindow = window.open('about:blank', '_blank');
+    if (printWindow) printWindow.opener = null;
     try {
       setGeneratingActId(act.id);
-      const file = await generateActPdf(act, site, template);
+      const file = await generateActPdf(act, template, act.documentDetails?.deliveredByName || profile?.name || '');
       const result = await uploadFileToStorage(`acts/${act.id}/generated/${Date.now()}-${file.name}`, file);
       const generatedPdf = {
         url: result.url,
@@ -316,113 +392,19 @@ const Acts = () => {
         status: 'issued',
         issuedAt: act.issuedAt ?? Date.now(),
       } as any, profile?.uid);
-      setSnackbar({ open: true, message: 'PDF generado y acta emitida.', severity: 'success' });
+      if (printWindow) printWindow.location.href = result.url;
+      setSnackbar({
+        open: true,
+        message: printWindow ? 'PDF generado y acta emitida; ya puedes imprimirlo.' : 'Acta emitida. Abre el PDF desde la tabla para imprimirlo.',
+        severity: 'success',
+      });
       await load();
     } catch (error) {
+      printWindow?.close();
       console.error('Generate act PDF error:', error);
       setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo generar el PDF.', severity: 'error' });
     } finally {
       setGeneratingActId(null);
-    }
-  };
-
-  const openElectronicSignature = (act: Act) => {
-    if (isLegacyActPending(act) || act.status !== 'issued' || act.signatureMethod) return;
-    setSigningAct(act);
-    setSignatureDataUrl('');
-    window.setTimeout(() => {
-      const canvas = signatureCanvasRef.current;
-      if (!canvas) return;
-      const context = canvas.getContext('2d');
-      if (!context) return;
-      context.clearRect(0, 0, canvas.width, canvas.height);
-      context.fillStyle = '#ffffff';
-      context.fillRect(0, 0, canvas.width, canvas.height);
-      context.strokeStyle = '#222222';
-      context.lineWidth = 2;
-      context.lineCap = 'round';
-    }, 0);
-  };
-
-  const getSignaturePoint = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = event.currentTarget;
-    const rect = canvas.getBoundingClientRect();
-    return {
-      x: ((event.clientX - rect.left) / rect.width) * canvas.width,
-      y: ((event.clientY - rect.top) / rect.height) * canvas.height,
-    };
-  };
-
-  const handleSignaturePointerDown = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    const canvas = event.currentTarget;
-    canvas.setPointerCapture(event.pointerId);
-    const context = canvas.getContext('2d');
-    if (!context) return;
-    const point = getSignaturePoint(event);
-    context.beginPath();
-    context.moveTo(point.x, point.y);
-    drawingSignature.current = true;
-  };
-
-  const handleSignaturePointerMove = (event: React.PointerEvent<HTMLCanvasElement>) => {
-    if (!drawingSignature.current) return;
-    const context = event.currentTarget.getContext('2d');
-    if (!context) return;
-    const point = getSignaturePoint(event);
-    context.lineTo(point.x, point.y);
-    context.stroke();
-  };
-
-  const handleSignaturePointerUp = () => {
-    drawingSignature.current = false;
-    const canvas = signatureCanvasRef.current;
-    if (canvas) setSignatureDataUrl(canvas.toDataURL('image/png'));
-  };
-
-  const handleElectronicSignature = async () => {
-    if (!canWrite || !signingAct || isLegacyActPending(signingAct) || signingAct.status !== 'issued' || signingAct.signatureMethod) return;
-    if (!signatureDataUrl) {
-      setSnackbar({ open: true, message: 'Dibuje o cargue una firma antes de continuar.', severity: 'warning' });
-      return;
-    }
-    const template = templates.find((item) => item.companyId === signingAct.companyId && item.active !== false);
-    if (!template) {
-      setSnackbar({ open: true, message: 'No se encontró la plantilla de firma de la empresa.', severity: 'warning' });
-      return;
-    }
-    try {
-      setSigning(true);
-      const file = await signActPdfElectronically(signingAct, template, signatureDataUrl);
-      const result = await uploadFileToStorage(`acts/${signingAct.id}/signed/${Date.now()}-${file.name}`, file);
-      const signedPdf = {
-        url: result.url,
-        path: result.path,
-        name: result.name,
-        contentType: result.contentType,
-        size: result.size,
-        createdAt: Date.now(),
-        createdByUid: profile?.uid,
-      };
-      await updateAct(signingAct.id, {
-        signedPdf,
-        signatureMethod: 'electronic',
-        signedByUid: profile?.uid,
-        signedAt: Date.now(),
-        pdfUrl: result.url,
-        pdfPath: result.path,
-        pdfName: result.name,
-        pdfContentType: result.contentType,
-        pdfSize: result.size,
-        status: 'signed',
-      } as any, profile?.uid);
-      setSigningAct(null);
-      setSnackbar({ open: true, message: 'Acta firmada electrónicamente.', severity: 'success' });
-      await load();
-    } catch (error) {
-      console.error('Electronic act signature error:', error);
-      setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo firmar el acta.', severity: 'error' });
-    } finally {
-      setSigning(false);
     }
   };
 
@@ -456,13 +438,13 @@ const Acts = () => {
       if (isLegacyActPending(uploadAct) && uploadMode !== 'replace_signed') {
         throw new Error('El acta antigua debe ser clasificada por un administrador antes de cargar o firmar un PDF.');
       }
-      if (uploadMode === 'signed' && (uploadAct.status !== 'issued' || uploadAct.signatureMethod)) {
-        throw new Error('El acta no está disponible para recibir otra firma.');
+      if (uploadMode === 'signed' && (uploadAct.status !== 'issued' || uploadAct.signedPdf)) {
+        throw new Error('El acta debe generarse/emitirse antes de cargar el PDF firmado.');
       }
-      if (uploadMode === 'replace_signed' && (uploadAct.status !== 'signed' || uploadAct.signatureMethod !== 'uploaded_pdf' || !uploadAct.signedPdf)) {
-        throw new Error('Solo se puede reemplazar un PDF firmado que fue cargado manualmente.');
+      if (uploadMode === 'replace_signed' && (uploadAct.status !== 'signed' || !uploadAct.signedPdf)) {
+        throw new Error('No se encontró un PDF firmado que pueda reemplazarse.');
       }
-      const kind = uploadMode === 'issued' ? 'generated' : 'signed';
+      const kind = 'signed';
       const result = await uploadFileToStorage(`acts/${uploadAct.id}/${kind}/${ts}-${uploadFile.name}`, uploadFile, setUploadPct);
       const fileInfo = {
         url: result.url,
@@ -483,12 +465,12 @@ const Acts = () => {
       if (uploadMode === 'signed') {
         update.signedPdf = fileInfo;
         update.signatureMethod = 'uploaded_pdf';
-        update.signedByUid = profile?.uid;
         update.signedAt = Date.now();
         update.status = 'signed';
       } else if (uploadMode === 'replace_signed') {
         const previousPdf = uploadAct.signedPdf;
         update.signedPdf = fileInfo;
+        update.signatureMethod = 'uploaded_pdf';
         update.signedPdfHistory = [
           ...(uploadAct.signedPdfHistory || []),
           {
@@ -500,10 +482,6 @@ const Acts = () => {
         ].slice(-10);
         update.signedAt = Date.now();
         update.status = 'signed';
-      } else {
-        update.generatedPdf = fileInfo;
-        update.status = 'issued';
-        update.issuedAt = uploadAct.issuedAt ?? Date.now();
       }
       await updateAct(uploadAct.id, update as Partial<Act>, profile?.uid);
 
@@ -511,9 +489,7 @@ const Acts = () => {
         open: true,
         message: uploadMode === 'signed'
           ? 'PDF firmado cargado y acta cerrada.'
-          : uploadMode === 'replace_signed'
-            ? 'PDF firmado reemplazado. La versión anterior se conservó.'
-            : 'PDF emitido cargado correctamente.',
+          : 'PDF firmado reemplazado. La versión anterior se conservó.',
         severity: 'success',
       });
       setUploadOpen(false);
@@ -665,6 +641,7 @@ const Acts = () => {
                         <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
                           <Chip label={statusLabel[act.status]} color={statusColor(act.status) as any} />
                           {legacyPending && <Chip label="Revisión pendiente" color="warning" variant="outlined" />}
+                          {act.signatureMethod === 'electronic' && <Chip label="Firma electrónica histórica" variant="outlined" />}
                         </Stack>
                       </TableCell>
                       <TableCell>
@@ -691,46 +668,18 @@ const Acts = () => {
                               onClick={() => handleGeneratePdf(act)}
                               disabled={generatingActId === act.id}
                             >
-                              {generatingActId === act.id ? 'Generando…' : 'Generar PDF'}
+                              {generatingActId === act.id ? 'Preparando…' : 'Imprimir acta'}
                             </Button>
                           )}
-                          {canWrite && act.status === 'draft' && act.pdfUrl && !act.generatedPdf && !legacyPending && (
-                            <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'issued')}>
-                              Registrar PDF emitido
+                          {canWrite && act.status === 'issued' && !legacyPending && (
+                            <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'signed')}>
+                              Cargar PDF firmado
                             </Button>
                           )}
-                          {canWrite && act.status === 'issued' && !act.signatureMethod && !legacyPending && (
-                            <>
-                              <Button size="small" variant="outlined" startIcon={<DrawOutlinedIcon />} onClick={() => openElectronicSignature(act)}>
-                                Firma electrónica
-                              </Button>
-                              <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'signed')}>
-                                Cargar firmado
-                              </Button>
-                            </>
-                          )}
-                          {act.status === 'signed' && act.signatureMethod === 'uploaded_pdf' && canWrite && (
+                          {act.status === 'signed' && act.signedPdf && canWrite && (
                             <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'replace_signed')}>
-                              Reemplazar PDF firmado
+                              Reemplazar PDF
                             </Button>
-                          )}
-                          {act.status === 'signed' && (
-                            <>
-                              <Button
-                                size="small"
-                                variant="outlined"
-                                startIcon={<DrawOutlinedIcon />}
-                                disabled
-                              >
-                                Firma electrónica
-                              </Button>
-                              <Chip
-                                size="small"
-                                icon={<LockOutlinedIcon />}
-                                label={act.signatureMethod === 'uploaded_pdf' ? 'Firmada por PDF' : 'Firma electrónica aplicada'}
-                                variant="outlined"
-                              />
-                            </>
                           )}
                         </Stack>
                       </TableCell>
@@ -753,17 +702,59 @@ const Acts = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={createOpen} onClose={() => setCreateOpen(false)} fullWidth maxWidth="sm">
+      <Dialog
+        open={createOpen}
+        onClose={() => !creating && setCreateOpen(false)}
+        fullWidth
+        maxWidth="md"
+        PaperProps={{ sx: { maxHeight: '92vh' } }}
+      >
         <DialogTitle sx={{ fontWeight: 900 }}>Nueva acta</DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSaveCreate} sx={{ mt: 1 }}>
             <Stack spacing={2}>
+              <FormControl fullWidth required disabled={!canWrite || creating}>
+                <InputLabel id="act-create-company-label">Empresa</InputLabel>
+                <Select
+                  labelId="act-create-company-label"
+                  label="Empresa"
+                  value={createCompanyId}
+                  onChange={(e) => {
+                    setCreateCompanyId(String(e.target.value));
+                    setCreateSiteId('');
+                    setAssetId('');
+                    setRecipientName('');
+                    setRecipientPosition('');
+                    setRecipientEmail('');
+                    setRecipientDocument('');
+                    setRecipientArea('');
+                    setRecipientPhone('');
+                    setRecipientExtension('');
+                    setRecipientNetworkUser('');
+                    setObservations('');
+                    setDocumentDetails(createEmptyDocumentDetails());
+                  }}
+                >
+                  <MenuItem value="">Seleccione una empresa...</MenuItem>
+                  {availableCompanies.map((company) => <MenuItem key={company.id} value={company.id}>{company.label}</MenuItem>)}
+                </Select>
+              </FormControl>
+
+              {createCompanyId && (
+                <Alert severity={selectedTemplate?.nit ? 'info' : 'warning'}>
+                  {selectedTemplate?.nit
+                    ? `El formato y logo de ${companyLabel(createCompanyId)} se aplicarán automáticamente. NIT: ${selectedTemplate.nit}.`
+                    : `Falta configurar el NIT de ${companyLabel(createCompanyId)}. Solicita al administrador completarlo antes de guardar el acta.`}
+                </Alert>
+              )}
+
               <FormControl fullWidth required disabled={!canWrite || creating}>
                 <InputLabel id="act-create-site-label">Sede</InputLabel>
                 <Select
                   labelId="act-create-site-label"
                   label="Sede"
                   value={createSiteId}
+                  disabled={!canWrite || creating || !createCompanyId}
                   onChange={(e) => {
                     const siteId = String(e.target.value);
                     setCreateSiteId(siteId);
@@ -776,13 +767,12 @@ const Acts = () => {
                     setRecipientPhone('');
                     setRecipientExtension('');
                     setRecipientNetworkUser('');
+                    setObservations('');
+                    setDocumentDetails(createEmptyDocumentDetails());
                   }}
                 >
-                  <MenuItem value="">Seleccione una sede...</MenuItem>
-                  {sites
-                    .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
-                    .map((site) => {
+                  <MenuItem value="">{createCompanyId ? 'Seleccione una sede...' : 'Seleccione primero una empresa'}</MenuItem>
+                  {sitesForCreateCompany.map((site) => {
                       const siteAssetCount = assets.filter((asset) => asset.siteId === site.id && asset.status === 'asignado' && Boolean(asset.currentAssignment?.assignedToName && asset.currentAssignment?.assignedToPosition && asset.currentAssignment?.assignedToResponsible)).length;
                       return (
                         <MenuItem key={site.id} value={site.id}>
@@ -805,6 +795,22 @@ const Acts = () => {
                     const asset = assets.find((a) => a.id === id);
                     if (asset?.currentAssignment?.assignedToName) setRecipientName(asset.currentAssignment.assignedToName);
                     if (asset?.currentAssignment?.assignedToPosition) setRecipientPosition(asset.currentAssignment.assignedToPosition);
+                    if (asset) {
+                      setDocumentDetails((current) => ({
+                        ...current,
+                        deviceTypes: {
+                          desktop: asset.type === 'desktop',
+                          laptop: asset.type === 'laptop',
+                          printer: asset.type === 'printer',
+                          tablet: false,
+                          cellphone: false,
+                          other: !['desktop', 'laptop', 'printer'].includes(asset.type),
+                        },
+                        otherDeviceType: !['desktop', 'laptop', 'printer'].includes(asset.type)
+                          ? (({ monitor: 'Monitor', keyboard: 'Teclado', mouse: 'Mouse', scanner: 'Escáner', network: 'Red', other: 'Otro' } as Record<string, string>)[asset.type] || 'Otro')
+                          : '',
+                      }));
+                    }
                   }}
                 >
                   <MenuItem value="">
@@ -823,13 +829,12 @@ const Acts = () => {
               </FormControl>
 
               {selectedAsset && (
-                <Alert severity={selectedSite?.companyId ? 'info' : 'warning'}>
-                  {selectedSite?.companyId
-                    ? `Plantilla del acta: ${companyLabel(selectedSite.companyId)}${selectedTemplate?.pdfTemplateUrl ? '' : ' (PDF operativo pendiente)'} · Sede: ${selectedSite.name}`
-                    : 'La sede de este activo no tiene empresa asignada (companyId). Configúrala en Sedes para elegir plantilla.'}
+                <Alert severity="success">
+                  Empresa: {companyLabel(createCompanyId)} · Sede: {selectedSite?.name} · Activo: {selectedAsset.fixedAssetId}. Los datos del equipo se copiarán automáticamente.
                 </Alert>
               )}
 
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Datos del colaborador</Typography>
               <TextField
                 label="Nombre completo"
                 value={recipientName}
@@ -873,6 +878,92 @@ const Acts = () => {
                 </Grid>
               </Grid>
               <TextField label="Usuario de red (opcional)" value={recipientNetworkUser} onChange={(e) => setRecipientNetworkUser(e.target.value)} fullWidth disabled={!canWrite || creating} />
+              <Divider />
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Hardware y accesorios</Typography>
+              <Typography variant="body2" color="text.secondary">El tipo se precarga según el activo; puedes ajustar las opciones para que coincidan con lo que se entrega.</Typography>
+              <FormGroup row>
+                {deviceTypeOptions.map(({ key, label }) => (
+                  <FormControlLabel
+                    key={key}
+                    label={label}
+                    control={<Checkbox
+                      checked={documentDetails.deviceTypes[key]}
+                      onChange={(event) => setDocumentDetails((current) => ({
+                        ...current,
+                        deviceTypes: { ...current.deviceTypes, [key]: event.target.checked },
+                      }))}
+                      disabled={!canWrite || creating}
+                    />}
+                  />
+                ))}
+              </FormGroup>
+              {documentDetails.deviceTypes.other && (
+                <TextField
+                  label="Tipo de equipo (opcional)"
+                  value={documentDetails.otherDeviceType || ''}
+                  onChange={(e) => setDocumentDetails((current) => ({ ...current, otherDeviceType: e.target.value }))}
+                  fullWidth
+                  disabled={!canWrite || creating}
+                />
+              )}
+              <Grid container spacing={1.5}>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Cargador" value={documentDetails.charger || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, charger: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Mouse" value={documentDetails.mouse || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, mouse: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Monitor" value={documentDetails.monitor || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, monitor: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Licencia" value={documentDetails.license || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, license: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Teclado" value={documentDetails.keyboard || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, keyboard: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Teléfono serial" value={documentDetails.phoneSerial || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, phoneSerial: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="IMEI teléfono" value={documentDetails.phoneImei || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, phoneImei: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+              </Grid>
+              <Divider />
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Software entregado o solicitado</Typography>
+              <Typography variant="subtitle2">Software estándar corporativo</Typography>
+              <FormGroup row>
+                {standardSoftwareOptions.map(({ key, label }) => (
+                  <FormControlLabel key={key} label={label} control={<Checkbox checked={documentDetails.standardSoftware[key]} onChange={(event) => setDocumentDetails((current) => ({ ...current, standardSoftware: { ...current.standardSoftware, [key]: event.target.checked } }))} disabled={!canWrite || creating} />} />
+                ))}
+              </FormGroup>
+              <Typography variant="subtitle2">Software especial solicitado</Typography>
+              <FormGroup row>
+                {requestedSoftwareOptions.map(({ key, label }) => (
+                  <FormControlLabel key={key} label={label} control={<Checkbox checked={documentDetails.requestedSoftware[key]} onChange={(event) => setDocumentDetails((current) => ({ ...current, requestedSoftware: { ...current.requestedSoftware, [key]: event.target.checked } }))} disabled={!canWrite || creating} />} />
+                ))}
+              </FormGroup>
+              <TextField
+                label="Otro software (uno por línea, máximo 6)"
+                value={documentDetails.otherSoftware || ''}
+                onChange={(e) => setDocumentDetails((current) => ({ ...current, otherSoftware: e.target.value }))}
+                fullWidth
+                multiline
+                minRows={2}
+                helperText="Estos nombres también se imprimirán en el formato."
+                disabled={!canWrite || creating}
+              />
+              <Divider />
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Autorización del formato</Typography>
+              <FormControl fullWidth disabled={!canWrite || creating}>
+                <InputLabel id="act-party-type-label">Tipo de vinculación</InputLabel>
+                <Select
+                  labelId="act-party-type-label"
+                  label="Tipo de vinculación"
+                  value={documentDetails.partyType || 'employee'}
+                  onChange={(e) => setDocumentDetails((current) => ({ ...current, partyType: e.target.value as 'employee' | 'contractor' }))}
+                >
+                  <MenuItem value="employee">Trabajador</MenuItem>
+                  <MenuItem value="contractor">Contratista</MenuItem>
+                </Select>
+              </FormControl>
+              <FormGroup row>
+                <FormControlLabel label="Descuento de honorarios" control={<Checkbox checked={documentDetails.discountSources.fees} onChange={(event) => setDocumentDetails((current) => ({ ...current, discountSources: { ...current.discountSources, fees: event.target.checked } }))} disabled={!canWrite || creating} />} />
+                <FormControlLabel label="Descuento de salarios" control={<Checkbox checked={documentDetails.discountSources.salary} onChange={(event) => setDocumentDetails((current) => ({ ...current, discountSources: { ...current.discountSources, salary: event.target.checked } }))} disabled={!canWrite || creating} />} />
+                <FormControlLabel label="Descuento de prestaciones sociales" control={<Checkbox checked={documentDetails.discountSources.benefits} onChange={(event) => setDocumentDetails((current) => ({ ...current, discountSources: { ...current.discountSources, benefits: event.target.checked } }))} disabled={!canWrite || creating} />} />
+              </FormGroup>
+              <Grid container spacing={1.5}>
+                <Grid size={{ xs: 12, sm: 7 }}><TextField label="Valor en letras (opcional)" value={documentDetails.discountAmountWords || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, discountAmountWords: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                <Grid size={{ xs: 12, sm: 5 }}><TextField label="Valor numérico (opcional)" value={documentDetails.discountAmountValue || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, discountAmountValue: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+              </Grid>
+              <Divider />
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Observaciones</Typography>
               <TextField
                 label="Observaciones (opcional)"
                 value={observations}
@@ -896,16 +987,14 @@ const Acts = () => {
 
       <Dialog open={uploadOpen} onClose={() => !uploading && setUploadOpen(false)} fullWidth maxWidth="sm">
         <DialogTitle sx={{ fontWeight: 900 }}>
-          {uploadMode === 'signed' ? 'Cargar PDF firmado' : uploadMode === 'replace_signed' ? 'Reemplazar PDF firmado' : 'Registrar PDF emitido'}
+          {uploadMode === 'signed' ? 'Cargar acta firmada' : 'Reemplazar PDF del acta'}
         </DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="info">
               {uploadMode === 'signed'
-                ? 'Esta opción cierra el acta como Firmada. Después de cargar el archivo no se podrá firmar electrónicamente. Si se cargó el archivo equivocado, un usuario autorizado podrá reemplazarlo conservando la versión anterior.'
-                : uploadMode === 'replace_signed'
-                  ? 'El acta ya está firmada mediante un PDF cargado. El archivo anterior no se eliminará: quedará conservado como versión reemplazada y la firma electrónica seguirá deshabilitada.'
-                : 'Usa esta opción únicamente para conservar compatibilidad con actas antiguas que ya tenían un PDF emitido fuera del sistema.'}
+                ? 'Adjunta el PDF con las firmas manuales. Al guardarlo, el acta quedará cerrada; si el archivo es incorrecto, podrás reemplazarlo y el anterior se conservará en el historial.'
+                : 'El PDF actual no se eliminará: quedará registrado en el historial junto con el motivo del reemplazo.'}
             </Alert>
             {uploadAct?.pdfUrl && (
               <Typography variant="body2" color="text.secondary">
@@ -954,72 +1043,7 @@ const Acts = () => {
             Cancelar
           </Button>
           <Button variant="contained" onClick={handleUploadPdf} disabled={!canWrite || uploading}>
-            {uploadMode === 'signed' ? 'Cerrar acta como firmada' : uploadMode === 'replace_signed' ? 'Reemplazar PDF firmado' : 'Registrar PDF emitido'}
-          </Button>
-        </DialogActions>
-      </Dialog>
-
-      <Dialog open={Boolean(signingAct)} onClose={() => !signing && setSigningAct(null)} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>Firma electrónica simple</DialogTitle>
-        <DialogContent>
-          <Stack spacing={2} sx={{ mt: 1 }}>
-            <Alert severity="warning">
-              Esta es una firma electrónica simple, sin certificado criptográfico. Al finalizar, el PDF quedará firmado y se deshabilitará la carga de otro PDF firmado.
-            </Alert>
-            <Box
-              component="canvas"
-              ref={signatureCanvasRef}
-              width={720}
-              height={220}
-              onPointerDown={handleSignaturePointerDown}
-              onPointerMove={handleSignaturePointerMove}
-              onPointerUp={handleSignaturePointerUp}
-              onPointerLeave={handleSignaturePointerUp}
-              sx={{ width: '100%', height: 220, border: '1px solid', borderColor: 'divider', borderRadius: 2, backgroundColor: '#fff', touchAction: 'none', cursor: 'crosshair' }}
-            />
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
-              <Button
-                size="small"
-                onClick={() => {
-                  const canvas = signatureCanvasRef.current;
-                  const context = canvas?.getContext('2d');
-                  if (canvas && context) {
-                    context.clearRect(0, 0, canvas.width, canvas.height);
-                    context.fillStyle = '#ffffff';
-                    context.fillRect(0, 0, canvas.width, canvas.height);
-                  }
-                  setSignatureDataUrl('');
-                }}
-                disabled={signing}
-              >
-                Limpiar firma
-              </Button>
-              <Button component="label" size="small" variant="outlined" disabled={signing}>
-                Insertar imagen de firma
-                <input
-                  hidden
-                  type="file"
-                  accept="image/png,image/jpeg"
-                  onChange={async (event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = '';
-                    if (!file) return;
-                    try {
-                      setSignatureDataUrl(await signatureFileToDataUrl(file));
-                    } catch (error) {
-                      setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo cargar la firma.', severity: 'warning' });
-                    }
-                  }}
-                />
-              </Button>
-              {signatureDataUrl && <Typography variant="caption" color="success.main">Firma lista para insertar</Typography>}
-            </Stack>
-          </Stack>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setSigningAct(null)} disabled={signing}>Cancelar</Button>
-          <Button variant="contained" startIcon={<DrawOutlinedIcon />} onClick={handleElectronicSignature} disabled={signing || !signatureDataUrl}>
-            {signing ? 'Firmando…' : 'Firmar acta'}
+            {uploadMode === 'signed' ? 'Guardar PDF firmado' : 'Reemplazar PDF'}
           </Button>
         </DialogActions>
       </Dialog>

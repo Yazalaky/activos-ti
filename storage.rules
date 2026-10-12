@@ -123,11 +123,8 @@ service firebase.storage {
 
     match /act-templates/{companyId}/{kind}/{fileName} {
       allow read: if (kind == 'pdf' && profileActive()) || (kind == 'source' && role() == 'admin');
-      allow create, update: if role() == 'admin'
-        && kind in ['pdf', 'source']
-        && ((kind == 'pdf' && isPdf()) || (kind == 'source' && (request.resource.contentType == 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || request.resource.contentType == 'application/zip')))
-        && underLimit(20 * 1024 * 1024);
-      allow delete: if role() == 'admin' && kind in ['pdf', 'source'];
+      // Keep legacy files readable, but new acta formats are bundled with the application.
+      allow create, update, delete: if false;
     }
 
     match /maintenances/{maintenanceId}/attachments/{fileName} {

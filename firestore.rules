@@ -524,15 +524,74 @@ service cloud.firestore {
       return identityValid && snapshotValid && recipientEmailValid && refsValid;
     }
 
+    function actDocumentDetailsValid(details) {
+      let identityValid = details is map
+        && details.keys().hasAll(['deviceTypes', 'standardSoftware', 'requestedSoftware', 'discountSources'])
+        && details.keys().hasOnly([
+          'deliveredByName', 'deviceTypes', 'charger', 'mouse', 'monitor', 'license',
+          'keyboard', 'phoneSerial', 'phoneImei', 'standardSoftware', 'requestedSoftware',
+          'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue'
+        ]);
+      let deviceTypesValid = details.deviceTypes is map
+        && details.deviceTypes.keys().hasAll(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
+        && details.deviceTypes.keys().hasOnly(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
+        && details.deviceTypes.desktop is bool
+        && details.deviceTypes.laptop is bool
+        && details.deviceTypes.printer is bool
+        && details.deviceTypes.tablet is bool
+        && details.deviceTypes.cellphone is bool
+        && details.deviceTypes.other is bool;
+      let standardSoftwareValid = details.standardSoftware is map
+        && details.standardSoftware.keys().hasAll(['office365', 'antivirus', 'adobeReader', 'sevenZip', 'chrome', 'mozilla'])
+        && details.standardSoftware.keys().hasOnly(['office365', 'antivirus', 'adobeReader', 'sevenZip', 'chrome', 'mozilla'])
+        && details.standardSoftware.office365 is bool
+        && details.standardSoftware.antivirus is bool
+        && details.standardSoftware.adobeReader is bool
+        && details.standardSoftware.sevenZip is bool
+        && details.standardSoftware.chrome is bool
+        && details.standardSoftware.mozilla is bool;
+      let requestedSoftwareValid = details.requestedSoftware is map
+        && details.requestedSoftware.keys().hasAll(['tns', 'tipificador', 'progsalud', 'ccleaner', 'ipscan', 'anydesk'])
+        && details.requestedSoftware.keys().hasOnly(['tns', 'tipificador', 'progsalud', 'ccleaner', 'ipscan', 'anydesk'])
+        && details.requestedSoftware.tns is bool
+        && details.requestedSoftware.tipificador is bool
+        && details.requestedSoftware.progsalud is bool
+        && details.requestedSoftware.ccleaner is bool
+        && details.requestedSoftware.ipscan is bool
+        && details.requestedSoftware.anydesk is bool;
+      let discountSourcesValid = details.discountSources is map
+        && details.discountSources.keys().hasAll(['fees', 'salary', 'benefits'])
+        && details.discountSources.keys().hasOnly(['fees', 'salary', 'benefits'])
+        && details.discountSources.fees is bool
+        && details.discountSources.salary is bool
+        && details.discountSources.benefits is bool;
+      let textFieldsValid = (!details.keys().hasAny(['deliveredByName']) || isOptionalString(details.deliveredByName, 200))
+        && (!details.keys().hasAny(['otherDeviceType']) || isOptionalString(details.otherDeviceType, 100))
+        && (!details.keys().hasAny(['charger']) || isOptionalString(details.charger, 100))
+        && (!details.keys().hasAny(['mouse']) || isOptionalString(details.mouse, 100))
+        && (!details.keys().hasAny(['monitor']) || isOptionalString(details.monitor, 150))
+        && (!details.keys().hasAny(['license']) || isOptionalString(details.license, 150))
+        && (!details.keys().hasAny(['keyboard']) || isOptionalString(details.keyboard, 100))
+        && (!details.keys().hasAny(['phoneSerial']) || isOptionalString(details.phoneSerial, 100))
+        && (!details.keys().hasAny(['phoneImei']) || isOptionalString(details.phoneImei, 100))
+        && (!details.keys().hasAny(['otherSoftware']) || isOptionalString(details.otherSoftware, 1000))
+        && (!details.keys().hasAny(['partyType']) || details.partyType in ['employee', 'contractor'])
+        && (!details.keys().hasAny(['discountAmountWords']) || isOptionalString(details.discountAmountWords, 300))
+        && (!details.keys().hasAny(['discountAmountValue']) || isOptionalString(details.discountAmountValue, 80));
+      return identityValid && deviceTypesValid && standardSoftwareValid && requestedSoftwareValid && discountSourcesValid && textFieldsValid;
+    }
+
     function actDraftCreateDataValid() {
       let data = request.resource.data;
       let identityValid = data.keys().hasAll([
           'assetId', 'siteId', 'companyId', 'templateId', 'fixedAssetIdSnapshot',
-          'assetSnapshot', 'recipient', 'status', 'createdAt', 'createdByUid'
+          'assetSnapshot', 'recipient', 'companyNitSnapshot', 'documentDetails',
+          'status', 'createdAt', 'createdByUid'
         ])
         && data.keys().hasOnly([
           'assetId', 'siteId', 'companyId', 'templateId', 'templateVersion',
-          'fixedAssetIdSnapshot', 'assetSnapshot', 'recipient', 'observations',
+          'fixedAssetIdSnapshot', 'assetSnapshot', 'recipient', 'companyNitSnapshot',
+          'documentDetails', 'observations',
           'status', 'createdAt', 'createdByUid'
         ])
         && isNonEmptyString(data.assetId, 150)
@@ -540,6 +599,7 @@ service cloud.firestore {
         && isNonEmptyString(data.companyId, 100)
         && data.templateId == data.companyId
         && isNonEmptyString(data.fixedAssetIdSnapshot, 50)
+        && isNonEmptyString(data.companyNitSnapshot, 80)
         && data.status == 'draft'
         && data.createdAt is int
         && data.createdAt > 0
@@ -580,7 +640,7 @@ service cloud.firestore {
         && isNonEmptyString(asset.currentAssignment.assignedToName, 200)
         && isNonEmptyString(asset.currentAssignment.assignedToPosition, 150)
         && isNonEmptyString(asset.currentAssignment.assignedToResponsible, 200);
-      return identityValid && snapshotValid && recipientValid && referencesValid;
+      return identityValid && snapshotValid && recipientValid && actDocumentDetailsValid(data.documentDetails) && referencesValid;
     }
 
     function actPdfFileValid(actId, value) {
@@ -634,7 +694,11 @@ service cloud.firestore {
       let methodValid = !data.keys().hasAny(['signatureMethod'])
         || data.signatureMethod == null
         || data.signatureMethod == ''
-        || data.signatureMethod in ['electronic', 'uploaded_pdf'];
+        || data.signatureMethod == 'uploaded_pdf'
+        || (data.signatureMethod == 'electronic'
+          && exists(/databases/$(database)/documents/acts/$(actId))
+          && resource.data.keys().hasAny(['signatureMethod'])
+          && resource.data.signatureMethod == 'electronic');
       let signerValid = !data.keys().hasAny(['signedByUid'])
         || (
           data.signedByUid is string
@@ -695,7 +759,7 @@ service cloud.firestore {
       let signedAuditOnly = changed.hasOnly(['updatedAt', 'updatedByUid', 'isDeleted', 'deletedAt', 'deletedByUid']);
       let uploadedPdfReplacement = currentStatus == 'signed'
         && current.keys().hasAny(['signatureMethod'])
-        && current.signatureMethod == 'uploaded_pdf'
+        && current.signatureMethod in ['uploaded_pdf', 'electronic']
         && next.keys().hasAny(['signatureMethod'])
         && next.signatureMethod == 'uploaded_pdf'
         && changed.hasAll(['signedPdf', 'signedPdfHistory'])
@@ -1076,7 +1140,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // Plantillas generales por empresa: solo administradores pueden crearlas o reemplazarlas.
+    // Datos legales de empresa para impresión de actas: solo administradores pueden configurarlos.
     match /actTemplates/{companyId} {
       allow read: if profileActive();
       allow create: if isAdmin() && actTemplateDataValid(companyId) && auditCreateValid();

@@ -187,6 +187,51 @@ export interface ActPdfHistoryEntry extends ActPdfFile {
   replacementReason: string;
 }
 
+export interface ActDocumentDetails {
+  deliveredByName?: string;
+  deviceTypes: {
+    desktop: boolean;
+    laptop: boolean;
+    printer: boolean;
+    tablet: boolean;
+    cellphone: boolean;
+    other: boolean;
+  };
+  otherDeviceType?: string;
+  charger?: string;
+  mouse?: string;
+  monitor?: string;
+  license?: string;
+  keyboard?: string;
+  phoneSerial?: string;
+  phoneImei?: string;
+  standardSoftware: {
+    office365: boolean;
+    antivirus: boolean;
+    adobeReader: boolean;
+    sevenZip: boolean;
+    chrome: boolean;
+    mozilla: boolean;
+  };
+  requestedSoftware: {
+    tns: boolean;
+    tipificador: boolean;
+    progsalud: boolean;
+    ccleaner: boolean;
+    ipscan: boolean;
+    anydesk: boolean;
+  };
+  otherSoftware?: string;
+  partyType?: 'employee' | 'contractor';
+  discountSources: {
+    fees: boolean;
+    salary: boolean;
+    benefits: boolean;
+  };
+  discountAmountWords?: string;
+  discountAmountValue?: string;
+}
+
 export interface Act extends AuditFields {
   id: string;
   assetId: string;
@@ -207,6 +252,8 @@ export interface Act extends AuditFields {
     networkUser?: string;
   };
   observations?: string;
+  companyNitSnapshot?: string;
+  documentDetails?: ActDocumentDetails;
   status: ActStatus;
   generatedPdf?: ActPdfFile;
   signedPdf?: ActPdfFile;

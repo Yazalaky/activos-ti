@@ -204,7 +204,7 @@ const Sites = () => {
     if (!form.name?.trim()) return 'Ingrese el nombre de la sede.';
     if (!form.city?.trim()) return 'Ingrese la ciudad.';
     if (!form.address?.trim()) return 'Ingrese la dirección.';
-    if (!String(form.companyId || '').trim()) return 'Seleccione la empresa (para plantilla del acta).';
+    if (!String(form.companyId || '').trim()) return 'Seleccione la empresa para identificar el logo del acta.';
     const tokens = tokenizeName(String(form.name || ''));
     if (tokens.length < 2) return 'El nombre debe incluir empresa y sede (ej: "Medicuc Soacha").';
     if (!/^[A-Z0-9]{4}$/.test(computedPrefix.prefix)) return 'No se pudo generar el prefijo automáticamente.';
@@ -381,10 +381,10 @@ const Sites = () => {
 	          <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
 	            <Stack spacing={2}>
 	              <FormControl fullWidth required disabled={!canWrite || saving}>
-	                <InputLabel id="site-company-label">Empresa (plantilla acta)</InputLabel>
+	                <InputLabel id="site-company-label">Empresa del acta</InputLabel>
 	                <Select
 	                  labelId="site-company-label"
-	                  label="Empresa (plantilla acta)"
+	                  label="Empresa del acta"
 	                  value={String(form.companyId || '')}
 	                  onChange={(e) => setForm({ ...form, companyId: String(e.target.value) })}
 	                >
@@ -398,7 +398,7 @@ const Sites = () => {
 	              </FormControl>
 	              {editingId && !form.companyId && (
 	                <Alert severity="warning">
-	                  Esta sede no tiene empresa asignada. Es necesario para generar actas con el logo/plantilla correcta.
+	                  Esta sede no tiene empresa asignada. Es necesario para generar el acta con el logo correcto.
 	                </Alert>
 	              )}
 	              <TextField

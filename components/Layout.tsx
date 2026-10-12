@@ -58,7 +58,7 @@ const routeMeta: Record<string, { title: string; subtitle: string }> = {
   '/sites': { title: 'Sedes', subtitle: 'Administración y prefijos' },
   '/finance': { title: 'Finanzas', subtitle: 'Facturas, proveedores y costos' },
   '/admin/users': { title: 'Usuarios', subtitle: 'Gestión de accesos y roles' },
-  '/act-templates': { title: 'Plantillas de actas', subtitle: 'Configuración por empresa' },
+  '/act-templates': { title: 'Empresas para actas', subtitle: 'Datos legales de impresión' },
   '/act-legacy': { title: 'Revisión de actas antiguas', subtitle: 'Clasificación de PDFs heredados' },
 };
 
@@ -103,7 +103,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             title: 'Administración',
             items: [
               { path: '/admin/users', label: 'Usuarios', icon: <ManageAccountsOutlinedIcon /> },
-              { path: '/act-templates', label: 'Plantillas de actas', icon: <SettingsOutlinedIcon /> },
+              { path: '/act-templates', label: 'Empresas para actas', icon: <SettingsOutlinedIcon /> },
               { path: '/act-legacy', label: 'Actas antiguas', icon: <FactCheckOutlinedIcon /> },
             ],
           },
