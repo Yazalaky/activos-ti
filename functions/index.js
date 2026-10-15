@@ -3,11 +3,14 @@ const { getAuth } = require('firebase-admin/auth');
 const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
+const { defineString } = require('firebase-functions/params');
 
 admin.initializeApp();
 const auth = getAuth();
 const db = getFirestore();
 const storage = getStorage();
+const actRendererUrl = defineString('ACT_RENDERER_URL');
+const actRendererCallerServiceAccount = `act-pdf-renderer-caller@${process.env.GCLOUD_PROJECT || process.env.GCP_PROJECT || 'gestion-ti-d18d1'}.iam.gserviceaccount.com`;
 
 const assertString = (value, field) => {
   if (typeof value !== 'string' || value.trim().length === 0) {
@@ -467,5 +470,236 @@ exports.resetSiteInventory = onCall(async (request) => {
     deletedAssets: resetResult.assetCount,
     deletedStorageFiles,
     storageCleanupPending: storageCleanupPendingAssetIds.length > 0,
+  };
+});
+
+const actRendererCompanies = new Set([
+  'aliados',
+  'cmi',
+  'gestionbienestar',
+  'logros',
+  'medicuc',
+  'redinsalud',
+  'rehabilitdemos',
+  'saludfamilia',
+]);
+
+const getRendererIdentityToken = async (audience) => {
+  const metadataUrl = new URL('http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/identity');
+  metadataUrl.searchParams.set('audience', audience);
+  metadataUrl.searchParams.set('format', 'full');
+  const response = await fetch(metadataUrl, {
+    headers: { 'Metadata-Flavor': 'Google' },
+    signal: AbortSignal.timeout(15000),
+  });
+  if (!response.ok) {
+    throw new HttpsError('unavailable', 'No se pudo autenticar el servicio de impresión.');
+  }
+  return response.text();
+};
+
+const timestampMillis = (value) => {
+  if (value && typeof value.toMillis === 'function') return value.toMillis();
+  const numeric = Number(value);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : null;
+};
+
+exports.generateActPdf = onCall({
+  region: 'us-central1',
+  timeoutSeconds: 180,
+  memory: '512MiB',
+  maxInstances: 2,
+  serviceAccount: actRendererCallerServiceAccount,
+}, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+
+  const callerSnapshot = await db.doc(`users/${request.auth.uid}`).get();
+  const caller = callerSnapshot.exists ? callerSnapshot.data() || {} : null;
+  if (!caller || caller.active === false || !['admin', 'tech'].includes(caller.role)) {
+    throw new HttpsError('permission-denied', 'No tienes permiso para imprimir actas.');
+  }
+
+  const actId = assertString(request.data?.actId, 'actId');
+  const actRef = db.doc(`acts/${actId}`);
+  const actSnapshot = await actRef.get();
+  if (!actSnapshot.exists || actSnapshot.data()?.isDeleted === true) {
+    throw new HttpsError('not-found', 'No se encontró el acta.');
+  }
+  const act = actSnapshot.data() || {};
+  if (!['draft', 'issued'].includes(act.status)) {
+    throw new HttpsError('failed-precondition', 'Solo se pueden imprimir actas en borrador o emitidas.');
+  }
+  const legacyPending = Boolean(
+    act.pdfUrl
+      && !act.generatedPdf
+      && !act.signedPdf
+      && !act.signatureMethod
+      && !['issued', 'signed_uploaded'].includes(act.legacyClassification),
+  );
+  if (legacyPending) {
+    throw new HttpsError('failed-precondition', 'Un administrador debe clasificar el PDF antiguo antes de imprimir el acta.');
+  }
+  if (!actRendererCompanies.has(act.companyId)) {
+    throw new HttpsError('failed-precondition', 'No hay una plantilla original configurada para esta empresa.');
+  }
+
+  const scope = caller.accessScope || 'global';
+  const hasSiteAccess = scope === 'global'
+    || (scope === 'sites' && Array.isArray(caller.siteIds) && caller.siteIds.includes(act.siteId));
+  if (!hasSiteAccess) {
+    throw new HttpsError('permission-denied', 'No tienes acceso a la sede de esta acta.');
+  }
+
+  const [siteSnapshot, templateSnapshot] = await Promise.all([
+    db.doc(`sites/${act.siteId}`).get(),
+    db.doc(`actTemplates/${act.companyId}`).get(),
+  ]);
+  if (!siteSnapshot.exists || siteSnapshot.data()?.isDeleted === true) {
+    throw new HttpsError('failed-precondition', 'La sede asociada al acta ya no está disponible.');
+  }
+  const site = siteSnapshot.data() || {};
+  if (site.companyId !== act.companyId) {
+    throw new HttpsError('failed-precondition', 'La empresa de la sede no coincide con la del acta.');
+  }
+  if (!templateSnapshot.exists || templateSnapshot.data()?.active === false) {
+    throw new HttpsError('failed-precondition', 'No hay una plantilla activa configurada para esta empresa.');
+  }
+  const template = templateSnapshot.data() || {};
+  const nit = String(act.companyNitSnapshot || template.nit || '').trim();
+  if (!nit) {
+    throw new HttpsError('failed-precondition', 'La empresa no tiene un NIT configurado para el acta.');
+  }
+
+  let rendererBase;
+  try {
+    const parsedUrl = new URL(actRendererUrl.value().trim());
+    if (parsedUrl.protocol !== 'https:'
+      || !parsedUrl.hostname.endsWith('.run.app')
+      || parsedUrl.pathname !== '/'
+      || parsedUrl.search
+      || parsedUrl.hash) {
+      throw new Error('URL no válida');
+    }
+    rendererBase = parsedUrl.origin;
+  } catch (error) {
+    console.error('ACT_RENDERER_URL no es una URL base válida de Cloud Run.');
+    throw new HttpsError('failed-precondition', 'El servicio de impresión no está configurado correctamente.');
+  }
+
+  const generationTime = timestampMillis(act.issuedAt) || Date.now();
+  const issueDate = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'America/Bogota',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  }).format(new Date(generationTime));
+  const renderAct = {
+    companyId: act.companyId,
+    fixedAssetIdSnapshot: act.fixedAssetIdSnapshot,
+    companyNitSnapshot: nit,
+    recipient: act.recipient || {},
+    assetSnapshot: act.assetSnapshot || {},
+    documentDetails: act.documentDetails || {},
+    observations: act.observations || '',
+  };
+
+  let renderResponse;
+  try {
+    const identityToken = await getRendererIdentityToken(rendererBase);
+    const response = await fetch(`${rendererBase}/render`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${identityToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        act: renderAct,
+        template: { companyName: template.companyName || act.companyId, nit },
+        delivererName: act.documentDetails?.deliveredByName || caller.name || '',
+        issueDate,
+      }),
+      signal: AbortSignal.timeout(130000),
+    });
+    const responseBody = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error('El renderizador rechazó la generación del PDF:', response.status);
+      if (response.status === 400 || response.status === 422) {
+        throw new HttpsError('failed-precondition', responseBody.error || 'Los datos del acta no se pudieron colocar en su plantilla.');
+      }
+      throw new HttpsError('unavailable', 'El servicio de impresión no pudo generar el PDF. Inténtalo de nuevo.');
+    }
+    renderResponse = responseBody;
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    console.error('Error invocando el renderizador privado de actas:', error);
+    throw new HttpsError('unavailable', 'No se pudo conectar con el servicio de impresión. Inténtalo de nuevo.');
+  }
+
+  if (typeof renderResponse.pdfBase64 !== 'string' || renderResponse.pdfBase64.length > 8 * 1024 * 1024) {
+    throw new HttpsError('internal', 'El servicio de impresión devolvió un archivo no válido.');
+  }
+  const pdfBytes = Buffer.from(renderResponse.pdfBase64, 'base64');
+  if (pdfBytes.subarray(0, 5).toString('ascii') !== '%PDF-') {
+    throw new HttpsError('internal', 'El servicio de impresión devolvió un PDF no válido.');
+  }
+
+  let issuedAt;
+  try {
+    issuedAt = await db.runTransaction(async (transaction) => {
+      const [currentSnapshot, currentCallerSnapshot, currentSiteSnapshot] = await Promise.all([
+        transaction.get(actRef),
+        transaction.get(db.doc(`users/${request.auth.uid}`)),
+        transaction.get(db.doc(`sites/${act.siteId}`)),
+      ]);
+      if (!currentSnapshot.exists) throw new HttpsError('not-found', 'El acta ya no existe.');
+      const current = currentSnapshot.data() || {};
+      const currentCaller = currentCallerSnapshot.exists ? currentCallerSnapshot.data() || {} : null;
+      const currentSite = currentSiteSnapshot.exists ? currentSiteSnapshot.data() || {} : null;
+      if (!currentCaller || currentCaller.active === false || !['admin', 'tech'].includes(currentCaller.role)) {
+        throw new HttpsError('permission-denied', 'Tu usuario ya no tiene permiso para imprimir actas.');
+      }
+      const currentScope = currentCaller.accessScope || 'global';
+      const currentHasSiteAccess = currentScope === 'global'
+        || (currentScope === 'sites' && Array.isArray(currentCaller.siteIds) && currentCaller.siteIds.includes(act.siteId));
+      if (!currentHasSiteAccess) {
+        throw new HttpsError('permission-denied', 'Ya no tienes acceso a la sede de esta acta.');
+      }
+      if (!currentSite || currentSite.isDeleted === true || currentSite.companyId !== act.companyId) {
+        throw new HttpsError('failed-precondition', 'La sede o empresa asociada al acta cambió mientras se generaba el PDF.');
+      }
+      if (current.isDeleted === true
+        || current.status !== act.status
+        || !['draft', 'issued'].includes(current.status)
+        || current.siteId !== act.siteId
+        || current.companyId !== act.companyId
+        || current.fixedAssetIdSnapshot !== act.fixedAssetIdSnapshot
+        || timestampMillis(current.updatedAt) !== timestampMillis(act.updatedAt)) {
+        throw new HttpsError('failed-precondition', 'El estado del acta cambió mientras se preparaba el PDF. Vuelve a abrirla e inténtalo de nuevo.');
+      }
+
+      const stableIssueDate = timestampMillis(current.issuedAt) || generationTime;
+      if (current.status === 'draft' || !timestampMillis(current.issuedAt)) {
+        transaction.update(actRef, {
+          status: 'issued',
+          issuedAt: stableIssueDate,
+          updatedAt: Date.now(),
+          updatedByUid: request.auth.uid,
+        });
+      }
+      return stableIssueDate;
+    });
+  } catch (error) {
+    if (error instanceof HttpsError) throw error;
+    console.error('No se pudo registrar el acta como emitida después de generar el PDF:', error);
+    throw new HttpsError('internal', 'Se generó el documento, pero no se pudo actualizar el estado del acta.');
+  }
+
+  const expectedName = `acta-${String(act.fixedAssetIdSnapshot || 'acta').replace(/[^a-zA-Z0-9-]/g, '-')}.pdf`;
+  return {
+    fileName: typeof renderResponse.fileName === 'string' && /^acta-[a-zA-Z0-9-]+\.pdf$/.test(renderResponse.fileName)
+      ? renderResponse.fileName
+      : expectedName,
+    pdfBase64: renderResponse.pdfBase64,
+    issuedAt,
   };
 });

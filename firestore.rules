@@ -751,7 +751,7 @@ service cloud.firestore {
         && isAdmin()
         && changed.hasAny(['legacyClassification'])
         && changed.hasOnly(['status', 'generatedPdf', 'signedPdf', 'signatureMethod', 'signedAt', 'signedByUid', 'issuedAt', 'legacyClassification', 'legacyClassificationReason', 'legacyClassifiedAt', 'legacyClassifiedByUid', 'legacySignatureDateUnknown', 'legacySignerUnknown', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize', 'updatedAt', 'updatedByUid']);
-      let transitionValid = (currentStatus == 'draft' && nextStatus in ['draft', 'issued', 'void'])
+      let transitionValid = (currentStatus == 'draft' && nextStatus in ['draft', 'issued', 'signed', 'void'])
         || (currentStatus == 'issued' && nextStatus in ['issued', 'signed', 'void'])
         || (currentStatus == 'signed' && nextStatus in ['signed', 'void'])
         || (currentStatus == 'void' && nextStatus == 'void')

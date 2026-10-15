@@ -370,32 +370,27 @@ const Acts = () => {
     if (printWindow) printWindow.opener = null;
     try {
       setGeneratingActId(act.id);
-      const file = await generateActPdf(act, template, act.documentDetails?.deliveredByName || profile?.name || '');
-      const result = await uploadFileToStorage(`acts/${act.id}/generated/${Date.now()}-${file.name}`, file);
-      const generatedPdf = {
-        url: result.url,
-        path: result.path,
-        name: result.name,
-        contentType: result.contentType,
-        size: result.size,
-        createdAt: Date.now(),
-        createdByUid: profile?.uid,
-      };
-      await updateAct(act.id, {
-        generatedPdf,
-        templateVersion: template.version,
-        pdfUrl: result.url,
-        pdfPath: result.path,
-        pdfName: result.name,
-        pdfContentType: result.contentType,
-        pdfSize: result.size,
-        status: 'issued',
-        issuedAt: act.issuedAt ?? Date.now(),
-      } as any, profile?.uid);
-      if (printWindow) printWindow.location.href = result.url;
+      const { file } = await generateActPdf(act.id);
+      const objectUrl = URL.createObjectURL(file);
+      let openedInTab = false;
+      if (printWindow && !printWindow.closed) {
+        printWindow.location.href = objectUrl;
+        openedInTab = true;
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 30 * 60 * 1000);
+      } else {
+        printWindow?.close();
+        const link = document.createElement('a');
+        link.href = objectUrl;
+        link.download = file.name;
+        link.click();
+        window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+      }
+
       setSnackbar({
         open: true,
-        message: printWindow ? 'PDF generado y acta emitida; ya puedes imprimirlo.' : 'Acta emitida. Abre el PDF desde la tabla para imprimirlo.',
+        message: openedInTab
+          ? 'PDF generado y abierto para imprimir. Cuando esté firmado, carga el PDF en el acta.'
+          : 'PDF generado y descargado. Cuando esté firmado, carga el PDF en el acta.',
         severity: 'success',
       });
       await load();
@@ -411,6 +406,10 @@ const Acts = () => {
   const handleUploadPdf = async () => {
     if (!canWrite) return;
     if (!uploadAct) return;
+    if (!profile?.uid) {
+      setSnackbar({ open: true, message: 'No se pudo identificar tu usuario para registrar la carga.', severity: 'error' });
+      return;
+    }
     if (!uploadFile) {
       setSnackbar({ open: true, message: 'Seleccione un archivo PDF.', severity: 'warning' });
       return;
@@ -427,19 +426,14 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'Indique un motivo de al menos 5 caracteres para reemplazar el PDF firmado.', severity: 'warning' });
       return;
     }
-    if (uploadMode === 'replace_signed' && !profile?.uid) {
-      setSnackbar({ open: true, message: 'No se pudo identificar al usuario que realiza el reemplazo.', severity: 'error' });
-      return;
-    }
-
     try {
       setUploading(true);
       const ts = Date.now();
       if (isLegacyActPending(uploadAct) && uploadMode !== 'replace_signed') {
         throw new Error('El acta antigua debe ser clasificada por un administrador antes de cargar o firmar un PDF.');
       }
-      if (uploadMode === 'signed' && (uploadAct.status !== 'issued' || uploadAct.signedPdf)) {
-        throw new Error('El acta debe generarse/emitirse antes de cargar el PDF firmado.');
+      if (uploadMode === 'signed' && (!['draft', 'issued'].includes(uploadAct.status) || uploadAct.signedPdf)) {
+        throw new Error('El acta debe estar en borrador o emitida, sin PDF firmado previo.');
       }
       if (uploadMode === 'replace_signed' && (uploadAct.status !== 'signed' || !uploadAct.signedPdf)) {
         throw new Error('No se encontró un PDF firmado que pueda reemplazarse.');
@@ -466,6 +460,7 @@ const Acts = () => {
         update.signedPdf = fileInfo;
         update.signatureMethod = 'uploaded_pdf';
         update.signedAt = Date.now();
+        update.signedByUid = profile.uid;
         update.status = 'signed';
       } else if (uploadMode === 'replace_signed') {
         const previousPdf = uploadAct.signedPdf;
@@ -660,7 +655,7 @@ const Acts = () => {
                       </TableCell>
                       <TableCell align="right">
                         <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
-                          {canWrite && act.status === 'draft' && !legacyPending && (
+                          {canWrite && ['draft', 'issued'].includes(act.status) && !legacyPending && (
                             <Button
                               size="small"
                               variant="outlined"
@@ -671,7 +666,7 @@ const Acts = () => {
                               {generatingActId === act.id ? 'Preparando…' : 'Imprimir acta'}
                             </Button>
                           )}
-                          {canWrite && act.status === 'issued' && !legacyPending && (
+                          {canWrite && ['draft', 'issued'].includes(act.status) && !legacyPending && (
                             <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'signed')}>
                               Cargar PDF firmado
                             </Button>
