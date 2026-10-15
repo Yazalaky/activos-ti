@@ -846,7 +846,6 @@ service cloud.firestore {
       let changed = next.diff(current).affectedKeys();
       let currentStatus = current.status;
       let nextStatus = next.status;
-      let contentEditFieldsChanged = changed.hasAny(['recipient', 'observations', 'documentDetails', 'contentRevision', 'lastEditId', 'lastEditedAt', 'lastEditedByUid', 'lastEditReason']);
       let legacyReviewUpdate = current.keys().hasAny(['pdfUrl'])
         && (!current.keys().hasAny(['generatedPdf']) || current.generatedPdf == null)
         && (!current.keys().hasAny(['signedPdf']) || current.signedPdf == null)
@@ -874,7 +873,7 @@ service cloud.firestore {
         || legacyReviewUpdate;
       let voidRestricted = nextStatus != 'void' || isAdmin();
       return transitionValid
-        && (!contentEditFieldsChanged || actContentEditValid(actId))
+        && (!changed.hasAny(['recipient', 'observations', 'documentDetails', 'contentRevision', 'lastEditId', 'lastEditedAt', 'lastEditedByUid', 'lastEditReason']) || actContentEditValid(actId))
         && signedLocked
         && voidRestricted;
     }
