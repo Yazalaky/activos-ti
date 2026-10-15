@@ -260,6 +260,11 @@ export interface Act extends AuditFields {
   signedPdfHistory?: ActPdfHistoryEntry[];
   signatureMethod?: ActSignatureMethod;
   signedByUid?: string;
+  contentRevision?: number;
+  lastEditId?: string;
+  lastEditedAt?: number;
+  lastEditedByUid?: string;
+  lastEditReason?: string;
   legacyClassification?: ActLegacyClassification;
   legacyClassificationReason?: string;
   legacyClassifiedAt?: number;

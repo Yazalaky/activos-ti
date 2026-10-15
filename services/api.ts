@@ -1,6 +1,7 @@
 import {
   addDoc,
   collection,
+  deleteField,
   documentId,
   doc,
   getDoc,
@@ -42,6 +43,15 @@ const resolveActorUid = (providedUid?: string) => {
     throw new Error('El usuario de auditoría no coincide con la sesión activa.');
   }
   return authenticatedUid;
+};
+
+const stableJson = (value: unknown): string => {
+  if (Array.isArray(value)) return `[${value.map((item) => stableJson(item)).join(',')}]`;
+  if (value && typeof value === 'object') {
+    const object = value as Record<string, unknown>;
+    return `{${Object.keys(object).sort().map((key) => `${JSON.stringify(key)}:${stableJson(object[key])}`).join(',')}}`;
+  }
+  return JSON.stringify(value) ?? 'null';
 };
 
 const getAccessContext = async (): Promise<AccessContext> => {
@@ -418,6 +428,86 @@ export const getActs = async () => {
 
 export const addAct = (data: Omit<Act, 'id'>, actorUid?: string) => addDoc(collection(db, 'acts'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateAct = (id: string, data: Partial<Act>, actorUid?: string) => updateDoc(doc(db, 'acts', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
+export const updateActContent = async (
+  id: string,
+  data: Pick<Act, 'recipient' | 'observations' | 'documentDetails'>,
+  reason: string,
+  actorUid?: string,
+) => {
+  const resolvedActorUid = resolveActorUid(actorUid);
+  const actRef = doc(db, 'acts', id);
+  const revisionRef = doc(collection(db, 'acts', id, 'revisions'));
+  const editReason = reason.trim() || 'Edición de borrador';
+
+  return runTransaction(db, async (transaction) => {
+    const snapshot = await transaction.get(actRef);
+    if (!snapshot.exists()) throw new Error('El acta ya no existe. Actualiza la lista e inténtalo de nuevo.');
+
+    const current = { id, ...snapshot.data() } as Act;
+    if (!['draft', 'issued'].includes(current.status)) {
+      throw new Error('Solo se pueden editar actas en borrador o emitidas que aún no estén firmadas.');
+    }
+    if (current.signedPdf || current.signatureMethod) {
+      throw new Error('El acta ya tiene una firma y no se puede modificar.');
+    }
+    if (current.status === 'issued' && editReason.length < 5) {
+      throw new Error('Indique un motivo de al menos 5 caracteres para corregir el acta emitida.');
+    }
+
+    const now = Date.now();
+    const revision = (current.contentRevision || 1) + 1;
+    const before = {
+      recipient: current.recipient,
+      observations: current.observations || '',
+      documentDetails: current.documentDetails || {},
+    };
+    const after = {
+      recipient: data.recipient,
+      observations: data.observations || '',
+      documentDetails: data.documentDetails || {},
+    };
+    if (stableJson(before) === stableJson(after)) {
+      throw new Error('No hay cambios por guardar. Modifica algún dato antes de guardar.');
+    }
+    const update: Record<string, unknown> = {
+      ...after,
+      contentRevision: revision,
+      lastEditId: revisionRef.id,
+      lastEditedAt: now,
+      lastEditedByUid: resolvedActorUid,
+      lastEditReason: editReason,
+      updatedAt: now,
+      updatedByUid: resolvedActorUid,
+    };
+
+    if (current.status === 'issued') {
+      Object.assign(update, {
+        status: 'draft',
+        issuedAt: deleteField(),
+        generatedPdf: null,
+        pdfUrl: null,
+        pdfPath: null,
+        pdfName: null,
+        pdfContentType: null,
+        pdfSize: null,
+      });
+    }
+
+    transaction.update(actRef, update);
+    transaction.set(revisionRef, {
+      actId: id,
+      revision,
+      reason: editReason,
+      fromStatus: current.status,
+      toStatus: current.status === 'issued' ? 'draft' : current.status,
+      before,
+      after,
+      createdAt: now,
+      createdByUid: resolvedActorUid,
+    });
+    return revision;
+  });
+};
 export const deleteAct = (id: string, actorUid?: string) => {
   const now = Date.now();
   return updateDoc(doc(db, 'acts', id), {

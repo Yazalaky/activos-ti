@@ -592,7 +592,7 @@ service cloud.firestore {
           'assetId', 'siteId', 'companyId', 'templateId', 'templateVersion',
           'fixedAssetIdSnapshot', 'assetSnapshot', 'recipient', 'companyNitSnapshot',
           'documentDetails', 'observations',
-          'status', 'createdAt', 'createdByUid'
+          'status', 'contentRevision', 'createdAt', 'createdByUid'
         ])
         && isNonEmptyString(data.assetId, 150)
         && isNonEmptyString(data.siteId, 150)
@@ -601,6 +601,7 @@ service cloud.firestore {
         && isNonEmptyString(data.fixedAssetIdSnapshot, 50)
         && isNonEmptyString(data.companyNitSnapshot, 80)
         && data.status == 'draft'
+        && (!data.keys().hasAny(['contentRevision']) || (data.contentRevision is int && data.contentRevision == 1))
         && data.createdAt is int
         && data.createdAt > 0
         && data.createdByUid == request.auth.uid
@@ -738,12 +739,114 @@ service cloud.firestore {
       return methodValid && signedValid && methodStateValid && generatedValid && historyValid && historyStateValid;
     }
 
-    function actLifecycleUpdateValid() {
+    function actRevisionCreateValid(actId, revisionId) {
+      let actPath = /databases/$(database)/documents/acts/$(actId);
+      let current = get(actPath).data;
+      let next = getAfter(actPath).data;
+      let data = request.resource.data;
+      let before = data.before;
+      let after = data.after;
+      let beforeObservationsValid = current.keys().hasAny(['observations'])
+        ? before.observations == current.observations
+        : before.observations == '';
+      let beforeDetailsValid = current.keys().hasAny(['documentDetails'])
+        ? before.documentDetails == current.documentDetails
+        : before.documentDetails.keys().size() == 0;
+      return data.keys().hasAll([
+          'actId', 'revision', 'reason', 'fromStatus', 'toStatus', 'before', 'after', 'createdAt', 'createdByUid'
+        ])
+        && data.keys().hasOnly([
+          'actId', 'revision', 'reason', 'fromStatus', 'toStatus', 'before', 'after', 'createdAt', 'createdByUid'
+        ])
+        && data.actId == actId
+        && data.revision is int
+        && data.revision == next.contentRevision
+        && data.reason is string
+        && data.reason.size() >= 5
+        && data.reason.size() <= 500
+        && data.fromStatus == current.status
+        && data.toStatus == next.status
+        && data.createdAt is int
+        && data.createdAt > 0
+        && data.createdAt == next.lastEditedAt
+        && data.createdByUid == request.auth.uid
+        && data.createdByUid == next.lastEditedByUid
+        && revisionId == next.lastEditId
+        && data.reason == next.lastEditReason
+        && before is map
+        && before.keys().hasAll(['recipient', 'observations', 'documentDetails'])
+        && before.keys().hasOnly(['recipient', 'observations', 'documentDetails'])
+        && before.recipient == current.recipient
+        && beforeDetailsValid
+        && beforeObservationsValid
+        && after is map
+        && after.keys().hasAll(['recipient', 'observations', 'documentDetails'])
+        && after.keys().hasOnly(['recipient', 'observations', 'documentDetails'])
+        && after.recipient == next.recipient
+        && after.observations == next.observations
+        && after.documentDetails == next.documentDetails
+        && actDocumentDetailsValid(next.documentDetails);
+    }
+
+    function actContentEditValid(actId) {
+      let current = resource.data;
+      let next = request.resource.data;
+      let changed = next.diff(current).affectedKeys();
+      let currentRevision = current.keys().hasAny(['contentRevision']) ? current.contentRevision : 1;
+      let revisionId = next.keys().hasAny(['lastEditId']) && next.lastEditId is string ? next.lastEditId : '__invalid__';
+      let revision = getAfter(/databases/$(database)/documents/acts/$(actId)/revisions/$(revisionId)).data;
+      let editFields = [
+        'recipient', 'observations', 'documentDetails', 'contentRevision', 'lastEditId',
+        'lastEditedAt', 'lastEditedByUid', 'lastEditReason', 'updatedAt', 'updatedByUid',
+        'status', 'issuedAt', 'generatedPdf', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize'
+      ];
+      let printedFileCleared = current.status != 'issued'
+        || (!next.keys().hasAny(['issuedAt'])
+          && next.keys().hasAny(['generatedPdf']) && next.generatedPdf == null
+          && next.keys().hasAny(['pdfUrl']) && next.pdfUrl == null
+          && next.keys().hasAny(['pdfPath']) && next.pdfPath == null
+          && next.keys().hasAny(['pdfName']) && next.pdfName == null
+          && next.keys().hasAny(['pdfContentType']) && next.pdfContentType == null
+          && next.keys().hasAny(['pdfSize']) && next.pdfSize == null);
+      return current.status in ['draft', 'issued']
+        && (!current.keys().hasAny(['signedPdf']) || current.signedPdf == null)
+        && (!current.keys().hasAny(['signatureMethod']) || current.signatureMethod == null || current.signatureMethod == '')
+        && next.status == 'draft'
+        && next.recipient is map
+        && next.recipient.keys().hasAll(['fullName', 'position', 'documentNumber'])
+        && isNonEmptyString(next.recipient.fullName, 200)
+        && isNonEmptyString(next.recipient.position, 150)
+        && isNonEmptyString(next.recipient.documentNumber, 80)
+        && (!next.keys().hasAny(['observations']) || isOptionalString(next.observations, 4000))
+        && actDocumentDetailsValid(next.documentDetails)
+        && changed.hasAny(['recipient', 'observations', 'documentDetails'])
+        && changed.hasAll(['contentRevision', 'lastEditId', 'lastEditedAt', 'lastEditedByUid', 'lastEditReason', 'updatedAt', 'updatedByUid'])
+        && changed.hasOnly(editFields)
+        && next.contentRevision is int
+        && next.contentRevision == currentRevision + 1
+        && next.lastEditId is string
+        && next.lastEditId.size() > 0
+        && next.lastEditId.size() <= 150
+        && next.lastEditedAt is int
+        && next.lastEditedAt > 0
+        && next.lastEditedByUid == request.auth.uid
+        && next.lastEditReason is string
+        && next.lastEditReason.size() >= 5
+        && next.lastEditReason.size() <= 500
+        && printedFileCleared
+        && revision.revision == next.contentRevision
+        && revision.reason == next.lastEditReason
+        && revision.createdAt == next.lastEditedAt
+        && revision.createdByUid == request.auth.uid;
+    }
+
+    function actLifecycleUpdateValid(actId) {
       let current = resource.data;
       let next = request.resource.data;
       let changed = next.diff(current).affectedKeys();
       let currentStatus = current.status;
       let nextStatus = next.status;
+      let contentEditFieldsChanged = changed.hasAny(['recipient', 'observations', 'documentDetails', 'contentRevision', 'lastEditId', 'lastEditedAt', 'lastEditedByUid', 'lastEditReason']);
       let legacyReviewUpdate = current.keys().hasAny(['pdfUrl'])
         && (!current.keys().hasAny(['generatedPdf']) || current.generatedPdf == null)
         && (!current.keys().hasAny(['signedPdf']) || current.signedPdf == null)
@@ -753,6 +856,7 @@ service cloud.firestore {
         && changed.hasOnly(['status', 'generatedPdf', 'signedPdf', 'signatureMethod', 'signedAt', 'signedByUid', 'issuedAt', 'legacyClassification', 'legacyClassificationReason', 'legacyClassifiedAt', 'legacyClassifiedByUid', 'legacySignatureDateUnknown', 'legacySignerUnknown', 'pdfUrl', 'pdfPath', 'pdfName', 'pdfContentType', 'pdfSize', 'updatedAt', 'updatedByUid']);
       let transitionValid = (currentStatus == 'draft' && nextStatus in ['draft', 'issued', 'signed', 'void'])
         || (currentStatus == 'issued' && nextStatus in ['issued', 'signed', 'void'])
+        || (currentStatus == 'issued' && nextStatus == 'draft' && actContentEditValid(actId))
         || (currentStatus == 'signed' && nextStatus in ['signed', 'void'])
         || (currentStatus == 'void' && nextStatus == 'void')
         || (legacyReviewUpdate && nextStatus in ['draft', 'issued', 'signed']);
@@ -769,7 +873,10 @@ service cloud.firestore {
         || uploadedPdfReplacement
         || legacyReviewUpdate;
       let voidRestricted = nextStatus != 'void' || isAdmin();
-      return transitionValid && signedLocked && voidRestricted;
+      return transitionValid
+        && (!contentEditFieldsChanged || actContentEditValid(actId))
+        && signedLocked
+        && voidRestricted;
     }
 
     function actLegacyReviewUpdateAllowed() {
@@ -1133,11 +1240,20 @@ service cloud.firestore {
         && actAttachmentValid(actId)
         && auditUpdateValid()
         && softDeleteValid()
-        && actLifecycleUpdateValid()
+        && actLifecycleUpdateValid(actId)
         && actLegacyReviewUpdateAllowed()
         && (!request.resource.data.keys().hasAny(['isDeleted']) || request.resource.data.isDeleted != true || isAdmin());
       allow update: if legacyClassificationUpdateValid(actId);
       allow delete: if false;
+
+      match /revisions/{revisionId} {
+        allow read: if exists(/databases/$(database)/documents/acts/$(actId))
+          && canReadSite(get(/databases/$(database)/documents/acts/$(actId)).data.siteId);
+        allow create: if exists(/databases/$(database)/documents/acts/$(actId))
+          && canWriteSite(get(/databases/$(database)/documents/acts/$(actId)).data.siteId)
+          && actRevisionCreateValid(actId, revisionId);
+        allow update, delete: if false;
+      }
     }
 
     // Datos legales de empresa para impresión de actas: solo administradores pueden configurarlos.

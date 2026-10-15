@@ -37,8 +37,9 @@ import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
+import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useAuth } from '../auth/AuthContext';
-import { addAct, getActs, getActTemplates, getAssets, getSites, updateAct } from '../services/api';
+import { addAct, getActs, getActTemplates, getAssets, getSites, updateAct, updateActContent } from '../services/api';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { generateActPdf } from '../services/actPdf';
 import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
@@ -139,6 +140,8 @@ const Acts = () => {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [editingAct, setEditingAct] = useState<Act | null>(null);
+  const [editReason, setEditReason] = useState('');
   const [createCompanyId, setCreateCompanyId] = useState('');
   const [createSiteId, setCreateSiteId] = useState('');
   const [assetId, setAssetId] = useState('');
@@ -199,10 +202,10 @@ const Acts = () => {
   const assetsForCreateSite = useMemo(
     () => assets
       .filter((asset) => !createSiteId || asset.siteId === createSiteId)
-      .filter((asset) => asset.status === 'asignado' && Boolean(asset.currentAssignment?.assignedToName && asset.currentAssignment?.assignedToPosition && asset.currentAssignment?.assignedToResponsible))
+      .filter((asset) => asset.id === editingAct?.assetId || (asset.status === 'asignado' && Boolean(asset.currentAssignment?.assignedToName && asset.currentAssignment?.assignedToPosition && asset.currentAssignment?.assignedToResponsible)))
       .slice()
       .sort((a, b) => String(a.fixedAssetId).localeCompare(String(b.fixedAssetId))),
-    [assets, createSiteId]
+    [assets, createSiteId, editingAct?.assetId]
   );
 
   const filteredActs = useMemo(() => {
@@ -218,6 +221,8 @@ const Acts = () => {
   }, [acts, filterText, filterStatus, filterSiteId]);
 
   const openCreate = () => {
+    setEditingAct(null);
+    setEditReason('');
     setCreateCompanyId('');
     setCreateSiteId('');
     setAssetId('');
@@ -231,6 +236,35 @@ const Acts = () => {
     setRecipientNetworkUser('');
     setObservations('');
     setDocumentDetails(createEmptyDocumentDetails());
+    setCreateOpen(true);
+  };
+
+  const openEdit = (act: Act) => {
+    if (!canWrite || isLegacyActPending(act) || !['draft', 'issued'].includes(act.status)) return;
+    const defaults = createEmptyDocumentDetails();
+    const details = act.documentDetails || defaults;
+    setEditingAct(act);
+    setEditReason('');
+    setCreateCompanyId(act.companyId);
+    setCreateSiteId(act.siteId);
+    setAssetId(act.assetId);
+    setRecipientName(act.recipient?.fullName || '');
+    setRecipientPosition(act.recipient?.position || '');
+    setRecipientEmail(act.recipient?.email || '');
+    setRecipientDocument(act.recipient?.documentNumber || '');
+    setRecipientArea(act.recipient?.area || '');
+    setRecipientPhone(act.recipient?.phone || '');
+    setRecipientExtension(act.recipient?.extension || '');
+    setRecipientNetworkUser(act.recipient?.networkUser || '');
+    setObservations(act.observations || '');
+    setDocumentDetails({
+      ...defaults,
+      ...details,
+      deviceTypes: { ...defaults.deviceTypes, ...details.deviceTypes },
+      standardSoftware: { ...defaults.standardSoftware, ...details.standardSoftware },
+      requestedSoftware: { ...defaults.requestedSoftware, ...details.requestedSoftware },
+      discountSources: { ...defaults.discountSources, ...details.discountSources },
+    });
     setCreateOpen(true);
   };
 
@@ -261,6 +295,53 @@ const Acts = () => {
     const otherSoftwareCount = String(documentDetails.otherSoftware || '').split(/\r?\n/).map((item) => item.trim()).filter(Boolean).length;
     if (overLimit || otherSoftwareCount > 6) {
       setSnackbar({ open: true, message: otherSoftwareCount > 6 ? 'Registre máximo 6 programas en “Otro software”.' : 'Hay campos que superan la longitud permitida.', severity: 'warning' });
+      return;
+    }
+
+    if (editingAct) {
+      if (isLegacyActPending(editingAct) || !['draft', 'issued'].includes(editingAct.status)) {
+        setSnackbar({ open: true, message: 'Esta acta ya no se puede editar.', severity: 'error' });
+        return;
+      }
+      if (editingAct.status === 'issued' && editReason.trim().length < 5) {
+        setSnackbar({ open: true, message: 'Indique un motivo de al menos 5 caracteres para corregir el acta emitida.', severity: 'warning' });
+        return;
+      }
+      try {
+        setCreating(true);
+        await updateActContent(editingAct.id, stripUndefinedDeep({
+          recipient: {
+            fullName: recipientName.trim(),
+            position: recipientPosition.trim(),
+            email: recipientEmail.trim() || undefined,
+            documentNumber: recipientDocument.trim(),
+            area: recipientArea.trim() || undefined,
+            phone: recipientPhone.trim() || undefined,
+            extension: recipientExtension.trim() || undefined,
+            networkUser: recipientNetworkUser.trim() || undefined,
+          },
+          observations: observations.trim(),
+          documentDetails: {
+            ...documentDetails,
+            deliveredByName: editingAct.documentDetails?.deliveredByName || profile?.name || '',
+          },
+        }), editReason, profile?.uid);
+        setSnackbar({
+          open: true,
+          message: editingAct.status === 'issued'
+            ? 'Corrección guardada. El acta volvió a borrador; imprime la nueva versión y descarta la copia anterior.'
+            : 'Cambios guardados en el borrador.',
+          severity: 'success',
+        });
+        setCreateOpen(false);
+        setEditingAct(null);
+        await load();
+      } catch (error) {
+        console.error('Edit act error:', error);
+        setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo actualizar el acta.', severity: 'error' });
+      } finally {
+        setCreating(false);
+      }
       return;
     }
 
@@ -331,6 +412,7 @@ const Acts = () => {
           deliveredByName: profile?.name || '',
         },
         status: 'draft',
+        contentRevision: 1,
       }) as Omit<Act, 'id'>;
       await addAct(payload, profile?.uid);
       setSnackbar({ open: true, message: 'Acta creada (borrador).', severity: 'success' });
@@ -659,6 +741,16 @@ const Acts = () => {
                             <Button
                               size="small"
                               variant="outlined"
+                              startIcon={<EditOutlinedIcon />}
+                              onClick={() => openEdit(act)}
+                            >
+                              {act.status === 'issued' ? 'Corregir' : 'Editar'}
+                            </Button>
+                          )}
+                          {canWrite && ['draft', 'issued'].includes(act.status) && !legacyPending && (
+                            <Button
+                              size="small"
+                              variant="outlined"
                               startIcon={<DescriptionOutlinedIcon />}
                               onClick={() => handleGeneratePdf(act)}
                               disabled={generatingActId === act.id}
@@ -704,11 +796,34 @@ const Acts = () => {
         maxWidth="md"
         PaperProps={{ sx: { maxHeight: '92vh' } }}
       >
-        <DialogTitle sx={{ fontWeight: 900 }}>Nueva acta</DialogTitle>
+        <DialogTitle sx={{ fontWeight: 900 }}>
+          {editingAct ? (editingAct.status === 'issued' ? 'Corregir acta emitida' : 'Editar borrador') : 'Nueva acta'}
+        </DialogTitle>
         <DialogContent>
           <Box component="form" onSubmit={handleSaveCreate} sx={{ mt: 1 }}>
             <Stack spacing={2}>
-              <FormControl fullWidth required disabled={!canWrite || creating}>
+              {editingAct && (
+                <>
+                  <Alert severity={editingAct.status === 'issued' ? 'warning' : 'info'}>
+                    {editingAct.status === 'issued'
+                      ? 'Al guardar, el acta regresará a Borrador y tendrás que imprimirla otra vez. La copia impresa anterior queda obsoleta: descártala y no la firmes.'
+                      : 'Los cambios se guardarán sobre esta misma acta. El activo, la sede y la empresa se mantienen sin cambios.'}
+                  </Alert>
+                  <TextField
+                    label={editingAct.status === 'issued' ? 'Motivo de la corrección' : 'Nota de edición (opcional)'}
+                    value={editReason}
+                    onChange={(event) => setEditReason(event.target.value)}
+                    helperText={editingAct.status === 'issued' ? 'Obligatorio; mínimo 5 caracteres.' : 'Quedará registrado junto con la versión anterior.'}
+                    required={editingAct.status === 'issued'}
+                    inputProps={{ maxLength: 500 }}
+                    fullWidth
+                    multiline
+                    minRows={2}
+                    disabled={!canWrite || creating}
+                  />
+                </>
+              )}
+              <FormControl fullWidth required disabled={!canWrite || creating || Boolean(editingAct)}>
                 <InputLabel id="act-create-company-label">Empresa</InputLabel>
                 <Select
                   labelId="act-create-company-label"
@@ -735,7 +850,7 @@ const Acts = () => {
                 </Select>
               </FormControl>
 
-              {createCompanyId && (
+              {!editingAct && createCompanyId && (
                 <Alert severity={selectedTemplate?.nit ? 'info' : 'warning'}>
                   {selectedTemplate?.nit
                     ? `El formato y logo de ${companyLabel(createCompanyId)} se aplicarán automáticamente. NIT: ${selectedTemplate.nit}.`
@@ -743,13 +858,13 @@ const Acts = () => {
                 </Alert>
               )}
 
-              <FormControl fullWidth required disabled={!canWrite || creating}>
+              <FormControl fullWidth required disabled={!canWrite || creating || Boolean(editingAct)}>
                 <InputLabel id="act-create-site-label">Sede</InputLabel>
                 <Select
                   labelId="act-create-site-label"
                   label="Sede"
                   value={createSiteId}
-                  disabled={!canWrite || creating || !createCompanyId}
+                  disabled={!canWrite || creating || !createCompanyId || Boolean(editingAct)}
                   onChange={(e) => {
                     const siteId = String(e.target.value);
                     setCreateSiteId(siteId);
@@ -778,7 +893,7 @@ const Acts = () => {
                 </Select>
               </FormControl>
 
-              <FormControl fullWidth required disabled={!canWrite || creating || !createSiteId}>
+              <FormControl fullWidth required disabled={!canWrite || creating || !createSiteId || Boolean(editingAct)}>
                 <InputLabel id="act-asset-label">Activo</InputLabel>
                 <Select
                   labelId="act-asset-label"
@@ -823,7 +938,11 @@ const Acts = () => {
                 </Select>
               </FormControl>
 
-              {selectedAsset && (
+              {editingAct ? (
+                <Alert severity="info">
+                  Activo fijo: {editingAct.fixedAssetIdSnapshot} · Sede: {sites.find((site) => site.id === editingAct.siteId)?.name || editingAct.siteId} · Empresa: {companyLabel(editingAct.companyId)}. Esta relación no se modifica al corregir el acta.
+                </Alert>
+              ) : selectedAsset && (
                 <Alert severity="success">
                   Empresa: {companyLabel(createCompanyId)} · Sede: {selectedSite?.name} · Activo: {selectedAsset.fixedAssetId}. Los datos del equipo se copiarán automáticamente.
                 </Alert>
@@ -971,9 +1090,9 @@ const Acts = () => {
             </Stack>
 
             <DialogActions sx={{ px: 0, mt: 2 }}>
-              <Button onClick={() => setCreateOpen(false)}>Cancelar</Button>
+              <Button onClick={() => setCreateOpen(false)} disabled={creating}>Cancelar</Button>
               <Button type="submit" variant="contained" disabled={!canWrite || creating}>
-                Guardar borrador
+                {editingAct ? 'Guardar cambios' : 'Guardar borrador'}
               </Button>
             </DialogActions>
           </Box>
