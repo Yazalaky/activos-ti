@@ -31,6 +31,7 @@ import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlin
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import { auth } from '../firebaseAuth';
 import { useAuth } from '../auth/AuthContext';
 import type { Role } from '../types';
@@ -57,6 +58,7 @@ const routeMeta: Record<string, { title: string; subtitle: string }> = {
   '/maintenances': { title: 'Mantenimientos', subtitle: 'Gestión de mantenimientos' },
   '/sites': { title: 'Sedes', subtitle: 'Administración y prefijos' },
   '/finance': { title: 'Finanzas', subtitle: 'Facturas, proveedores y costos' },
+  '/contracts': { title: 'Contratos', subtitle: 'Contratos y documentos firmados de proveedores' },
   '/admin/users': { title: 'Usuarios', subtitle: 'Gestión de accesos y roles' },
   '/act-templates': { title: 'Empresas para actas', subtitle: 'Datos legales de impresión' },
   '/act-legacy': { title: 'Revisión de actas antiguas', subtitle: 'Clasificación de PDFs heredados' },
@@ -70,6 +72,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
   const { profile, role } = useAuth();
+  const canReadContracts = role === 'admin'
+    || role === 'management'
+    || role === 'auditor'
+    || (role === 'tech' && profile?.accessScope !== 'sites');
   const userEmail = auth.currentUser?.email ?? '';
   const userInitial = (userEmail.trim()[0] || '?').toUpperCase();
 
@@ -95,6 +101,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         { path: '/quotes', label: 'Cotizaciones', icon: <DescriptionOutlinedIcon /> },
         { path: '/sites', label: 'Sedes', icon: <LocationCityOutlinedIcon /> },
         { path: '/finance', label: 'Proveedores y Costos', icon: <ReceiptLongOutlinedIcon /> },
+        ...(canReadContracts ? [{ path: '/contracts', label: 'Contratos', icon: <FolderOutlinedIcon /> }] : []),
       ],
     },
     ...(role === 'admin'

@@ -1,4 +1,5 @@
 import React, { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -246,8 +247,13 @@ const invoiceReportColumns = [
 
 const Finance = () => {
   const { role, profile } = useAuth();
+  const navigate = useNavigate();
   const canWrite = role === 'admin' || role === 'tech';
   const canDelete = role === 'admin';
+  const canReadContracts = role === 'admin'
+    || role === 'management'
+    || role === 'auditor'
+    || (role === 'tech' && profile?.accessScope !== 'sites');
   const [activeTab, setActiveTab] = useState<TabKey>('invoices');
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [invoices, setInvoices] = useState<Invoice[]>([]);
@@ -803,6 +809,16 @@ const Finance = () => {
                     <Box sx={{ mt: 1.5 }}>
                       <Chip label={sup.category || '—'} variant="outlined" />
                     </Box>
+                    {canReadContracts && (
+                      <Button
+                        size="small"
+                        startIcon={<DescriptionOutlinedIcon />}
+                        sx={{ mt: 1.5 }}
+                        onClick={() => navigate(`/contracts?supplierId=${encodeURIComponent(sup.id)}`)}
+                      >
+                        Ver contratos
+                      </Button>
+                    )}
                   </CardContent>
                 </Card>
               </Grid>

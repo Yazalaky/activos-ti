@@ -15,7 +15,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../firebaseAuth';
 import { db } from '../firebaseDb';
-import type { Act, ActTemplate, Activity, Asset, Assignment, Invoice, Quote, Site, Supplier, Maintenance } from '../types';
+import type { Act, ActTemplate, Activity, Asset, Assignment, Invoice, Quote, Site, Supplier, SupplierContract, SupplierContractDocument, Maintenance } from '../types';
 
 export interface QueryFilters {
   siteId?: string;
@@ -277,6 +277,64 @@ export const updateActivity = (id: string, data: Partial<Activity>, actorUid?: s
 export const getSuppliers = () => fetchCollection<Supplier>('suppliers');
 export const addSupplier = (data: Omit<Supplier, 'id'>, actorUid?: string) => addDoc(collection(db, 'suppliers'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateSupplier = (id: string, data: Partial<Supplier>, actorUid?: string) => updateDoc(doc(db, 'suppliers', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
+
+// Contratos de proveedores: los datos y cada PDF se guardan en documentos separados.
+export const getSupplierContracts = () => fetchCollection<SupplierContract>('contracts');
+
+export const getSupplierContractDocuments = async (contractId: string): Promise<SupplierContractDocument[]> => {
+  const snapshot = await getDocs(collection(db, 'contracts', contractId, 'documents'));
+  return snapshot.docs
+    .map((item) => ({ id: item.id, ...item.data() } as SupplierContractDocument))
+    .sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+};
+
+export const addSupplierContract = async (
+  data: Omit<SupplierContract, 'id' | 'createdAt' | 'createdByUid' | 'updatedAt' | 'updatedByUid'>,
+  actorUid?: string,
+) => {
+  const uid = resolveActorUid(actorUid);
+  return addDoc(collection(db, 'contracts'), { ...data, createdAt: Date.now(), createdByUid: uid });
+};
+
+export const updateSupplierContract = async (id: string, data: Partial<SupplierContract>, actorUid?: string) => {
+  const uid = resolveActorUid(actorUid);
+  const { id: _id, createdAt: _createdAt, createdByUid: _createdByUid, ...changes } = data;
+  return updateDoc(doc(db, 'contracts', id), { ...changes, updatedAt: Date.now(), updatedByUid: uid });
+};
+
+export const createSupplierContractDocumentId = (contractId: string) =>
+  `${doc(collection(db, 'contracts', contractId, 'documents')).id}.pdf`;
+
+export const addSupplierContractDocument = async (
+  contractId: string,
+  documentId: string,
+  data: Omit<SupplierContractDocument, 'id' | 'contractId' | 'createdAt' | 'createdByUid'>,
+  makeCurrentSignedContract = false,
+  actorUid?: string,
+) => {
+  const uid = resolveActorUid(actorUid);
+  const contractRef = doc(db, 'contracts', contractId);
+  const documentRef = doc(db, 'contracts', contractId, 'documents', documentId);
+  const now = Date.now();
+
+  return runTransaction(db, async (transaction) => {
+    const contractSnapshot = await transaction.get(contractRef);
+    if (!contractSnapshot.exists()) throw new Error('El contrato ya no existe. Actualiza la lista e inténtalo de nuevo.');
+    transaction.set(documentRef, {
+      ...data,
+      contractId,
+      createdAt: now,
+      createdByUid: uid,
+    });
+    if (makeCurrentSignedContract) {
+      transaction.update(contractRef, {
+        currentSignedDocumentId: documentId,
+        updatedAt: now,
+        updatedByUid: uid,
+      });
+    }
+  });
+};
 
 // INVOICES
 export const getInvoices = async (filters?: QueryFilters) => {

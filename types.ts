@@ -108,6 +108,40 @@ export interface Supplier extends AuditFields {
   category: string;
 }
 
+export type SupplierContractStatus = 'active' | 'terminated';
+export type SupplierContractDocumentKind = 'signed_contract' | 'addendum' | 'renewal' | 'other';
+
+export interface SupplierContract extends AuditFields {
+  id: string;
+  supplierId: string;
+  supplierNameSnapshot: string;
+  object: string;
+  contractNumber?: string;
+  signedDate?: string;
+  startDate?: string;
+  endDate?: string;
+  value?: number | null;
+  notes?: string;
+  status: SupplierContractStatus;
+  currentSignedDocumentId: string;
+  terminatedAt?: number;
+  terminatedByUid?: string;
+}
+
+export interface SupplierContractDocument extends AuditFields {
+  id: string;
+  contractId: string;
+  kind: SupplierContractDocumentKind;
+  title: string;
+  documentDate?: string;
+  storagePath: string;
+  fileName: string;
+  contentType: 'application/pdf';
+  size: number;
+  replacesDocumentId?: string;
+  replacementReason?: string;
+}
+
 export interface Invoice extends AuditFields {
   id: string;
   supplierId: string;

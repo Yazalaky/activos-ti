@@ -63,6 +63,14 @@ service cloud.firestore {
       return canWrite() && canReadSite(siteId);
     }
 
+    function canManageContracts() {
+      return isAdmin() || (isTech() && hasGlobalAccess());
+    }
+
+    function canReadContracts() {
+      return canManageContracts() || isAuditor() || isManagement();
+    }
+
     function userProfileValid() {
       let data = request.resource.data;
       let identityValid = data.keys().hasAll(['email', 'name', 'role'])
@@ -439,6 +447,75 @@ service cloud.firestore {
         || data.email == ''
         || (data.email is string && data.email.matches('.*@.*'));
       return identityValid && optionalValid && emailValid;
+    }
+
+    function supplierContractDataValid(contractId) {
+      let data = request.resource.data;
+      let fieldsValid = data.keys().hasAll(['supplierId', 'supplierNameSnapshot', 'object', 'status'])
+        && data.keys().hasOnly([
+          'supplierId', 'supplierNameSnapshot', 'object', 'contractNumber', 'signedDate',
+          'startDate', 'endDate', 'value', 'notes', 'status', 'currentSignedDocumentId', 'terminatedAt',
+          'terminatedByUid', 'createdAt', 'createdByUid', 'updatedAt', 'updatedByUid'
+        ])
+        && isNonEmptyString(data.supplierId, 150)
+        && isNonEmptyString(data.supplierNameSnapshot, 200)
+        && isNonEmptyString(data.object, 1000)
+        && data.status in ['active', 'terminated']
+        && data.keys().hasAll(['currentSignedDocumentId'])
+        && data.currentSignedDocumentId is string
+        && data.currentSignedDocumentId.size() <= 200;
+      let supplierValid = exists(/databases/$(database)/documents/suppliers/$(data.supplierId));
+      let optionalFieldsValid = (!data.keys().hasAny(['contractNumber']) || isOptionalString(data.contractNumber, 120))
+        && (!data.keys().hasAny(['signedDate']) || isOptionalDate(data.signedDate))
+        && (!data.keys().hasAny(['startDate']) || isOptionalDate(data.startDate))
+        && (!data.keys().hasAny(['endDate']) || isOptionalDate(data.endDate))
+        && (!data.keys().hasAny(['notes']) || isOptionalString(data.notes, 4000));
+      let periodValid = !data.keys().hasAll(['startDate', 'endDate'])
+        || data.startDate == ''
+        || data.endDate == ''
+        || data.endDate >= data.startDate;
+      let valueValid = !data.keys().hasAny(['value'])
+        || data.value == null
+        || ((data.value is int || data.value is float) && data.value >= 0 && data.value <= 1000000000000);
+      let terminationValid = data.status != 'terminated'
+        || (data.keys().hasAll(['terminatedAt', 'terminatedByUid'])
+          && data.terminatedAt is int
+          && data.terminatedAt > 0
+          && isNonEmptyString(data.terminatedByUid, 150));
+      let currentDocumentValid = data.currentSignedDocumentId == ''
+        || (existsAfter(/databases/$(database)/documents/contracts/$(contractId)/documents/$(data.currentSignedDocumentId))
+          && getAfter(/databases/$(database)/documents/contracts/$(contractId)/documents/$(data.currentSignedDocumentId)).data.kind == 'signed_contract');
+      return fieldsValid && supplierValid && optionalFieldsValid && periodValid && valueValid && terminationValid && currentDocumentValid;
+    }
+
+    function supplierContractDocumentDataValid(contractId, documentId) {
+      let data = request.resource.data;
+      let fieldsValid = data.keys().hasAll([
+          'contractId', 'kind', 'title', 'storagePath', 'fileName', 'contentType', 'size'
+        ])
+        && data.keys().hasOnly([
+          'contractId', 'kind', 'title', 'documentDate', 'storagePath', 'fileName',
+          'contentType', 'size', 'replacesDocumentId', 'replacementReason',
+          'createdAt', 'createdByUid'
+        ])
+        && data.contractId == contractId
+        && data.kind in ['signed_contract', 'addendum', 'renewal', 'other']
+        && isNonEmptyString(data.title, 200)
+        && data.storagePath == 'contracts/' + contractId + '/documents/' + documentId
+        && isNonEmptyString(data.fileName, 240)
+        && data.contentType == 'application/pdf'
+        && data.size is int
+        && data.size > 0
+        && data.size < 20971520;
+      let dateValid = !data.keys().hasAny(['documentDate']) || isOptionalDate(data.documentDate);
+      let replacementValid = !data.keys().hasAny(['replacesDocumentId'])
+        || (data.kind == 'signed_contract'
+          && data.replacesDocumentId is string
+          && exists(/databases/$(database)/documents/contracts/$(contractId)/documents/$(data.replacesDocumentId))
+          && data.replacementReason is string
+          && data.replacementReason.size() >= 5
+          && data.replacementReason.size() <= 500);
+      return fieldsValid && dateValid && replacementValid && auditCreateValid();
     }
 
     function invoiceDataValid() {
@@ -1189,6 +1266,28 @@ service cloud.firestore {
         && auditUpdateValid()
         && softDeleteValid();
       allow delete: if false;
+    }
+
+    // CONTRATOS: gestión administrativa/técnica global; gerencia y auditoría solo lectura.
+    match /contracts/{contractId} {
+      allow read: if canReadContracts();
+      allow create: if canManageContracts()
+        && supplierContractDataValid(contractId)
+        && auditCreateValid();
+      allow update: if canManageContracts()
+        && supplierContractDataValid(contractId)
+        && request.resource.data.supplierId == resource.data.supplierId
+        && auditUpdateValid();
+      allow delete: if false;
+
+      match /documents/{documentId} {
+        allow read: if exists(/databases/$(database)/documents/contracts/$(contractId))
+          && canReadContracts();
+        allow create: if exists(/databases/$(database)/documents/contracts/$(contractId))
+          && canManageContracts()
+          && supplierContractDocumentDataValid(contractId, documentId);
+        allow update, delete: if false;
+      }
     }
 
     // INVOICES

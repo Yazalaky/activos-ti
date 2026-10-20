@@ -1,4 +1,4 @@
-import { deleteObject, ref } from 'firebase/storage';
+import { deleteObject, getDownloadURL, ref } from 'firebase/storage';
 import { storage } from '../firebaseStorage';
 
 const resolveStoragePath = (value: string) => {
@@ -27,3 +27,5 @@ export const deleteStoragePath = async (path: string) => {
   if (!clean) return;
   await deleteObject(ref(storage, clean));
 };
+
+export const getStorageFileUrl = (path: string) => getDownloadURL(ref(storage, resolveStoragePath(path)));

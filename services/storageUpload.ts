@@ -21,6 +21,7 @@ const contentTypeByExtension: Record<string, string> = {
   jpeg: 'image/jpeg',
   jpg: 'image/jpeg',
   png: 'image/png',
+  pdf: 'application/pdf',
   webp: 'image/webp',
 };
 

@@ -43,6 +43,19 @@ service firebase.storage {
       return hasGlobalAccess() || hasAssignedSite(siteId);
     }
 
+    function canManageContracts() {
+      return profileActive()
+        && (role() == 'admin' || (role() == 'tech' && hasGlobalAccess()));
+    }
+
+    function canReadContracts() {
+      return profileActive()
+        && (role() == 'admin'
+          || role() == 'management'
+          || role() == 'auditor'
+          || (role() == 'tech' && hasGlobalAccess()));
+    }
+
     function assetBelongsToAllowedSite(assetId) {
       return firestore.exists(/databases/(default)/documents/assets/$(assetId))
         && canReadSite(firestore.get(/databases/(default)/documents/assets/$(assetId)).data.siteId);
@@ -109,6 +122,19 @@ service firebase.storage {
         && isPdf()
         && underLimit(10 * 1024 * 1024);
       allow delete: if canWrite() && quoteBelongsToAllowedSite(quoteId);
+    }
+
+    match /contracts/{contractId}/documents/{documentId} {
+      allow read: if canReadContracts()
+        && firestore.exists(/databases/(default)/documents/contracts/$(contractId));
+      allow create, update: if canManageContracts()
+        && firestore.exists(/databases/(default)/documents/contracts/$(contractId))
+        && isPdf()
+        && underLimit(20 * 1024 * 1024);
+      // Solo limpia un archivo huérfano si falló el registro de sus metadatos.
+      allow delete: if canManageContracts()
+        && firestore.exists(/databases/(default)/documents/contracts/$(contractId))
+        && !firestore.exists(/databases/(default)/documents/contracts/$(contractId)/documents/$(documentId));
     }
 
     match /acts/{actId}/{folder}/{fileName} {
