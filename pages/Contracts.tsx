@@ -47,6 +47,7 @@ import {
   getSupplierContracts,
   getSuppliers,
   updateSupplierContract,
+  updateSupplierContractRenewalPeriod,
 } from '../services/api';
 import { deleteStoragePath, getStorageFileUrl } from '../services/storageFiles';
 import { uploadFileToStorage } from '../services/storageUpload';
@@ -63,6 +64,8 @@ type RelatedDraft = {
   kind: Exclude<SupplierContractDocumentKind, 'signed_contract'>;
   title: string;
   date: string;
+  renewalStartDate: string;
+  renewalEndDate: string;
   file: File | null;
 };
 type ContractForm = {
@@ -118,17 +121,27 @@ const normalize = (value: string) => value
   .toLowerCase()
   .trim();
 
+const getEffectivePeriod = (contract: SupplierContract) => {
+  const hasRenewalPeriod = Boolean(contract.currentRenewalDocumentId && contract.renewalStartDate && contract.renewalEndDate);
+  return {
+    startDate: hasRenewalPeriod ? contract.renewalStartDate : contract.startDate,
+    endDate: hasRenewalPeriod ? contract.renewalEndDate : contract.endDate,
+    renewed: hasRenewalPeriod,
+  };
+};
+
 const getStatus = (contract: SupplierContract) => {
   if (contract.status === 'terminated') return { key: 'terminated', label: 'Terminado', color: 'default' as const };
+  const period = getEffectivePeriod(contract);
   const today = localDateString();
-  if (contract.startDate && contract.startDate > today) {
+  if (period.startDate && period.startDate > today) {
     return { key: 'upcoming', label: 'Próximo', color: 'info' as const };
   }
-  if (contract.endDate && contract.endDate < today) {
+  if (period.endDate && period.endDate < today) {
     return { key: 'expired', label: 'Vencido', color: 'error' as const };
   }
-  if (contract.endDate) {
-    const daysLeft = Math.ceil((new Date(`${contract.endDate}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86400000);
+  if (period.endDate) {
+    const daysLeft = Math.ceil((new Date(`${period.endDate}T00:00:00`).getTime() - new Date(`${today}T00:00:00`).getTime()) / 86400000);
     if (daysLeft >= 0 && daysLeft <= 30) {
       return { key: 'expiring', label: `Vence en ${daysLeft} d`, color: 'warning' as const };
     }
@@ -164,6 +177,7 @@ const Contracts = () => {
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<SupplierContract | null>(null);
   const [editingDocuments, setEditingDocuments] = useState<SupplierContractDocument[]>([]);
+  const [renewalPeriodDrafts, setRenewalPeriodDrafts] = useState<Record<string, { startDate: string; endDate: string }>>({});
   const [form, setForm] = useState<ContractForm>(emptyForm());
   const [mainPdf, setMainPdf] = useState<File | null>(null);
   const [replacementReason, setReplacementReason] = useState('');
@@ -230,6 +244,7 @@ const Contracts = () => {
     setDialogOpen(false);
     setEditingContract(null);
     setEditingDocuments([]);
+    setRenewalPeriodDrafts({});
     setForm(emptyForm());
     setMainPdf(null);
     setReplacementReason('');
@@ -241,6 +256,7 @@ const Contracts = () => {
   const openCreate = () => {
     setEditingContract(null);
     setEditingDocuments([]);
+    setRenewalPeriodDrafts({});
     setForm(emptyForm(supplierFilter));
     setMainPdf(null);
     setReplacementReason('');
@@ -265,10 +281,18 @@ const Contracts = () => {
     setReplacementReason('');
     setRelatedDrafts([]);
     setEditingDocuments([]);
+    setRenewalPeriodDrafts({});
     setDialogOpen(true);
     setLoadingEditDocuments(true);
     try {
-      setEditingDocuments(await getSupplierContractDocuments(contract.id));
+      const loadedDocuments = await getSupplierContractDocuments(contract.id);
+      setEditingDocuments(loadedDocuments);
+      setRenewalPeriodDrafts(Object.fromEntries(loadedDocuments
+        .filter((document) => document.kind === 'renewal')
+        .map((document) => [document.id, {
+          startDate: document.renewalStartDate || '',
+          endDate: document.renewalEndDate || '',
+        }])));
     } catch (error) {
       console.error('Error loading contract documents:', error);
       setSnackbar({ open: true, message: 'No se pudo cargar el historial de documentos.', severity: 'error' });
@@ -284,6 +308,8 @@ const Contracts = () => {
       kind: SupplierContractDocumentKind;
       title: string;
       date?: string;
+      renewalStartDate?: string;
+      renewalEndDate?: string;
       replacesDocumentId?: string;
       replacementReason?: string;
     },
@@ -298,6 +324,10 @@ const Contracts = () => {
         kind: details.kind,
         title: details.title.trim(),
         documentDate: details.date || '',
+        ...(details.kind === 'renewal' ? {
+          renewalStartDate: details.renewalStartDate || '',
+          renewalEndDate: details.renewalEndDate || '',
+        } : {}),
         storagePath: uploaded.path,
         fileName: file.name,
         contentType: 'application/pdf',
@@ -354,6 +384,19 @@ const Contracts = () => {
         setSnackbar({ open: true, message: error instanceof Error ? error.message : 'PDF no válido.', severity: 'warning' });
         return;
       }
+      if (draft.kind === 'renewal'
+        && (!draft.renewalStartDate || !draft.renewalEndDate || draft.renewalEndDate < draft.renewalStartDate)) {
+        setSnackbar({ open: true, message: 'Cada renovación debe tener fechas de inicio y fin válidas.', severity: 'warning' });
+        return;
+      }
+    }
+    for (const document of editingDocuments.filter((item) => item.kind === 'renewal')) {
+      const period = renewalPeriodDrafts[document.id] || { startDate: '', endDate: '' };
+      if (Boolean(period.startDate) !== Boolean(period.endDate)
+        || (period.startDate && period.endDate < period.startDate)) {
+        setSnackbar({ open: true, message: 'Completa ambas fechas de cada renovación y verifica que la fecha final no sea anterior a la inicial.', severity: 'warning' });
+        return;
+      }
     }
     if (form.startDate && form.endDate && form.endDate < form.startDate) {
       setSnackbar({ open: true, message: 'La fecha de vencimiento no puede ser anterior a la fecha de inicio.', severity: 'warning' });
@@ -363,7 +406,7 @@ const Contracts = () => {
     setSaving(true);
     setUploadPct(0);
     let contractId = editingContract?.id || '';
-    let metadataSaved = Boolean(editingContract);
+    let metadataSaved = false;
     const uploadErrors: string[] = [];
     try {
       const selectedSupplier = supplierById.get(form.supplierId);
@@ -380,6 +423,9 @@ const Contracts = () => {
         signedDate: form.signedDate,
         startDate: form.startDate,
         endDate: form.endDate,
+        currentRenewalDocumentId: editingContract?.currentRenewalDocumentId || '',
+        renewalStartDate: editingContract?.renewalStartDate || '',
+        renewalEndDate: editingContract?.renewalEndDate || '',
         value: value ?? null,
         notes: form.notes.trim(),
         status: (editingContract?.status || 'active') as SupplierContract['status'],
@@ -415,6 +461,18 @@ const Contracts = () => {
         }
       }
 
+      for (const document of editingDocuments.filter((item) => item.kind === 'renewal')) {
+        const period = renewalPeriodDrafts[document.id] || { startDate: '', endDate: '' };
+        if (!period.startDate || !period.endDate
+          || (period.startDate === (document.renewalStartDate || '') && period.endDate === (document.renewalEndDate || ''))) continue;
+        try {
+          await updateSupplierContractRenewalPeriod(contractId, document.id, period.startDate, period.endDate, profile?.uid);
+        } catch (error) {
+          console.error('Error updating supplier contract renewal period:', error);
+          uploadErrors.push(`No se pudo guardar la vigencia de «${document.title}».`);
+        }
+      }
+
       for (const draft of relatedDrafts) {
         if (!draft.file) continue;
         try {
@@ -422,6 +480,10 @@ const Contracts = () => {
             kind: draft.kind,
             title: draft.title,
             date: draft.date,
+            ...(draft.kind === 'renewal' ? {
+              renewalStartDate: draft.renewalStartDate,
+              renewalEndDate: draft.renewalEndDate,
+            } : {}),
           }, false);
         } catch (error) {
           console.error('Error uploading related contract PDF:', error);
@@ -609,10 +671,19 @@ const Contracts = () => {
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2">Inicio: {formatDate(contract.startDate)}</Typography>
-                        <Typography variant="caption" color="text.secondary">Firmado: {formatDate(contract.signedDate)}</Typography>
-                        <br />
-                        <Typography variant="caption" color="text.secondary">Fin: {contract.endDate ? formatDate(contract.endDate) : 'Sin fecha de vencimiento'}</Typography>
+                        {(() => {
+                          const period = getEffectivePeriod(contract);
+                          return (
+                            <>
+                              <Typography variant="body2">{period.renewed ? 'Inicio renovación' : 'Inicio'}: {formatDate(period.startDate)}</Typography>
+                              <Typography variant="caption" color="text.secondary">{period.renewed ? 'Firmado originalmente' : 'Firmado'}: {formatDate(contract.signedDate)}</Typography>
+                              <br />
+                              <Typography variant="caption" color="text.secondary">
+                                {period.renewed ? 'Fin renovación' : 'Fin'}: {period.endDate ? formatDate(period.endDate) : 'Sin fecha de vencimiento'}
+                              </Typography>
+                            </>
+                          );
+                        })()}
                       </TableCell>
                       <TableCell align="right">{contract.value != null ? `$${Number(contract.value).toLocaleString('es-CO')}` : '—'}</TableCell>
                       <TableCell><Chip size="small" label={status.label} color={status.color} /></TableCell>
@@ -746,13 +817,47 @@ const Contracts = () => {
                   </Stack>
 
                   <Divider />
+                  {editingDocuments.some((document) => document.kind === 'renewal') && (
+                    <Stack spacing={1.25}>
+                      <Box>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Vigencias de renovaciones cargadas</Typography>
+                        <Typography variant="caption" color="text.secondary">
+                          Completa o corrige el período asociado a cada PDF. La renovación con el inicio más reciente define la vigencia del contrato.
+                        </Typography>
+                      </Box>
+                      {editingDocuments.filter((document) => document.kind === 'renewal').map((document) => {
+                        const period = renewalPeriodDrafts[document.id] || { startDate: '', endDate: '' };
+                        const current = document.id === editingContract?.currentRenewalDocumentId;
+                        return (
+                          <Paper key={document.id} variant="outlined" sx={{ p: 1.5 }}>
+                            <Stack spacing={1}>
+                              <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                                <Typography variant="body2" sx={{ fontWeight: 800 }}>{document.title}</Typography>
+                                {current && <Chip size="small" color="success" label="Vigencia aplicada" />}
+                              </Stack>
+                              <Grid container spacing={1.5}>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                  <TextField size="small" label="Inicio de renovación" type="date" fullWidth value={period.startDate} InputLabelProps={{ shrink: true }} disabled={saving || loadingEditDocuments} onChange={(event) => setRenewalPeriodDrafts((rows) => ({ ...rows, [document.id]: { ...period, startDate: event.target.value } }))} />
+                                </Grid>
+                                <Grid size={{ xs: 12, sm: 6 }}>
+                                  <TextField size="small" label="Fin de renovación" type="date" fullWidth value={period.endDate} InputLabelProps={{ shrink: true }} disabled={saving || loadingEditDocuments} onChange={(event) => setRenewalPeriodDrafts((rows) => ({ ...rows, [document.id]: { ...period, endDate: event.target.value } }))} />
+                                </Grid>
+                              </Grid>
+                            </Stack>
+                          </Paper>
+                        );
+                      })}
+                    </Stack>
+                  )}
+
+                  <Divider />
                   <Stack spacing={1.5}>
                     <Stack direction="row" justifyContent="space-between" alignItems="center" gap={1}>
                       <Box>
                         <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Adendas, renovaciones y otros</Typography>
                         <Typography variant="caption" color="text.secondary">Documentos relacionados opcionales; cada archivo queda en el historial.</Typography>
                       </Box>
-                      <Button size="small" startIcon={<AddOutlinedIcon />} onClick={() => setRelatedDrafts((current) => [...current, { key: crypto.randomUUID(), kind: 'addendum', title: '', date: '', file: null }])} disabled={saving}>
+                      <Button size="small" startIcon={<AddOutlinedIcon />} onClick={() => setRelatedDrafts((current) => [...current, { key: crypto.randomUUID(), kind: 'addendum', title: '', date: '', renewalStartDate: '', renewalEndDate: '', file: null }])} disabled={saving}>
                         Agregar
                       </Button>
                     </Stack>
@@ -773,7 +878,7 @@ const Contracts = () => {
                             <TextField size="small" label="Nombre o detalle" required fullWidth value={draft.title} onChange={(event) => setRelatedDrafts((rows) => rows.map((row) => row.key === draft.key ? { ...row, title: event.target.value } : row))} />
                           </Grid>
                           <Grid size={{ xs: 12, sm: 2 }}>
-                            <TextField size="small" label="Fecha" type="date" fullWidth value={draft.date} InputLabelProps={{ shrink: true }} onChange={(event) => setRelatedDrafts((rows) => rows.map((row) => row.key === draft.key ? { ...row, date: event.target.value } : row))} />
+                            <TextField size="small" label="Fecha del documento" type="date" fullWidth value={draft.date} InputLabelProps={{ shrink: true }} onChange={(event) => setRelatedDrafts((rows) => rows.map((row) => row.key === draft.key ? { ...row, date: event.target.value } : row))} />
                           </Grid>
                           <Grid size={{ xs: 10, sm: 2 }}>
                             <Button component="label" size="small" fullWidth startIcon={<AttachFileOutlinedIcon />}>
@@ -790,6 +895,16 @@ const Contracts = () => {
                           </Grid>
                           {draft.file && <Grid size={12}><Typography variant="caption" color="text.secondary">{draft.file.name}</Typography></Grid>}
                         </Grid>
+                        {draft.kind === 'renewal' && (
+                          <Grid container spacing={1.5} sx={{ mt: 0.25 }}>
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                              <TextField size="small" label="Inicio de renovación" type="date" required fullWidth value={draft.renewalStartDate} InputLabelProps={{ shrink: true }} disabled={saving} onChange={(event) => setRelatedDrafts((rows) => rows.map((row) => row.key === draft.key ? { ...row, renewalStartDate: event.target.value } : row))} />
+                            </Grid>
+                            <Grid size={{ xs: 12, sm: 6 }}>
+                              <TextField size="small" label="Fin de renovación" type="date" required fullWidth value={draft.renewalEndDate} InputLabelProps={{ shrink: true }} disabled={saving} onChange={(event) => setRelatedDrafts((rows) => rows.map((row) => row.key === draft.key ? { ...row, renewalEndDate: event.target.value } : row))} />
+                            </Grid>
+                          </Grid>
+                        )}
                       </Paper>
                     ))}
                   </Stack>
@@ -848,6 +963,11 @@ const Contracts = () => {
                       </TableCell>
                       <TableCell>
                         <Typography variant="body2">{formatDate(document.documentDate)}</Typography>
+                        {document.kind === 'renewal' && document.renewalStartDate && document.renewalEndDate && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            Vigencia: {formatDate(document.renewalStartDate)} – {formatDate(document.renewalEndDate)}
+                          </Typography>
+                        )}
                         <Typography variant="caption" color="text.secondary">Cargado: {formatTimestamp(document.createdAt)}</Typography>
                       </TableCell>
                       <TableCell>

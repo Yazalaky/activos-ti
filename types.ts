@@ -120,6 +120,9 @@ export interface SupplierContract extends AuditFields {
   signedDate?: string;
   startDate?: string;
   endDate?: string;
+  currentRenewalDocumentId?: string;
+  renewalStartDate?: string;
+  renewalEndDate?: string;
   value?: number | null;
   notes?: string;
   status: SupplierContractStatus;
@@ -134,12 +137,16 @@ export interface SupplierContractDocument extends AuditFields {
   kind: SupplierContractDocumentKind;
   title: string;
   documentDate?: string;
+  renewalStartDate?: string;
+  renewalEndDate?: string;
   storagePath: string;
   fileName: string;
   contentType: 'application/pdf';
   size: number;
   replacesDocumentId?: string;
   replacementReason?: string;
+  updatedAt?: number;
+  updatedByUid?: string;
 }
 
 export interface Invoice extends AuditFields {

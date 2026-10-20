@@ -313,6 +313,10 @@ export const addSupplierContractDocument = async (
   actorUid?: string,
 ) => {
   const uid = resolveActorUid(actorUid);
+  if (data.kind === 'renewal'
+    && (!data.renewalStartDate || !data.renewalEndDate || data.renewalEndDate < data.renewalStartDate)) {
+    throw new Error('Indica un período de vigencia válido para la renovación.');
+  }
   const contractRef = doc(db, 'contracts', contractId);
   const documentRef = doc(db, 'contracts', contractId, 'documents', documentId);
   const now = Date.now();
@@ -326,9 +330,81 @@ export const addSupplierContractDocument = async (
       createdAt: now,
       createdByUid: uid,
     });
+    const contractData = contractSnapshot.data();
+    const contractChanges: Record<string, unknown> = {};
     if (makeCurrentSignedContract) {
+      contractChanges.currentSignedDocumentId = documentId;
+    }
+    if (data.kind === 'renewal' && data.renewalStartDate && data.renewalEndDate) {
+      const currentRenewalId = contractData.currentRenewalDocumentId || '';
+      const currentStartDate = contractData.renewalStartDate || '';
+      const currentEndDate = contractData.renewalEndDate || '';
+      const isLaterRenewal = !currentRenewalId
+        || data.renewalStartDate > currentStartDate
+        || (data.renewalStartDate === currentStartDate && data.renewalEndDate >= currentEndDate);
+      if (isLaterRenewal) {
+        contractChanges.currentRenewalDocumentId = documentId;
+        contractChanges.renewalStartDate = data.renewalStartDate;
+        contractChanges.renewalEndDate = data.renewalEndDate;
+      }
+    }
+    if (Object.keys(contractChanges).length > 0) {
       transaction.update(contractRef, {
-        currentSignedDocumentId: documentId,
+        ...contractChanges,
+        updatedAt: now,
+        updatedByUid: uid,
+      });
+    }
+  });
+};
+
+export const updateSupplierContractRenewalPeriod = async (
+  contractId: string,
+  documentId: string,
+  renewalStartDate: string,
+  renewalEndDate: string,
+  actorUid?: string,
+) => {
+  const uid = resolveActorUid(actorUid);
+  if (!renewalStartDate || !renewalEndDate || renewalEndDate < renewalStartDate) {
+    throw new Error('Indica un período de vigencia válido para la renovación.');
+  }
+  const contractRef = doc(db, 'contracts', contractId);
+  const documentRef = doc(db, 'contracts', contractId, 'documents', documentId);
+  const now = Date.now();
+
+  return runTransaction(db, async (transaction) => {
+    const [contractSnapshot, documentSnapshot] = await Promise.all([
+      transaction.get(contractRef),
+      transaction.get(documentRef),
+    ]);
+    if (!contractSnapshot.exists() || !documentSnapshot.exists()) {
+      throw new Error('No se encontró el contrato o el documento de renovación. Actualiza la página e inténtalo de nuevo.');
+    }
+    if (documentSnapshot.data().kind !== 'renewal') {
+      throw new Error('Solo se puede asignar vigencia a un documento de tipo renovación.');
+    }
+
+    transaction.update(documentRef, {
+      renewalStartDate,
+      renewalEndDate,
+      updatedAt: now,
+      updatedByUid: uid,
+    });
+
+    const contractData = contractSnapshot.data();
+    const currentRenewalId = contractData.currentRenewalDocumentId || '';
+    const currentStartDate = contractData.renewalStartDate || '';
+    const currentEndDate = contractData.renewalEndDate || '';
+    const isCurrentRenewal = currentRenewalId === documentId;
+    const isLaterRenewal = !currentRenewalId
+      || renewalStartDate > currentStartDate
+      || (renewalStartDate === currentStartDate && renewalEndDate >= currentEndDate);
+    if (isCurrentRenewal || isLaterRenewal) {
+      transaction.update(contractRef, {
+        currentRenewalDocumentId: documentId,
+        renewalStartDate,
+        renewalEndDate,
         updatedAt: now,
         updatedByUid: uid,
       });
