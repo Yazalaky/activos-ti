@@ -63,6 +63,24 @@ service cloud.firestore {
       return canWrite() && canReadSite(siteId);
     }
 
+    function canCreateActOnSite(siteId) {
+      let hasUserProfile = hasProfile();
+      let profile = hasUserProfile ? userDoc().data : {};
+      return hasUserProfile
+        && (!profile.keys().hasAny(['active']) || profile.active == true)
+        && profile.role in ['admin', 'tech']
+        && (
+          !profile.keys().hasAny(['accessScope'])
+          || profile.accessScope == 'global'
+          || (
+            profile.accessScope == 'sites'
+            && profile.keys().hasAny(['siteIds'])
+            && profile.siteIds is list
+            && profile.siteIds.hasAny([siteId])
+          )
+        );
+    }
+
     function canManageContracts() {
       return isAdmin() || (isTech() && hasGlobalAccess());
     }
@@ -730,6 +748,28 @@ service cloud.firestore {
       return identityValid && deviceTypesValid && standardSoftwareValid && requestedSoftwareValid && discountSourcesValid && textFieldsValid;
     }
 
+    // El borrador valida la estructura necesaria para imprimir, sin repetir todas
+    // las validaciones exhaustivas usadas al editar un acta. Las reglas de
+    // Firestore tienen un límite de evaluación por escritura; la comprobación
+    // completa de cada checkbox y campo opcional hacía que el alta lo superara.
+    function actDraftDocumentDetailsValid(details) {
+      return details is map
+        && details.keys().hasAll(['deviceTypes', 'standardSoftware', 'requestedSoftware', 'discountSources'])
+        && details.keys().hasOnly([
+          'deliveredByName', 'deviceTypes', 'charger', 'mouse', 'monitor', 'license',
+          'keyboard', 'phoneSerial', 'phoneImei', 'standardSoftware', 'requestedSoftware',
+          'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue'
+        ])
+        && details.deviceTypes is map
+        && details.deviceTypes.keys().hasAll(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
+        && details.standardSoftware is map
+        && details.standardSoftware.keys().hasAll(['office365', 'antivirus', 'adobeReader', 'sevenZip', 'chrome', 'mozilla'])
+        && details.requestedSoftware is map
+        && details.requestedSoftware.keys().hasAll(['tns', 'tipificador', 'progsalud', 'ccleaner', 'ipscan', 'anydesk'])
+        && details.discountSources is map
+        && details.discountSources.keys().hasAll(['fees', 'salary', 'benefits']);
+    }
+
     function actDraftCreateDataValid() {
       let data = request.resource.data;
       let identityValid = data.keys().hasAll([
@@ -790,7 +830,7 @@ service cloud.firestore {
         && isNonEmptyString(asset.currentAssignment.assignedToName, 200)
         && isNonEmptyString(asset.currentAssignment.assignedToPosition, 150)
         && isNonEmptyString(asset.currentAssignment.assignedToResponsible, 200);
-      return identityValid && snapshotValid && recipientValid && actDocumentDetailsValid(data.documentDetails) && referencesValid;
+      return identityValid && snapshotValid && recipientValid && actDraftDocumentDetailsValid(data.documentDetails) && referencesValid;
     }
 
     function actPdfFileValid(actId, value) {
@@ -1414,7 +1454,7 @@ service cloud.firestore {
     // ACTS (Actas de entrega)
     match /acts/{actId} {
       allow read: if canReadSite(resource.data.siteId);
-      allow create: if canWriteSite(request.resource.data.siteId)
+      allow create: if canCreateActOnSite(request.resource.data.siteId)
         && actDraftCreateDataValid();
       allow update: if !isLegacyActDocument()
         && canWriteSite(resource.data.siteId)
