@@ -89,6 +89,16 @@ const statusColor = (status: ActStatus) => {
 
 const MAX_ACT_PDF_SIZE = 10 * 1024 * 1024;
 
+const toActSnapshotText = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+};
+
+const isSupportedActSnapshotValue = (value: unknown) => value == null
+  || typeof value === 'string'
+  || (typeof value === 'number' && Number.isFinite(value));
+
 const createEmptyDocumentDetails = (): ActDocumentDetails => ({
   deviceTypes: { desktop: false, laptop: false, printer: false, tablet: false, cellphone: false, other: false },
   standardSoftware: { office365: false, antivirus: false, adobeReader: false, sevenZip: false, chrome: false, mozilla: false },
@@ -371,6 +381,62 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'Solo se pueden crear actas para activos asignados con asignación completa.', severity: 'warning' });
       return;
     }
+    const assetSnapshot = {
+      type: toActSnapshotText(asset.type),
+      brand: toActSnapshotText(asset.brand),
+      model: toActSnapshotText(asset.model),
+      serial: toActSnapshotText(asset.serial),
+      processor: toActSnapshotText(asset.processor),
+      ram: toActSnapshotText(asset.ram),
+      storage: toActSnapshotText(asset.storage),
+      os: toActSnapshotText(asset.os),
+    };
+    const requiredSnapshotFields: Array<[string, string | undefined, number]> = [
+      ['tipo', assetSnapshot.type, 50],
+      ['marca', assetSnapshot.brand, 100],
+      ['modelo', assetSnapshot.model, 150],
+      ['serial', assetSnapshot.serial, 150],
+    ];
+    const invalidRequiredSnapshot = requiredSnapshotFields.find(([, value, maxLength]) => !value || value.length > maxLength);
+    if (invalidRequiredSnapshot) {
+      setSnackbar({
+        open: true,
+        message: `El activo ${asset.fixedAssetId} tiene un dato técnico obligatorio vacío o demasiado largo (${invalidRequiredSnapshot[0]}). Corrígelo en Inventario antes de crear el acta.`,
+        severity: 'warning',
+      });
+      return;
+    }
+    const optionalSnapshotFields: Array<[string, unknown, string | undefined, number]> = [
+      ['procesador', asset.processor, assetSnapshot.processor, 150],
+      ['RAM', asset.ram, assetSnapshot.ram, 100],
+      ['almacenamiento', asset.storage, assetSnapshot.storage, 100],
+      ['sistema operativo', asset.os, assetSnapshot.os, 100],
+    ];
+    const invalidOptionalSnapshot = optionalSnapshotFields.find(([, original, value, maxLength]) =>
+      !isSupportedActSnapshotValue(original) || (value !== undefined && value.length > maxLength));
+    if (invalidOptionalSnapshot) {
+      setSnackbar({
+        open: true,
+        message: `El dato de ${invalidOptionalSnapshot[0]} del activo ${asset.fixedAssetId} no tiene un formato válido. Corrígelo en Inventario antes de crear el acta.`,
+        severity: 'warning',
+      });
+      return;
+    }
+    const assignmentFields: Array<[string, unknown, number]> = [
+      ['nombre del responsable', asset.currentAssignment.assignedToName, 200],
+      ['cargo del responsable', asset.currentAssignment.assignedToPosition, 150],
+      ['responsable de entrega', asset.currentAssignment.assignedToResponsible, 200],
+    ];
+    const invalidAssignment = assignmentFields.find(([, value, maxLength]) =>
+      typeof value !== 'string' || !value.trim() || value.length > maxLength);
+    if (invalidAssignment) {
+      setSnackbar({
+        open: true,
+        message: `La asignación actual del activo ${asset.fixedAssetId} tiene un dato inválido (${invalidAssignment[0]}). Corrige la asignación en Inventario y vuelve a intentarlo.`,
+        severity: 'warning',
+      });
+      return;
+    }
     if (acts.some((act) => act.assetId === asset.id && act.status !== 'void')) {
       setSnackbar({ open: true, message: 'El activo ya tiene un acta vigente. Anule la anterior antes de crear otra.', severity: 'warning' });
       return;
@@ -386,16 +452,7 @@ const Acts = () => {
         templateVersion: selectedTemplate.version || 1,
         companyNitSnapshot: selectedTemplate.nit.trim(),
         fixedAssetIdSnapshot: asset.fixedAssetId,
-        assetSnapshot: {
-          type: asset.type,
-          brand: asset.brand,
-          model: asset.model,
-          serial: asset.serial,
-          processor: asset.processor,
-          ram: asset.ram,
-          storage: asset.storage,
-          os: asset.os,
-        },
+        assetSnapshot,
         recipient: {
           fullName: recipientName.trim(),
           position: recipientPosition.trim(),
@@ -419,8 +476,17 @@ const Acts = () => {
       setCreateOpen(false);
       await load();
     } catch (error) {
-      console.error('Create act error:', error);
-      setSnackbar({ open: true, message: 'No se pudo crear el acta.', severity: 'error' });
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code || '')
+        : '';
+      console.error('Create act error:', { code, siteId: asset.siteId, assetId: asset.id, fixedAssetId: asset.fixedAssetId }, error);
+      setSnackbar({
+        open: true,
+        message: code === 'permission-denied'
+          ? `Firestore rechazó el borrador de ${asset.fixedAssetId}. Verifica que tu usuario tenga acceso a ${site.name} y que los datos de sede/asignación sigan vigentes. Si persiste, informa este código de activo al administrador.`
+          : 'No se pudo crear el acta. Inténtalo de nuevo y, si persiste, informa el código de activo al administrador.',
+        severity: 'error',
+      });
     } finally {
       setCreating(false);
     }
