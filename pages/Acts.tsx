@@ -39,6 +39,7 @@ import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useAuth } from '../auth/AuthContext';
+import { auth } from '../firebaseAuth';
 import { addAct, getActs, getActTemplates, getAssets, getSites, updateAct, updateActContent } from '../services/api';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { generateActPdf } from '../services/actPdf';
@@ -479,7 +480,24 @@ const Acts = () => {
       const code = typeof error === 'object' && error !== null && 'code' in error
         ? String((error as { code?: unknown }).code || '')
         : '';
-      console.error('Create act error:', { code, siteId: asset.siteId, assetId: asset.id, fixedAssetId: asset.fixedAssetId }, error);
+      const profileScopeAllowsSite = profile?.accessScope !== 'sites'
+        || Boolean(profile.siteIds?.includes(asset.siteId));
+      console.error('Create act error:', {
+        code,
+        siteId: asset.siteId,
+        assetId: asset.id,
+        fixedAssetId: asset.fixedAssetId,
+        diagnostics: {
+          authenticated: Boolean(auth.currentUser),
+          profileUidMatchesSession: Boolean(auth.currentUser?.uid && auth.currentUser.uid === profile?.uid),
+          roleCanCreate: profile?.role === 'admin' || profile?.role === 'tech',
+          profileActive: profile?.active !== false,
+          profileScopeAllowsSite,
+          assetBelongsToSite: asset.siteId === site.id,
+          siteCompanyMatchesSelection: site.companyId === createCompanyId,
+          assetAssigned: asset.status === 'asignado',
+        },
+      }, error);
       setSnackbar({
         open: true,
         message: code === 'permission-denied'

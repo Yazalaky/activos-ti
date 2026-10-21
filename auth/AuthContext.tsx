@@ -57,7 +57,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
               void auth.signOut();
               return;
             }
-            const profile: UserProfile = { uid, ...data };
+            // El UID siempre debe ser el del usuario autenticado; nunca permitir
+            // que un campo residual del documento de perfil lo sobrescriba.
+            const profile: UserProfile = { ...data, uid };
             setState({ user, profile, role: profile.role, loading: false });
           },
           (error) => {

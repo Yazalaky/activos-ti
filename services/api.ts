@@ -588,7 +588,10 @@ export const getActs = async () => {
   }
 };
 
-export const addAct = (data: Omit<Act, 'id'>, actorUid?: string) => addDoc(collection(db, 'acts'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
+export const addAct = (data: Omit<Act, 'id'>, actorUid?: string) => {
+  const uid = resolveActorUid(actorUid);
+  return addDoc(collection(db, 'acts'), { ...data, createdAt: Date.now(), createdByUid: uid });
+};
 export const updateAct = (id: string, data: Partial<Act>, actorUid?: string) => updateDoc(doc(db, 'acts', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 export const updateActContent = async (
   id: string,
