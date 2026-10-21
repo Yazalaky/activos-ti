@@ -15,7 +15,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../firebaseAuth';
 import { db } from '../firebaseDb';
-import type { Act, ActTemplate, Activity, Asset, Assignment, Invoice, Quote, Site, Supplier, SupplierContract, SupplierContractDocument, Maintenance } from '../types';
+import type { Act, ActTemplate, Activity, Asset, Assignment, GoogleOneAccount, Invoice, Quote, Site, Supplier, SupplierContract, SupplierContractDocument, Maintenance } from '../types';
 
 export interface QueryFilters {
   siteId?: string;
@@ -277,6 +277,34 @@ export const updateActivity = (id: string, data: Partial<Activity>, actorUid?: s
 export const getSuppliers = () => fetchCollection<Supplier>('suppliers');
 export const addSupplier = (data: Omit<Supplier, 'id'>, actorUid?: string) => addDoc(collection(db, 'suppliers'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
 export const updateSupplier = (id: string, data: Partial<Supplier>, actorUid?: string) => updateDoc(doc(db, 'suppliers', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
+
+// Google One: un documento por correo normalizado evita duplicar cuentas.
+export const getGoogleOneAccounts = async () => (await fetchCollection<GoogleOneAccount>('googleOneAccounts'))
+  .sort((a, b) => a.accountEmail.localeCompare(b.accountEmail));
+
+export const addGoogleOneAccount = async (
+  data: Omit<GoogleOneAccount, 'id' | 'createdAt' | 'createdByUid' | 'updatedAt' | 'updatedByUid'>,
+  actorUid?: string,
+) => {
+  const uid = resolveActorUid(actorUid);
+  const accountEmail = data.accountEmail.trim().toLowerCase();
+  const accountRef = doc(db, 'googleOneAccounts', accountEmail);
+  await runTransaction(db, async (transaction) => {
+    const existing = await transaction.get(accountRef);
+    if (existing.exists()) throw new Error('Ya existe un registro para esa cuenta de Google.');
+    transaction.set(accountRef, { ...data, accountEmail, createdAt: Date.now(), createdByUid: uid });
+  });
+  return { id: accountEmail };
+};
+
+export const updateGoogleOneAccount = async (
+  id: string,
+  data: Partial<Omit<GoogleOneAccount, 'id' | 'accountEmail' | 'createdAt' | 'createdByUid' | 'updatedAt' | 'updatedByUid'>>,
+  actorUid?: string,
+) => {
+  const uid = resolveActorUid(actorUid);
+  return updateDoc(doc(db, 'googleOneAccounts', id), { ...data, updatedAt: Date.now(), updatedByUid: uid });
+};
 
 // Contratos de proveedores: los datos y cada PDF se guardan en documentos separados.
 export const getSupplierContracts = () => fetchCollection<SupplierContract>('contracts');

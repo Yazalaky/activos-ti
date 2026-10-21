@@ -108,6 +108,16 @@ export interface Supplier extends AuditFields {
   category: string;
 }
 
+export interface GoogleOneAccount extends AuditFields {
+  id: string;
+  accountEmail: string;
+  cardLastFour: string;
+  plan: string;
+  storage: string;
+  billingDay: number;
+  active: boolean;
+}
+
 export type SupplierContractStatus = 'active' | 'terminated';
 export type SupplierContractDocumentKind = 'signed_contract' | 'addendum' | 'renewal' | 'other';
 

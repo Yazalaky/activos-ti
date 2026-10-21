@@ -53,8 +53,9 @@ import { useAuth } from '../auth/AuthContext';
 import { deleteStoragePath } from '../services/storageFiles';
 import { exportToCsv } from '../utils/exportCsv';
 import { printReport } from '../utils/printReport';
+import GoogleOneAccounts from './GoogleOneAccounts';
 
-type TabKey = 'invoices' | 'suppliers' | 'reports';
+type TabKey = 'invoices' | 'suppliers' | 'reports' | 'google-one';
 
 const getDisplayStatus = (inv: Invoice) => {
   if (inv.status === 'paid') {
@@ -640,7 +641,7 @@ const Finance = () => {
           Gestión financiera
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          Facturas, proveedores y reporte de costos
+          Facturas, proveedores, costos y cuentas Google One
         </Typography>
       </Box>
 
@@ -652,7 +653,10 @@ const Finance = () => {
         <Tab value="invoices" label="Facturas" />
         <Tab value="suppliers" label="Proveedores" />
         <Tab value="reports" label="Reporte de costos" />
+        {canReadContracts && <Tab value="google-one" label="Google One" />}
       </Tabs>
+
+      {activeTab === 'google-one' && canReadContracts && <GoogleOneAccounts />}
 
       {(activeTab === 'invoices' || activeTab === 'reports') && (
         <Card>
