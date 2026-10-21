@@ -114,6 +114,7 @@ export interface GoogleOneAccount extends AuditFields {
   cardLastFour: string;
   plan: string;
   storage: string;
+  monthlyPrice?: number;
   billingDay: number;
   active: boolean;
 }

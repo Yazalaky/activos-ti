@@ -283,7 +283,7 @@ export const getGoogleOneAccounts = async () => (await fetchCollection<GoogleOne
   .sort((a, b) => a.accountEmail.localeCompare(b.accountEmail));
 
 export const addGoogleOneAccount = async (
-  data: Omit<GoogleOneAccount, 'id' | 'createdAt' | 'createdByUid' | 'updatedAt' | 'updatedByUid'>,
+  data: Omit<GoogleOneAccount, 'id' | 'createdAt' | 'createdByUid' | 'updatedAt' | 'updatedByUid' | 'monthlyPrice'> & { monthlyPrice: number },
   actorUid?: string,
 ) => {
   const uid = resolveActorUid(actorUid);

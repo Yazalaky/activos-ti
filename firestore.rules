@@ -451,9 +451,9 @@ service cloud.firestore {
 
     function googleOneAccountDataValid(accountId) {
       let data = request.resource.data;
-      return data.keys().hasAll(['accountEmail', 'cardLastFour', 'plan', 'storage', 'billingDay', 'active'])
+      return data.keys().hasAll(['accountEmail', 'cardLastFour', 'plan', 'storage', 'monthlyPrice', 'billingDay', 'active'])
         && data.keys().hasOnly([
-          'accountEmail', 'cardLastFour', 'plan', 'storage', 'billingDay', 'active',
+          'accountEmail', 'cardLastFour', 'plan', 'storage', 'monthlyPrice', 'billingDay', 'active',
           'createdAt', 'createdByUid', 'updatedAt', 'updatedByUid'
         ])
         && isNonEmptyString(data.accountEmail, 254)
@@ -463,6 +463,9 @@ service cloud.firestore {
         && data.cardLastFour.matches('^[0-9]{4}$')
         && isNonEmptyString(data.plan, 120)
         && isNonEmptyString(data.storage, 80)
+        && data.monthlyPrice is int
+        && data.monthlyPrice >= 0
+        && data.monthlyPrice <= 999999999
         && data.billingDay is int
         && data.billingDay >= 1
         && data.billingDay <= 31
