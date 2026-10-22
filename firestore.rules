@@ -695,7 +695,7 @@ service cloud.firestore {
       let identityValid = details is map
         && details.keys().hasAll(['deviceTypes', 'standardSoftware', 'requestedSoftware', 'discountSources'])
         && details.keys().hasOnly([
-          'deliveredByName', 'deviceTypes', 'charger', 'mouse', 'monitor', 'license',
+          'deliveredByName', 'deviceTypes', 'otherDeviceType', 'charger', 'mouse', 'monitor', 'license',
           'keyboard', 'phoneSerial', 'phoneImei', 'standardSoftware', 'requestedSoftware',
           'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue'
         ]);
@@ -756,18 +756,22 @@ service cloud.firestore {
       return details is map
         && details.keys().hasAll(['deviceTypes', 'standardSoftware', 'requestedSoftware', 'discountSources'])
         && details.keys().hasOnly([
-          'deliveredByName', 'deviceTypes', 'charger', 'mouse', 'monitor', 'license',
+          'deliveredByName', 'deviceTypes', 'otherDeviceType', 'charger', 'mouse', 'monitor', 'license',
           'keyboard', 'phoneSerial', 'phoneImei', 'standardSoftware', 'requestedSoftware',
           'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue'
         ])
         && details.deviceTypes is map
         && details.deviceTypes.keys().hasAll(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
+        && details.deviceTypes.keys().hasOnly(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
         && details.standardSoftware is map
         && details.standardSoftware.keys().hasAll(['office365', 'antivirus', 'adobeReader', 'sevenZip', 'chrome', 'mozilla'])
+        && details.standardSoftware.keys().hasOnly(['office365', 'antivirus', 'adobeReader', 'sevenZip', 'chrome', 'mozilla'])
         && details.requestedSoftware is map
         && details.requestedSoftware.keys().hasAll(['tns', 'tipificador', 'progsalud', 'ccleaner', 'ipscan', 'anydesk'])
+        && details.requestedSoftware.keys().hasOnly(['tns', 'tipificador', 'progsalud', 'ccleaner', 'ipscan', 'anydesk'])
         && details.discountSources is map
-        && details.discountSources.keys().hasAll(['fees', 'salary', 'benefits']);
+        && details.discountSources.keys().hasAll(['fees', 'salary', 'benefits'])
+        && details.discountSources.keys().hasOnly(['fees', 'salary', 'benefits']);
     }
 
     function actDraftCreateDataValid() {
@@ -780,8 +784,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'assetId', 'siteId', 'companyId', 'templateId', 'templateVersion',
           'fixedAssetIdSnapshot', 'assetSnapshot', 'recipient', 'companyNitSnapshot',
-          'documentDetails', 'observations',
-          'status', 'contentRevision', 'createdAt', 'createdByUid'
+          'documentDetails', 'observations', 'status', 'contentRevision', 'createdAt', 'createdByUid'
         ])
         && isNonEmptyString(data.assetId, 150)
         && isNonEmptyString(data.siteId, 150)
@@ -802,23 +805,13 @@ service cloud.firestore {
         && isNonEmptyString(data.assetSnapshot.type, 50)
         && isNonEmptyString(data.assetSnapshot.brand, 100)
         && isNonEmptyString(data.assetSnapshot.model, 150)
-        && isNonEmptyString(data.assetSnapshot.serial, 150)
-        && (!data.assetSnapshot.keys().hasAny(['processor']) || isOptionalString(data.assetSnapshot.processor, 150))
-        && (!data.assetSnapshot.keys().hasAny(['ram']) || isOptionalString(data.assetSnapshot.ram, 100))
-        && (!data.assetSnapshot.keys().hasAny(['storage']) || isOptionalString(data.assetSnapshot.storage, 100))
-        && (!data.assetSnapshot.keys().hasAny(['os']) || isOptionalString(data.assetSnapshot.os, 100));
+        && isNonEmptyString(data.assetSnapshot.serial, 150);
       let recipientValid = data.recipient is map
         && data.recipient.keys().hasAll(['fullName', 'position', 'documentNumber'])
         && data.recipient.keys().hasOnly(['fullName', 'position', 'email', 'documentNumber', 'area', 'phone', 'extension', 'networkUser'])
         && isNonEmptyString(data.recipient.fullName, 200)
         && isNonEmptyString(data.recipient.position, 150)
-        && isNonEmptyString(data.recipient.documentNumber, 80)
-        && (!data.recipient.keys().hasAny(['email']) || isOptionalString(data.recipient.email, 254))
-        && (!data.recipient.keys().hasAny(['area']) || isOptionalString(data.recipient.area, 150))
-        && (!data.recipient.keys().hasAny(['phone']) || isOptionalString(data.recipient.phone, 80))
-        && (!data.recipient.keys().hasAny(['extension']) || isOptionalString(data.recipient.extension, 30))
-        && (!data.recipient.keys().hasAny(['networkUser']) || isOptionalString(data.recipient.networkUser, 150))
-        && (!data.recipient.keys().hasAny(['email']) || data.recipient.email == null || data.recipient.email == '' || (data.recipient.email is string && data.recipient.email.matches('.*@.*')));
+        && isNonEmptyString(data.recipient.documentNumber, 80);
       let site = get(/databases/$(database)/documents/sites/$(data.siteId)).data;
       let asset = get(/databases/$(database)/documents/assets/$(data.assetId)).data;
       let referencesValid = exists(/databases/$(database)/documents/sites/$(data.siteId))
