@@ -1273,8 +1273,9 @@ const Assets = () => {
                       mb: 2,
                       p: 2,
                       borderRadius: 4,
-                      bgcolor: 'rgba(0,0,0,0.02)',
-                      border: '1px solid rgba(0,0,0,0.06)',
+                      bgcolor: 'action.hover',
+                      border: '1px solid',
+                      borderColor: 'divider',
                     }}
                   >
                     <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>
@@ -1453,7 +1454,7 @@ const Assets = () => {
                   <Avatar
                     variant="rounded"
                     src={previewImage || undefined}
-                    sx={{ width: 96, height: 96, borderRadius: 3, bgcolor: 'rgba(0,0,0,0.06)' }}
+                    sx={{ width: 96, height: 96, borderRadius: 3, bgcolor: 'action.hover' }}
                   />
                   <Stack
                     direction="row"
@@ -1693,10 +1694,10 @@ const Assets = () => {
                       component="img"
                       src={decommissionTarget.imageUrl}
                       alt={`Foto de ${decommissionTarget.fixedAssetId}`}
-                      sx={{ width: '100%', maxHeight: 210, objectFit: 'contain', borderRadius: 3, bgcolor: 'rgba(0,0,0,0.04)' }}
+                      sx={{ width: '100%', maxHeight: 210, objectFit: 'contain', borderRadius: 3, bgcolor: 'action.hover' }}
                     />
                   ) : (
-                    <Box sx={{ minHeight: 160, display: 'grid', placeItems: 'center', borderRadius: 3, bgcolor: 'rgba(0,0,0,0.04)' }}>
+                    <Box sx={{ minHeight: 160, display: 'grid', placeItems: 'center', borderRadius: 3, bgcolor: 'action.hover' }}>
                       <PhotoCameraOutlinedIcon color="disabled" sx={{ fontSize: 48 }} />
                     </Box>
                   )}

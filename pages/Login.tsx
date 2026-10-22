@@ -9,13 +9,19 @@ import {
   CircularProgress,
   Container,
   InputAdornment,
+  IconButton,
   Paper,
   Stack,
   TextField,
   Typography,
+  Tooltip,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import MailOutlineIcon from '@mui/icons-material/MailOutline';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
+import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
+import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
+import { ColorModeContext } from '../theme';
 
 const Login = () => {
   const [email, setEmail] = useState('');
@@ -23,6 +29,9 @@ const Login = () => {
   const [error, setError] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const navigate = useNavigate();
+  const theme = useTheme();
+  const { toggleColorMode } = React.useContext(ColorModeContext);
+  const isDarkMode = theme.palette.mode === 'dark';
 
   const getAuthErrorMessage = (err: unknown) => {
     const code = typeof err === 'object' && err !== null && 'code' in err ? String((err as any).code) : '';
@@ -67,6 +76,16 @@ const Login = () => {
 
   return (
     <Box sx={{ minHeight: '100vh', display: 'grid', placeItems: 'center', p: 2 }}>
+      <Tooltip title={isDarkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}>
+        <IconButton
+          onClick={toggleColorMode}
+          color="primary"
+          aria-label={isDarkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+          sx={{ position: 'fixed', top: 16, right: 16 }}
+        >
+          {isDarkMode ? <LightModeOutlinedIcon /> : <DarkModeOutlinedIcon />}
+        </IconButton>
+      </Tooltip>
       <Container maxWidth="xs">
         <Paper sx={{ p: 4 }}>
           <Stack spacing={3}>

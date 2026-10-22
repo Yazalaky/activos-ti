@@ -32,9 +32,12 @@ import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
+import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
+import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import { auth } from '../firebaseAuth';
 import { useAuth } from '../auth/AuthContext';
 import type { Role } from '../types';
+import { ColorModeContext } from '../theme';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -68,6 +71,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const location = useLocation();
   const navigate = useNavigate();
   const theme = useTheme();
+  const { toggleColorMode } = React.useContext(ColorModeContext);
+  const isDarkMode = theme.palette.mode === 'dark';
   const isMdUp = useMediaQuery(theme.breakpoints.up('md'));
   const [mobileOpen, setMobileOpen] = React.useState(false);
 
@@ -135,14 +140,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             mt: 1.75,
             p: 1.25,
             borderRadius: 4,
-            bgcolor: alpha('#FFFFFF', 0.7),
-            border: `1px solid ${alpha(theme.palette.common.black, 0.06)}`,
+            bgcolor: theme.palette.background.default,
+            border: `1px solid ${theme.palette.divider}`,
             display: 'flex',
             alignItems: 'center',
             gap: 1.25,
           }}
         >
-          <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>{userInitial}</Avatar>
+          <Avatar sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', width: 36, height: 36 }}>{userInitial}</Avatar>
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 900, lineHeight: 1.15 }} noWrap>
               {profile?.name || userEmail || 'Usuario'}
@@ -197,12 +202,12 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                     mb: 0.5,
                     px: 1.5,
                     py: 1.1,
-                    '&:hover': { bgcolor: 'rgba(0,0,0,0.04)' },
+                    '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.06) },
                     '&.Mui-selected': {
-                      bgcolor: alpha(theme.palette.primary.main, 0.12),
-                      color: 'text.primary',
-                      border: `1px solid ${alpha(theme.palette.primary.main, 0.18)}`,
-                      '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.16) },
+                      bgcolor: alpha(theme.palette.primary.main, 0.1),
+                      color: 'primary.dark',
+                      border: `1px solid ${alpha(theme.palette.primary.main, 0.16)}`,
+                      '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.14) },
                       '& .MuiListItemIcon-root': { color: 'primary.main' },
                     },
                   }}
@@ -241,8 +246,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         color="transparent"
         sx={{
           backdropFilter: 'blur(10px)',
-          bgcolor: 'rgba(255,251,254,0.86)',
-          borderBottom: '1px solid rgba(0,0,0,0.06)',
+          bgcolor: alpha(theme.palette.background.paper, 0.92),
+          borderBottom: `1px solid ${theme.palette.divider}`,
           ml: { md: `${drawerWidth}px` },
           width: { md: `calc(100% - ${drawerWidth}px)` },
         }}
@@ -265,8 +270,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <Box sx={{ flex: 1 }} />
 
+          <Tooltip title={isDarkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}>
+            <IconButton
+              onClick={toggleColorMode}
+              color="primary"
+              aria-label={isDarkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
+            >
+              {isDarkMode ? <LightModeOutlinedIcon /> : <DarkModeOutlinedIcon />}
+            </IconButton>
+          </Tooltip>
+
           <Tooltip title={userEmail || 'Usuario'}>
-            <Avatar sx={{ bgcolor: 'primary.main', width: 36, height: 36 }}>{userInitial}</Avatar>
+            <Avatar sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', width: 36, height: 36 }}>{userInitial}</Avatar>
           </Tooltip>
         </Toolbar>
       </AppBar>
@@ -285,9 +300,8 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             '& .MuiDrawer-paper': {
               width: drawerWidth,
               boxSizing: 'border-box',
-              borderRight: '1px solid rgba(0,0,0,0.06)',
-              bgcolor: '#F3EEF9',
-              backgroundImage: 'linear-gradient(180deg, rgba(103,80,164,0.10), rgba(103,80,164,0.00) 35%)',
+              borderRight: `1px solid ${theme.palette.divider}`,
+              bgcolor: theme.palette.background.paper,
             },
           }}
         >

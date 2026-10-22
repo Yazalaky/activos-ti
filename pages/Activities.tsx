@@ -96,8 +96,9 @@ const ActivityList = React.memo(function ActivityList({ activities, sites, asset
                     sx={{
                       borderRadius: 3,
                       p: 1.5,
-                      bgcolor: 'rgba(0,0,0,0.03)',
-                      border: '1px solid rgba(0,0,0,0.06)',
+                      bgcolor: 'action.hover',
+                      border: '1px solid',
+                      borderColor: 'divider',
                     }}
                   >
                     <Stack direction="row" spacing={1} alignItems="center">
