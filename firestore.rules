@@ -1227,6 +1227,19 @@ service cloud.firestore {
       return pdfPathOk && pdfUrlOk && pdfNameOk && pdfContentTypeOk && pdfSizeOk;
     }
 
+    // El estado de pago y el comprobante solo los actualiza la callable que
+    // verifica el objeto real en Storage. Los clientes no pueden forjarlos.
+    function invoicePaymentCreateValid() {
+      let data = request.resource.data;
+      return data.status == 'pending'
+        && !data.keys().hasAny(['paymentReceipt']);
+    }
+
+    function invoicePaymentUpdateValid() {
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      return !changedKeys.hasAny(['status', 'paymentReceipt']);
+    }
+
     function quoteAttachmentValid(quoteId) {
       let data = request.resource.data;
 
@@ -1415,11 +1428,13 @@ service cloud.firestore {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
         && invoiceDataValid()
+        && invoicePaymentCreateValid()
         && invoiceAttachmentValid(invoiceId)
         && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
         && invoiceDataValid()
+        && invoicePaymentUpdateValid()
         && invoiceAttachmentValid(invoiceId)
         && auditUpdateValid()
         && softDeleteValid()

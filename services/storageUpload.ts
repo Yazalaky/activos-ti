@@ -34,7 +34,8 @@ const resolveContentType = (file: File) => {
 export const uploadFileToStorage = (
   storagePath: string,
   file: File,
-  onProgress?: (progressPct: number) => void
+  onProgress?: (progressPct: number) => void,
+  customMetadata: Record<string, string> = {}
 ) =>
   new Promise<UploadResult>((resolve, reject) => {
     const safePath = storagePath.replace(/\/+/g, '/');
@@ -44,6 +45,7 @@ export const uploadFileToStorage = (
     const task = uploadBytesResumable(storageRef, file, {
       contentType: contentType || undefined,
       customMetadata: {
+        ...customMetadata,
         originalName: sanitizeFilename(file.name) || file.name,
       },
     });

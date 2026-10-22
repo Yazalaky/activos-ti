@@ -7,6 +7,7 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -45,6 +46,7 @@ import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import { addInvoice, addSupplier, deleteInvoice, getInvoices, getSites, getSuppliers, updateInvoice, updateSupplier } from '../services/api';
 import type { Invoice, Site, Supplier } from '../types';
@@ -54,6 +56,7 @@ import { deleteStoragePath } from '../services/storageFiles';
 import { exportToCsv } from '../utils/exportCsv';
 import { printReport } from '../utils/printReport';
 import GoogleOneAccounts from './GoogleOneAccounts';
+import { confirmInvoicePaymentReceipt } from '../services/invoicePayments';
 
 type TabKey = 'invoices' | 'suppliers' | 'reports' | 'google-one';
 
@@ -76,9 +79,11 @@ type InvoiceTableProps = {
   sites: Site[];
   canWrite: boolean;
   canDelete: boolean;
+  uploadingPaymentInvoiceId: string | null;
+  paymentUploadPct: number;
   onEdit: (inv: Invoice) => void;
   onDelete: (inv: Invoice) => void;
-  onToggleStatus: (inv: Invoice) => void;
+  onUploadPaymentReceipt: (inv: Invoice, file: File) => void;
 };
 
 const InvoiceTable = React.memo(function InvoiceTable({
@@ -87,9 +92,11 @@ const InvoiceTable = React.memo(function InvoiceTable({
   sites,
   canWrite,
   canDelete,
+  uploadingPaymentInvoiceId,
+  paymentUploadPct,
   onEdit,
   onDelete,
-  onToggleStatus,
+  onUploadPaymentReceipt,
 }: InvoiceTableProps) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -111,6 +118,7 @@ const InvoiceTable = React.memo(function InvoiceTable({
           <TableCell sx={{ fontWeight: 800 }} align="right">
             Valor
           </TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Soporte de pago</TableCell>
           <TableCell sx={{ fontWeight: 800 }} align="right">
             Acciones
           </TableCell>
@@ -148,7 +156,6 @@ const InvoiceTable = React.memo(function InvoiceTable({
                   icon={statusInfo.icon}
                   label={statusInfo.label}
                   color={statusInfo.color}
-                  onClick={canWrite ? () => onToggleStatus(inv) : undefined}
                   sx={{ fontWeight: 800 }}
                 />
               </TableCell>
@@ -166,6 +173,52 @@ const InvoiceTable = React.memo(function InvoiceTable({
                 <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
                   ${Number(inv.total || 0).toLocaleString()}
                 </Typography>
+              </TableCell>
+              <TableCell>
+                <Stack spacing={0.5} alignItems="flex-start">
+                  {inv.paymentReceipt?.url ? (
+                    <Button
+                      size="small"
+                      variant="text"
+                      startIcon={<OpenInNewOutlinedIcon />}
+                      onClick={() => window.open(inv.paymentReceipt!.url, '_blank', 'noopener,noreferrer')}
+                    >
+                      Abrir PDF
+                    </Button>
+                  ) : (
+                    <Typography variant="caption" color="text.secondary">
+                      Sin soporte
+                    </Typography>
+                  )}
+                  {canWrite && (
+                    <Button
+                      component="label"
+                      size="small"
+                      variant="outlined"
+                      startIcon={uploadingPaymentInvoiceId === inv.id ? <CircularProgress size={15} /> : <UploadFileOutlinedIcon />}
+                      disabled={uploadingPaymentInvoiceId !== null}
+                    >
+                      {uploadingPaymentInvoiceId === inv.id
+                        ? `Subiendo ${paymentUploadPct}%`
+                        : inv.paymentReceipt ? 'Reemplazar' : 'Cargar soporte'}
+                      <input
+                        hidden
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        onChange={(event) => {
+                          const file = event.target.files?.[0];
+                          if (file) onUploadPaymentReceipt(inv, file);
+                          event.target.value = '';
+                        }}
+                      />
+                    </Button>
+                  )}
+                  {inv.paymentReceipt?.uploadedAt && (
+                    <Typography variant="caption" color="text.secondary">
+                      Cargado {new Date(inv.paymentReceipt.uploadedAt).toLocaleDateString('es-CO')}
+                    </Typography>
+                  )}
+                </Stack>
               </TableCell>
               <TableCell align="right">
                 <Stack direction="row" spacing={1} justifyContent="flex-end">
@@ -199,7 +252,7 @@ const InvoiceTable = React.memo(function InvoiceTable({
 
         {invoices.length === 0 && (
           <TableRow>
-            <TableCell colSpan={6} sx={{ py: 6 }}>
+            <TableCell colSpan={7} sx={{ py: 6 }}>
               <Typography variant="body2" color="text.secondary" align="center">
                 No hay facturas registradas con los filtros seleccionados.
               </Typography>
@@ -273,6 +326,8 @@ const Finance = () => {
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [invoiceUploadPct, setInvoiceUploadPct] = useState<number>(0);
+  const [uploadingPaymentInvoiceId, setUploadingPaymentInvoiceId] = useState<string | null>(null);
+  const [paymentUploadPct, setPaymentUploadPct] = useState(0);
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [deleteAttachmentOpen, setDeleteAttachmentOpen] = useState(false);
   const [deleteInvoiceOpen, setDeleteInvoiceOpen] = useState(false);
@@ -449,11 +504,11 @@ const Finance = () => {
     if (!canDelete || !invoiceToDelete) return;
     try {
       setDeletingInvoice(true);
-      const path = String(invoiceToDelete.pdfPath || '').trim();
-      if (path) {
-        await deleteStoragePath(path).catch(() => undefined);
-      }
+      const paths = [invoiceToDelete.pdfPath, invoiceToDelete.paymentReceipt?.path]
+        .map((path) => String(path || '').trim())
+        .filter(Boolean);
       await deleteInvoice(invoiceToDelete.id, profile?.uid);
+      await Promise.all(paths.map((path) => deleteStoragePath(path).catch(() => undefined)));
       setSnackbar({ open: true, message: 'Factura eliminada.', severity: 'success' });
       closeDeleteInvoice();
       loadData();
@@ -567,7 +622,7 @@ const Finance = () => {
       setSavingInvoice(true);
 
       if (editingInvoiceId) {
-        const { id, createdAt, ...toUpdate } = invoiceForm as any;
+        const { id, createdAt, status: _status, paymentReceipt: _paymentReceipt, ...toUpdate } = invoiceForm as any;
 
         if (invoiceFile) {
           const prevPath = String(invoiceForm.pdfPath || '').trim();
@@ -591,8 +646,8 @@ const Finance = () => {
         await updateInvoice(editingInvoiceId, toUpdate, profile?.uid);
         setSnackbar({ open: true, message: 'Factura actualizada.', severity: 'success' });
       } else {
-        const { id, createdAt, pdfUrl, pdfPath, pdfName, pdfContentType, pdfSize, ...createPayload } = invoiceForm as any;
-        const newInvoice = { ...createPayload, status: invoiceForm.status || 'pending' };
+        const { id, createdAt, status: _status, paymentReceipt: _paymentReceipt, pdfUrl, pdfPath, pdfName, pdfContentType, pdfSize, ...createPayload } = invoiceForm as any;
+        const newInvoice = { ...createPayload, status: 'pending' as const };
         const docRef: any = await addInvoice(newInvoice as Omit<Invoice, 'id'>, profile?.uid);
 
         if (invoiceFile) {
@@ -624,15 +679,66 @@ const Finance = () => {
     }
   };
 
-  const toggleInvoiceStatus = useCallback(
-    async (inv: Invoice) => {
-      if (!canWrite) return;
-      const newStatus: Invoice['status'] = inv.status === 'paid' ? 'pending' : 'paid';
-      setInvoices((prev) => prev.map((item) => (item.id === inv.id ? { ...item, status: newStatus } : item)));
-      await updateInvoice(inv.id, { status: newStatus }, profile?.uid);
-    },
-    [canWrite]
-  );
+  const handleUploadPaymentReceipt = async (invoice: Invoice, file: File) => {
+    if (!canWrite) return;
+
+    const isPdf = file.type === 'application/pdf' || (!file.type && file.name.toLowerCase().endsWith('.pdf'));
+    if (!isPdf) {
+      setSnackbar({ open: true, message: 'El soporte de pago debe estar en formato PDF.', severity: 'warning' });
+      return;
+    }
+    if (file.size <= 0 || file.size >= 10 * 1024 * 1024) {
+      setSnackbar({ open: true, message: 'El PDF debe pesar más de 0 y menos de 10 MB.', severity: 'warning' });
+      return;
+    }
+
+    setUploadingPaymentInvoiceId(invoice.id);
+    setPaymentUploadPct(0);
+    let storagePath = '';
+    try {
+      const safeName = file.name.replace(/[\\/]/g, '-');
+      const result = await uploadFileToStorage(
+        `invoices/${invoice.id}/payment-receipts/${Date.now()}-${safeName}`,
+        file,
+        setPaymentUploadPct,
+        { uploadedByUid: profile?.uid || '' },
+      );
+      storagePath = result.path;
+
+      const paymentReceipt = await confirmInvoicePaymentReceipt(invoice.id, result.path);
+      setInvoices((current) => current.map((item) => item.id === invoice.id
+        ? { ...item, paymentReceipt, status: 'paid' }
+        : item));
+      setSnackbar({ open: true, message: 'Soporte verificado. La factura quedó pagada.', severity: 'success' });
+    } catch (error) {
+      console.error('Error registering invoice payment receipt:', error);
+
+      // Si la respuesta de red se perdió después de guardar, consulta el documento
+      // antes de informar un fallo para no dejar desactualizada la tabla.
+      if (storagePath) {
+        try {
+          const refreshedInvoices = await getInvoices();
+          const confirmedInvoice = refreshedInvoices.find((item) => item.id === invoice.id);
+          if (confirmedInvoice?.paymentReceipt?.path === storagePath) {
+            setInvoices(refreshedInvoices);
+            setSnackbar({ open: true, message: 'Soporte verificado. La factura quedó pagada.', severity: 'success' });
+            return;
+          }
+        } catch (refreshError) {
+          console.warn('No se pudo confirmar el estado final del soporte:', refreshError);
+        }
+      }
+
+      setSnackbar({
+        open: true,
+        message: 'No se pudo verificar el PDF. La factura continúa pendiente; revisa los permisos e inténtalo de nuevo.',
+        severity: 'error',
+      });
+    } finally {
+      setUploadingPaymentInvoiceId(null);
+      setPaymentUploadPct(0);
+    }
+  };
 
   return (
     <Stack spacing={2.5}>
@@ -768,9 +874,11 @@ const Finance = () => {
                 sites={sites}
                 canWrite={canWrite}
                 canDelete={canDelete}
+                uploadingPaymentInvoiceId={uploadingPaymentInvoiceId}
+                paymentUploadPct={paymentUploadPct}
                 onEdit={openEditInvoice}
                 onDelete={openDeleteInvoice}
-                onToggleStatus={toggleInvoiceStatus}
+                onUploadPaymentReceipt={handleUploadPaymentReceipt}
               />
             </CardContent>
           </Card>
@@ -1065,6 +1173,10 @@ const Finance = () => {
               </Box>
             )}
 
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Las facturas nuevas quedan pendientes. Para registrarlas como pagadas, carga el soporte PDF desde la tabla de facturas.
+            </Alert>
+
             {invoiceFile && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Archivo seleccionado: <strong>{invoiceFile.name}</strong>
@@ -1157,20 +1269,6 @@ const Finance = () => {
                 />
               </Grid>
 
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControl fullWidth>
-                  <InputLabel id="invoice-status-label">Estado</InputLabel>
-                  <Select
-                    labelId="invoice-status-label"
-                    label="Estado"
-                    value={invoiceForm.status || 'pending'}
-                    onChange={(e) => setInvoiceForm({ ...invoiceForm, status: e.target.value as Invoice['status'] })}
-                  >
-                    <MenuItem value="pending">Pendiente</MenuItem>
-                    <MenuItem value="paid">Pagado</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <Button
                   component="label"

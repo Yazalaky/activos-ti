@@ -160,6 +160,16 @@ export interface SupplierContractDocument extends AuditFields {
   updatedByUid?: string;
 }
 
+export interface InvoicePaymentReceipt {
+  url: string;
+  path: string;
+  name: string;
+  contentType: 'application/pdf';
+  size: number;
+  uploadedAt: number;
+  uploadedByUid: string;
+}
+
 export interface Invoice extends AuditFields {
   id: string;
   supplierId: string;
@@ -175,6 +185,7 @@ export interface Invoice extends AuditFields {
   pdfName?: string;
   pdfContentType?: string;
   pdfSize?: number;
+  paymentReceipt?: InvoicePaymentReceipt;
 }
 
 export type QuoteStatus = 'pending' | 'approved' | 'rejected';

@@ -4,6 +4,7 @@ const { getFirestore } = require('firebase-admin/firestore');
 const { getStorage } = require('firebase-admin/storage');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineString } = require('firebase-functions/params');
+const { randomUUID } = require('crypto');
 
 admin.initializeApp();
 const auth = getAuth();
@@ -702,4 +703,154 @@ exports.generateActPdf = onCall({
     pdfBase64: renderResponse.pdfBase64,
     issuedAt,
   };
+});
+
+const assertInvoicePaymentSiteAccess = (profile, siteId) => {
+  if (!profile || profile.active === false || !['admin', 'tech'].includes(profile.role)) {
+    throw new HttpsError('permission-denied', 'No tienes permiso para registrar pagos de facturas.');
+  }
+
+  const scope = profile.accessScope || 'global';
+  const hasAccess = scope === 'global'
+    || (scope === 'sites' && Array.isArray(profile.siteIds) && profile.siteIds.includes(siteId));
+  if (!hasAccess) {
+    throw new HttpsError('permission-denied', 'No tienes acceso a la sede asociada a esta factura.');
+  }
+};
+
+exports.confirmInvoicePaymentReceipt = onCall(async (request) => {
+  if (!request.auth) {
+    throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+  }
+
+  const invoiceId = assertString(request.data?.invoiceId, 'invoiceId');
+  const storagePath = assertString(request.data?.storagePath, 'storagePath');
+  const pathParts = storagePath.split('/');
+  if (pathParts.length !== 4
+    || pathParts[0] !== 'invoices'
+    || pathParts[1] !== invoiceId
+    || pathParts[2] !== 'payment-receipts'
+    || !pathParts[3]) {
+    throw new HttpsError('invalid-argument', 'La ruta del comprobante no corresponde a esta factura.');
+  }
+
+  const uid = request.auth.uid;
+  const userRef = db.doc(`users/${uid}`);
+  const invoiceRef = db.doc(`invoices/${invoiceId}`);
+  const bucket = storage.bucket();
+  const file = bucket.file(storagePath);
+  let callerCanAccessInvoice = false;
+  let fileUploadedByCaller = false;
+  let invoiceWriteCompleted = false;
+  let replacedStoragePath = '';
+
+  try {
+    const [initialInvoiceSnapshot, initialUserSnapshot] = await Promise.all([
+      invoiceRef.get(),
+      userRef.get(),
+    ]);
+    if (!initialInvoiceSnapshot.exists) {
+      throw new HttpsError('not-found', 'La factura ya no existe.');
+    }
+    const initialInvoice = initialInvoiceSnapshot.data() || {};
+    const initialProfile = initialUserSnapshot.exists ? initialUserSnapshot.data() : null;
+    assertInvoicePaymentSiteAccess(initialProfile, initialInvoice.siteId);
+    callerCanAccessInvoice = true;
+    if (initialInvoice.isDeleted === true) {
+      throw new HttpsError('failed-precondition', 'No se puede registrar un pago para una factura eliminada.');
+    }
+
+    const [fileMetadata] = await file.getMetadata();
+    if (fileMetadata.metadata?.uploadedByUid !== uid) {
+      throw new HttpsError('permission-denied', 'El comprobante no fue cargado por tu usuario. Vuelve a cargarlo e inténtalo de nuevo.');
+    }
+    fileUploadedByCaller = true;
+    const size = Number(fileMetadata.size || 0);
+    if (fileMetadata.contentType !== 'application/pdf' || size <= 0 || size >= 10 * 1024 * 1024) {
+      throw new HttpsError('invalid-argument', 'El soporte debe ser un PDF válido de menos de 10 MB.');
+    }
+
+    const [fileContents] = await file.download();
+    if (!fileContents.subarray(0, 1024).toString('latin1').includes('%PDF-')) {
+      throw new HttpsError('invalid-argument', 'El archivo cargado no contiene un documento PDF válido.');
+    }
+
+    let downloadToken = String(fileMetadata.metadata?.firebaseStorageDownloadTokens || '').split(',')[0].trim();
+    if (!downloadToken) {
+      downloadToken = randomUUID();
+      await file.setMetadata({
+        metadata: {
+          ...(fileMetadata.metadata || {}),
+          firebaseStorageDownloadTokens: downloadToken,
+        },
+      });
+    }
+
+    const paymentReceipt = {
+      url: `https://firebasestorage.googleapis.com/v0/b/${bucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${encodeURIComponent(downloadToken)}`,
+      path: storagePath,
+      name: String(fileMetadata.metadata?.originalName || pathParts[3]).slice(0, 256),
+      contentType: 'application/pdf',
+      size,
+      uploadedAt: Date.now(),
+      uploadedByUid: uid,
+    };
+
+    await db.runTransaction(async (transaction) => {
+      const [currentInvoiceSnapshot, currentUserSnapshot] = await Promise.all([
+        transaction.get(invoiceRef),
+        transaction.get(userRef),
+      ]);
+      if (!currentInvoiceSnapshot.exists) {
+        throw new HttpsError('not-found', 'La factura ya no existe.');
+      }
+
+      const currentInvoice = currentInvoiceSnapshot.data() || {};
+      const currentProfile = currentUserSnapshot.exists ? currentUserSnapshot.data() : null;
+      assertInvoicePaymentSiteAccess(currentProfile, currentInvoice.siteId);
+      if (currentInvoice.isDeleted === true) {
+        throw new HttpsError('failed-precondition', 'No se puede registrar un pago para una factura eliminada.');
+      }
+
+      replacedStoragePath = typeof currentInvoice.paymentReceipt?.path === 'string'
+        ? currentInvoice.paymentReceipt.path
+        : '';
+      transaction.update(invoiceRef, {
+        paymentReceipt,
+        status: 'paid',
+        updatedAt: Date.now(),
+        updatedByUid: uid,
+      });
+    });
+    invoiceWriteCompleted = true;
+
+    if (replacedStoragePath && replacedStoragePath !== storagePath
+      && replacedStoragePath.startsWith(`invoices/${invoiceId}/payment-receipts/`)) {
+      await bucket.file(replacedStoragePath).delete().catch((error) => {
+        console.warn('No se pudo limpiar el comprobante reemplazado:', invoiceId, error);
+      });
+    }
+
+    return { paymentReceipt };
+  } catch (error) {
+    if (callerCanAccessInvoice && fileUploadedByCaller && !invoiceWriteCompleted) {
+      try {
+        // Una respuesta de commit puede perderse aunque Firestore haya aplicado
+        // la transacción. No borres un archivo que ya quedó enlazado a la factura.
+        const latestInvoiceSnapshot = await invoiceRef.get();
+        const latestReceipt = latestInvoiceSnapshot.data()?.paymentReceipt;
+        if (latestReceipt?.path === storagePath) {
+          return { paymentReceipt: latestReceipt };
+        }
+        await file.delete().catch(() => undefined);
+      } catch (cleanupError) {
+        // Ante una lectura ambigua es más seguro conservar el PDF que borrar
+        // un comprobante que quizá ya quedó registrado.
+        console.warn('No se pudo confirmar o limpiar el soporte de pago:', invoiceId, cleanupError);
+      }
+    }
+    if (error instanceof HttpsError) throw error;
+    console.error('Error al verificar el soporte de pago de factura:', invoiceId, error);
+    throw new HttpsError('internal', 'No se pudo verificar y registrar el soporte de pago.');
+  }
 });

@@ -443,7 +443,12 @@ export const updateSupplierContractRenewalPeriod = async (
 // INVOICES
 export const getInvoices = async (filters?: QueryFilters) => {
   const all = await fetchCollection<Invoice>('invoices', 'siteId');
-  return all.filter((item) => {
+  return all.map((item) => ({
+    ...item,
+    // A partir de este flujo, un pago se considera verificado solo si tiene comprobante.
+    // Los registros previos sin soporte se presentan como pendientes para revisión.
+    status: item.paymentReceipt?.url ? 'paid' as const : 'pending' as const,
+  })).filter((item) => {
     if (filters?.siteId && item.siteId !== filters.siteId) return false;
     if (filters?.startDate && item.date < filters.startDate) return false;
     if (filters?.endDate && item.date > filters.endDate) return false;
