@@ -705,6 +705,198 @@ exports.generateActPdf = onCall({
   };
 });
 
+const assertActWriteSiteAccess = (profile, siteId) => {
+  if (!profile || profile.active === false || !['admin', 'tech'].includes(profile.role)) {
+    throw new HttpsError('permission-denied', 'No tienes permiso para cargar PDFs de actas.');
+  }
+  const scope = profile.accessScope || 'global';
+  const hasAccess = scope === 'global'
+    || (scope === 'sites' && Array.isArray(profile.siteIds) && profile.siteIds.includes(siteId));
+  if (!hasAccess) {
+    throw new HttpsError('permission-denied', 'No tienes acceso a la sede de esta acta.');
+  }
+};
+
+const isPendingLegacyAct = (act) => Boolean(
+  act.pdfUrl
+    && !act.generatedPdf
+    && !act.signedPdf
+    && !act.signatureMethod
+    && !['issued', 'signed_uploaded'].includes(act.legacyClassification),
+);
+
+exports.confirmSignedActPdf = onCall({
+  region: 'us-central1',
+  timeoutSeconds: 60,
+  maxInstances: 20,
+}, async (request) => {
+  if (!request.auth) throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
+
+  const actId = assertString(request.data?.actId, 'actId');
+  const storagePath = assertString(request.data?.storagePath, 'storagePath');
+  const mode = request.data?.mode;
+  const replacementReason = typeof request.data?.replacementReason === 'string'
+    ? request.data.replacementReason.trim()
+    : '';
+  const pathParts = storagePath.split('/');
+  if (pathParts.length !== 4
+    || pathParts[0] !== 'acts'
+    || pathParts[1] !== actId
+    || pathParts[2] !== 'signed'
+    || !pathParts[3]) {
+    throw new HttpsError('invalid-argument', 'La ruta del PDF no corresponde a esta acta.');
+  }
+  if (!['signed', 'replace_signed'].includes(mode)) {
+    throw new HttpsError('invalid-argument', 'El tipo de carga del PDF no es válido.');
+  }
+  if (mode === 'replace_signed' && replacementReason.length < 5) {
+    throw new HttpsError('invalid-argument', 'Indica un motivo de al menos 5 caracteres para reemplazar el PDF firmado.');
+  }
+
+  const uid = request.auth.uid;
+  const actRef = db.doc(`acts/${actId}`);
+  const userRef = db.doc(`users/${uid}`);
+  const file = storage.bucket().file(storagePath);
+  let callerCanAccessAct = false;
+  let fileUploadedByCaller = false;
+  let actWriteCompleted = false;
+
+  try {
+    const [initialActSnapshot, initialUserSnapshot] = await Promise.all([actRef.get(), userRef.get()]);
+    if (!initialActSnapshot.exists) throw new HttpsError('not-found', 'No se encontró el acta.');
+    const initialAct = initialActSnapshot.data() || {};
+    const initialProfile = initialUserSnapshot.exists ? initialUserSnapshot.data() : null;
+    assertActWriteSiteAccess(initialProfile, initialAct.siteId);
+    callerCanAccessAct = true;
+    if (initialAct.isDeleted === true) {
+      throw new HttpsError('failed-precondition', 'No se puede cargar un PDF en un acta eliminada.');
+    }
+
+    const [fileMetadata] = await file.getMetadata();
+    if (fileMetadata.metadata?.uploadedByUid !== uid) {
+      throw new HttpsError('permission-denied', 'El PDF no fue cargado por tu usuario. Vuelve a cargarlo e inténtalo de nuevo.');
+    }
+    fileUploadedByCaller = true;
+    const size = Number(fileMetadata.size || 0);
+    if (fileMetadata.contentType !== 'application/pdf' || size <= 0 || size >= 10 * 1024 * 1024) {
+      throw new HttpsError('invalid-argument', 'El archivo debe ser un PDF válido de menos de 10 MB.');
+    }
+
+    const [fileContents] = await file.download();
+    if (!fileContents.subarray(0, 1024).toString('latin1').includes('%PDF-')) {
+      throw new HttpsError('invalid-argument', 'El archivo cargado no contiene un documento PDF válido.');
+    }
+
+    let downloadToken = String(fileMetadata.metadata?.firebaseStorageDownloadTokens || '').split(',')[0].trim();
+    if (!downloadToken) {
+      downloadToken = randomUUID();
+      await file.setMetadata({
+        metadata: {
+          ...(fileMetadata.metadata || {}),
+          firebaseStorageDownloadTokens: downloadToken,
+        },
+      });
+    }
+    const pdfFile = {
+      url: `https://firebasestorage.googleapis.com/v0/b/${storage.bucket().name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${encodeURIComponent(downloadToken)}`,
+      path: storagePath,
+      name: String(fileMetadata.metadata?.originalName || pathParts[3]).slice(0, 256),
+      contentType: 'application/pdf',
+      size,
+      createdAt: Date.now(),
+      createdByUid: uid,
+    };
+
+    await db.runTransaction(async (transaction) => {
+      const [currentActSnapshot, currentUserSnapshot] = await Promise.all([
+        transaction.get(actRef),
+        transaction.get(userRef),
+      ]);
+      if (!currentActSnapshot.exists) throw new HttpsError('not-found', 'El acta ya no existe.');
+      const currentAct = currentActSnapshot.data() || {};
+      const currentProfile = currentUserSnapshot.exists ? currentUserSnapshot.data() : null;
+      assertActWriteSiteAccess(currentProfile, currentAct.siteId);
+      if (currentAct.isDeleted === true) {
+        throw new HttpsError('failed-precondition', 'No se puede cargar un PDF en un acta eliminada.');
+      }
+      if (currentAct.siteId !== initialAct.siteId
+        || timestampMillis(currentAct.updatedAt) !== timestampMillis(initialAct.updatedAt)) {
+        throw new HttpsError('failed-precondition', 'El acta cambió durante la carga. Vuelve a abrirla e inténtalo de nuevo.');
+      }
+
+      let update;
+      if (mode === 'signed') {
+        if (!['draft', 'issued'].includes(currentAct.status) || currentAct.signedPdf) {
+          throw new HttpsError('failed-precondition', 'El acta ya no está disponible para adjuntar un PDF firmado.');
+        }
+        if (isPendingLegacyAct(currentAct)) {
+          throw new HttpsError('failed-precondition', 'Un administrador debe clasificar el acta antigua antes de cargar el PDF firmado.');
+        }
+        update = {
+          signedPdf: pdfFile,
+          signatureMethod: 'uploaded_pdf',
+          signedAt: Date.now(),
+          signedByUid: uid,
+          status: 'signed',
+          pdfUrl: pdfFile.url,
+          pdfPath: pdfFile.path,
+          pdfName: pdfFile.name,
+          pdfContentType: pdfFile.contentType,
+          pdfSize: pdfFile.size,
+          updatedAt: Date.now(),
+          updatedByUid: uid,
+        };
+      } else {
+        if (currentAct.status !== 'signed' || !currentAct.signedPdf) {
+          throw new HttpsError('failed-precondition', 'No se encontró un PDF firmado que pueda reemplazarse.');
+        }
+        const history = Array.isArray(currentAct.signedPdfHistory) ? currentAct.signedPdfHistory : [];
+        update = {
+          signedPdf: pdfFile,
+          signedPdfHistory: [
+            ...history,
+            {
+              ...currentAct.signedPdf,
+              replacedAt: Date.now(),
+              replacedByUid: uid,
+              replacementReason,
+            },
+          ].slice(-10),
+          signatureMethod: 'uploaded_pdf',
+          signedAt: Date.now(),
+          status: 'signed',
+          pdfUrl: pdfFile.url,
+          pdfPath: pdfFile.path,
+          pdfName: pdfFile.name,
+          pdfContentType: pdfFile.contentType,
+          pdfSize: pdfFile.size,
+          updatedAt: Date.now(),
+          updatedByUid: uid,
+        };
+      }
+      transaction.update(actRef, update);
+    });
+    actWriteCompleted = true;
+
+    return { signedPdf: pdfFile };
+  } catch (error) {
+    if (callerCanAccessAct && fileUploadedByCaller && !actWriteCompleted) {
+      try {
+        const latestActSnapshot = await actRef.get();
+        if (latestActSnapshot.data()?.signedPdf?.path === storagePath) {
+          return { signedPdf: latestActSnapshot.data().signedPdf };
+        }
+        await file.delete().catch(() => undefined);
+      } catch (cleanupError) {
+        console.warn('No se pudo confirmar o limpiar el PDF firmado:', actId, cleanupError);
+      }
+    }
+    if (error instanceof HttpsError) throw error;
+    console.error('Error al registrar el PDF firmado del acta:', actId, error);
+    throw new HttpsError('internal', 'No se pudo guardar el PDF firmado del acta.');
+  }
+});
+
 const assertInvoicePaymentSiteAccess = (profile, siteId) => {
   if (!profile || profile.active === false || !['admin', 'tech'].includes(profile.role)) {
     throw new HttpsError('permission-denied', 'No tienes permiso para registrar pagos de facturas.');

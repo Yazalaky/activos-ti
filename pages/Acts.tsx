@@ -40,9 +40,10 @@ import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { auth } from '../firebaseAuth';
-import { addAct, getActs, getActTemplates, getAssets, getSites, updateAct, updateActContent } from '../services/api';
+import { addAct, getActs, getActTemplates, getAssets, getSites, updateActContent } from '../services/api';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { generateActPdf } from '../services/actPdf';
+import { confirmSignedActPdf } from '../services/actSignedPdf';
 import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
 import { isLegacyActPending } from '../services/actLegacy';
 import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site } from '../types';
@@ -584,14 +585,15 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'El archivo debe ser un PDF.', severity: 'warning' });
       return;
     }
-    if (uploadFile.size > MAX_ACT_PDF_SIZE) {
-      setSnackbar({ open: true, message: 'El PDF no puede superar los 10 MB.', severity: 'warning' });
+    if (uploadFile.size >= MAX_ACT_PDF_SIZE) {
+      setSnackbar({ open: true, message: 'El PDF debe pesar menos de 10 MB.', severity: 'warning' });
       return;
     }
     if (uploadMode === 'replace_signed' && replacementReason.trim().length < 5) {
       setSnackbar({ open: true, message: 'Indique un motivo de al menos 5 caracteres para reemplazar el PDF firmado.', severity: 'warning' });
       return;
     }
+    let uploadPhase: 'subir PDF a Storage' | 'registrar PDF firmado en el servidor' = 'subir PDF a Storage';
     try {
       setUploading(true);
       const ts = Date.now();
@@ -605,46 +607,14 @@ const Acts = () => {
         throw new Error('No se encontró un PDF firmado que pueda reemplazarse.');
       }
       const kind = 'signed';
-      const result = await uploadFileToStorage(`acts/${uploadAct.id}/${kind}/${ts}-${uploadFile.name}`, uploadFile, setUploadPct);
-      const fileInfo = {
-        url: result.url,
-        path: result.path,
-        name: result.name,
-        contentType: result.contentType,
-        size: result.size,
-        createdAt: Date.now(),
-        createdByUid: profile?.uid,
-      };
-      const update: Record<string, unknown> = {
-        pdfUrl: result.url,
-        pdfPath: result.path,
-        pdfName: result.name,
-        pdfContentType: result.contentType,
-        pdfSize: result.size,
-      };
-      if (uploadMode === 'signed') {
-        update.signedPdf = fileInfo;
-        update.signatureMethod = 'uploaded_pdf';
-        update.signedAt = Date.now();
-        update.signedByUid = profile.uid;
-        update.status = 'signed';
-      } else if (uploadMode === 'replace_signed') {
-        const previousPdf = uploadAct.signedPdf;
-        update.signedPdf = fileInfo;
-        update.signatureMethod = 'uploaded_pdf';
-        update.signedPdfHistory = [
-          ...(uploadAct.signedPdfHistory || []),
-          {
-            ...previousPdf,
-            replacedAt: Date.now(),
-            replacedByUid: profile.uid,
-            replacementReason: replacementReason.trim(),
-          },
-        ].slice(-10);
-        update.signedAt = Date.now();
-        update.status = 'signed';
-      }
-      await updateAct(uploadAct.id, update as Partial<Act>, profile?.uid);
+      const result = await uploadFileToStorage(
+        `acts/${uploadAct.id}/${kind}/${ts}-${uploadFile.name}`,
+        uploadFile,
+        setUploadPct,
+        { uploadedByUid: profile.uid },
+      );
+      uploadPhase = 'registrar PDF firmado en el servidor';
+      await confirmSignedActPdf(uploadAct.id, result.path, uploadMode, replacementReason.trim());
 
       setSnackbar({
         open: true,
@@ -656,8 +626,24 @@ const Acts = () => {
       setUploadOpen(false);
       await load();
     } catch (error) {
-      console.error('Upload act PDF error:', error);
-      setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo guardar el PDF.', severity: 'error' });
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code || '')
+        : '';
+      console.error('Upload act PDF error:', {
+        phase: uploadPhase,
+        code: errorCode,
+        actId: uploadAct.id,
+        status: uploadAct.status,
+        legacyClassification: uploadAct.legacyClassification || null,
+        fileSize: uploadFile.size,
+        fileType: uploadFile.type || '(vacío)',
+      }, error);
+      const message = uploadPhase === 'subir PDF a Storage'
+        ? 'Storage rechazó el PDF. Verifica que sea un archivo PDF válido, pese menos de 10 MB y que tengas acceso a la sede del acta.'
+        : error instanceof Error
+          ? error.message
+          : 'No se pudo guardar el PDF.';
+      setSnackbar({ open: true, message, severity: 'error' });
     } finally {
       setUploading(false);
     }
