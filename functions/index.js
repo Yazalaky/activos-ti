@@ -173,7 +173,7 @@ const resetBlockingCollections = [
 const resetInformationalCollections = ['invoices', 'quotes'];
 
 const resetCollectionLabels = {
-  acts: 'Actas',
+  acts: 'Actas que se conservarán por no estar vinculadas a los activos actuales',
   activities: 'Actividades vinculadas a activos',
   maintenances: 'Mantenimientos',
   reports: 'Reportes vinculados a activos',
@@ -185,10 +185,18 @@ const resetCollectionLabels = {
 const getSiteResetConfirmation = (prefix) => `REINICIAR INVENTARIO ${String(prefix).trim().toUpperCase()}`;
 
 const hasDirectAssetReference = (data, assetIds) => {
-  if (typeof data?.assetId === 'string' && data.assetId.trim().length > 0) return true;
+  if (typeof data?.assetId === 'string' && assetIds.has(data.assetId)) return true;
   if (!Array.isArray(data?.assetIds)) return false;
   return data.assetIds.some((assetId) => typeof assetId === 'string' && assetIds.has(assetId));
 };
+
+const getActsToRetire = (actSnapshot, assetIds) => actSnapshot.docs
+  .filter((item) => {
+    const act = item.data() || {};
+    return act.isDeleted !== true
+      && typeof act.assetId === 'string'
+      && assetIds.has(act.assetId);
+  });
 
 const getResetItem = (snapshot, assetMap) => {
   const data = snapshot.data() || {};
@@ -215,14 +223,26 @@ const buildResetAnalysis = ({
   const assetIds = new Set(assetSnapshot.docs.map((snapshot) => snapshot.id));
   const blocking = [];
   const preserved = [];
+  let actsToRetire = [];
 
   blockingSnapshots.forEach((snapshot, index) => {
     const collectionName = blockingCollectionNames[index];
     const docs = snapshot.docs;
-    const relatedDocs = ['acts', 'maintenances'].includes(collectionName)
+    if (collectionName === 'acts') {
+      actsToRetire = getActsToRetire(snapshot, assetIds);
+    }
+    const relatedDocs = collectionName === 'maintenances'
       ? docs
-      : docs.filter((item) => hasDirectAssetReference(item.data(), assetIds));
-    const preservedDocs = docs.filter((item) => !relatedDocs.some((related) => related.id === item.id));
+      : collectionName === 'acts'
+        ? []
+        : docs.filter((item) => hasDirectAssetReference(item.data(), assetIds));
+    const actIdsToRetire = collectionName === 'acts'
+      ? new Set(actsToRetire.map((item) => item.id))
+      : new Set();
+    const preservedDocs = docs.filter((item) => (
+      !relatedDocs.some((related) => related.id === item.id)
+      && !actIdsToRetire.has(item.id)
+    ));
 
     if (relatedDocs.length > 0) {
       blocking.push({
@@ -255,6 +275,11 @@ const buildResetAnalysis = ({
     assetCount: assetSnapshot.size,
     blocking,
     preserved,
+    actsToRetire: {
+      count: actsToRetire.length,
+      items: actsToRetire.slice(0, 8).map((item) => getResetItem(item, assetMap)),
+      ids: actsToRetire.map((item) => item.id).sort(),
+    },
   };
 };
 
@@ -306,6 +331,10 @@ exports.previewSiteInventoryReset = onCall(async (request) => {
     siteName: String(siteData.name || ''),
     prefix: String(siteData.prefix || ''),
     ...analysis,
+    actsToRetire: {
+      count: analysis.actsToRetire.count,
+      items: analysis.actsToRetire.items,
+    },
   };
 });
 
@@ -380,9 +409,18 @@ exports.resetSiteInventory = onCall(async (request) => {
         );
       }
 
+      if (currentAnalysis.assetCount !== analysis.assetCount
+        || JSON.stringify(currentAnalysis.actsToRetire.ids) !== JSON.stringify(analysis.actsToRetire.ids)) {
+        throw new HttpsError(
+          'failed-precondition',
+          'Los activos o las actas cambiaron después de la consulta. Vuelve a cargar el análisis antes de reiniciar.',
+        );
+      }
+
       // Cada activo genera dos escrituras (respaldo y eliminación), además de
-      // la metadata del reinicio y la actualización de la sede. Se limita el
-      // tamaño para respetar el límite de escrituras de una transacción.
+      // cada acta que se retira (respaldo y actualización), la metadata del
+      // reinicio y la actualización de la sede. Se limita el tamaño para
+      // respetar el límite de escrituras de una transacción.
       if (currentAssetsSnapshot.size > 200) {
         throw new HttpsError(
           'failed-precondition',
@@ -391,6 +429,17 @@ exports.resetSiteInventory = onCall(async (request) => {
       }
 
       const assetIds = currentAssetsSnapshot.docs.map((assetSnapshot) => assetSnapshot.id);
+      const assetIdSet = new Set(assetIds);
+      const actsSnapshot = currentDependencySnapshots[resetBlockingCollections.indexOf('acts')];
+      const actsToRetire = getActsToRetire(actsSnapshot, assetIdSet);
+      const transactionWriteCount = currentAssetsSnapshot.size * 2 + actsToRetire.length * 2 + 2;
+      if (transactionWriteCount > 450) {
+        throw new HttpsError(
+          'failed-precondition',
+          'La sede tiene demasiados activos y actas vinculadas para un reinicio atómico. Solicita un procedimiento por lotes.',
+        );
+      }
+
       transaction.set(resetRef, {
         siteId,
         siteName: String(currentSiteData.name || ''),
@@ -398,6 +447,8 @@ exports.resetSiteInventory = onCall(async (request) => {
         status: 'firestore_completed',
         assetCount: currentAssetsSnapshot.size,
         assetIds,
+        retiredActCount: actsToRetire.length,
+        retiredActIds: actsToRetire.map((actSnapshot) => actSnapshot.id),
         startedAt,
         createdAt: startedAt,
         createdByUid: request.auth.uid,
@@ -412,6 +463,22 @@ exports.resetSiteInventory = onCall(async (request) => {
         transaction.delete(assetSnapshot.ref);
       });
 
+      actsToRetire.forEach((actSnapshot) => {
+        transaction.set(resetRef.collection('actSnapshots').doc(actSnapshot.id), {
+          actId: actSnapshot.id,
+          snapshot: actSnapshot.data(),
+          createdAt: startedAt,
+        });
+        transaction.update(actSnapshot.ref, {
+          isDeleted: true,
+          deletedAt: startedAt,
+          deletedByUid: request.auth.uid,
+          inventoryResetId: resetId,
+          updatedAt: startedAt,
+          updatedByUid: request.auth.uid,
+        });
+      });
+
       transaction.update(siteRef, {
         assetSeq: 0,
         releasedAssetSeqs: [],
@@ -422,7 +489,7 @@ exports.resetSiteInventory = onCall(async (request) => {
         updatedByUid: request.auth.uid,
       });
 
-      return { assetIds, assetCount: currentAssetsSnapshot.size };
+      return { assetIds, assetCount: currentAssetsSnapshot.size, retiredActCount: actsToRetire.length };
     });
   } catch (error) {
     if (error instanceof HttpsError) throw error;
@@ -469,6 +536,7 @@ exports.resetSiteInventory = onCall(async (request) => {
     resetId,
     siteId,
     deletedAssets: resetResult.assetCount,
+    retiredActs: resetResult.retiredActCount,
     deletedStorageFiles,
     storageCleanupPending: storageCleanupPendingAssetIds.length > 0,
   };

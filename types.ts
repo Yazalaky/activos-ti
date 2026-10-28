@@ -334,6 +334,7 @@ export interface Act extends AuditFields {
   legacyClassifiedByUid?: string;
   legacySignatureDateUnknown?: boolean;
   legacySignerUnknown?: boolean;
+  inventoryResetId?: string;
   pdfUrl?: string;
   pdfPath?: string;
   pdfName?: string;
