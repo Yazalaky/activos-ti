@@ -978,13 +978,33 @@ const assertInvoicePaymentSiteAccess = (profile, siteId) => {
   }
 };
 
+const getInvoicePaymentReceipts = (invoice) => {
+  const receipts = Array.isArray(invoice.paymentReceipts) ? invoice.paymentReceipts : [];
+  const result = [];
+  for (const receipt of [...receipts, invoice.paymentReceipt]) {
+    if (typeof receipt?.path === 'string' && receipt.path
+      && !result.some((item) => item.path === receipt.path)) result.push(receipt);
+  }
+  return result;
+};
+
 exports.confirmInvoicePaymentReceipt = onCall(async (request) => {
   if (!request.auth) {
     throw new HttpsError('unauthenticated', 'Debes iniciar sesión.');
   }
+  if (request.data?.action === 'capabilities') {
+    return { supportsMultipleReceipts: true };
+  }
 
   const invoiceId = assertString(request.data?.invoiceId, 'invoiceId');
   const storagePath = assertString(request.data?.storagePath, 'storagePath');
+  const action = request.data?.action;
+  const replacePath = request.data?.replacePath == null ? '' : assertString(request.data.replacePath, 'replacePath');
+  if ((action != null && !['add', 'replace'].includes(action))
+    || (action === 'replace' && !replacePath)
+    || (action === 'add' && replacePath)) {
+    throw new HttpsError('invalid-argument', 'La operación sobre el soporte no es válida.');
+  }
   const pathParts = storagePath.split('/');
   if (pathParts.length !== 4
     || pathParts[0] !== 'invoices'
@@ -1056,7 +1076,8 @@ exports.confirmInvoicePaymentReceipt = onCall(async (request) => {
       uploadedByUid: uid,
     };
 
-    await db.runTransaction(async (transaction) => {
+    const confirmedReceipts = await db.runTransaction(async (transaction) => {
+      replacedStoragePath = '';
       const [currentInvoiceSnapshot, currentUserSnapshot] = await Promise.all([
         transaction.get(invoiceRef),
         transaction.get(userRef),
@@ -1072,15 +1093,30 @@ exports.confirmInvoicePaymentReceipt = onCall(async (request) => {
         throw new HttpsError('failed-precondition', 'No se puede registrar un pago para una factura eliminada.');
       }
 
-      replacedStoragePath = typeof currentInvoice.paymentReceipt?.path === 'string'
-        ? currentInvoice.paymentReceipt.path
-        : '';
+      const receipts = getInvoicePaymentReceipts(currentInvoice);
+      const existingReceipt = receipts.find((receipt) => receipt.path === storagePath);
+      if (existingReceipt) return receipts;
+
+      // Los clientes anteriores no envían action y esperan reemplazar el soporte principal.
+      const targetPath = replacePath || (action == null ? receipts[0]?.path : '');
+      if (targetPath) {
+        const replaceIndex = receipts.findIndex((receipt) => receipt.path === targetPath);
+        if (replaceIndex < 0) {
+          throw new HttpsError('failed-precondition', 'El soporte que deseas reemplazar ya cambió. Actualiza la página e inténtalo de nuevo.');
+        }
+        receipts[replaceIndex] = paymentReceipt;
+        replacedStoragePath = targetPath;
+      } else {
+        receipts.push(paymentReceipt);
+      }
       transaction.update(invoiceRef, {
-        paymentReceipt,
+        paymentReceipt: receipts[0],
+        paymentReceipts: receipts,
         status: 'paid',
         updatedAt: Date.now(),
         updatedByUid: uid,
       });
+      return receipts;
     });
     invoiceWriteCompleted = true;
 
@@ -1091,16 +1127,16 @@ exports.confirmInvoicePaymentReceipt = onCall(async (request) => {
       });
     }
 
-    return { paymentReceipt };
+    return { paymentReceipt: confirmedReceipts[0], paymentReceipts: confirmedReceipts };
   } catch (error) {
     if (callerCanAccessInvoice && fileUploadedByCaller && !invoiceWriteCompleted) {
       try {
         // Una respuesta de commit puede perderse aunque Firestore haya aplicado
         // la transacción. No borres un archivo que ya quedó enlazado a la factura.
         const latestInvoiceSnapshot = await invoiceRef.get();
-        const latestReceipt = latestInvoiceSnapshot.data()?.paymentReceipt;
-        if (latestReceipt?.path === storagePath) {
-          return { paymentReceipt: latestReceipt };
+        const latestReceipts = getInvoicePaymentReceipts(latestInvoiceSnapshot.data() || {});
+        if (latestReceipts.some((receipt) => receipt.path === storagePath)) {
+          return { paymentReceipt: latestReceipts[0], paymentReceipts: latestReceipts };
         }
         await file.delete().catch(() => undefined);
       } catch (cleanupError) {

@@ -186,6 +186,7 @@ export interface Invoice extends AuditFields {
   pdfContentType?: string;
   pdfSize?: number;
   paymentReceipt?: InvoicePaymentReceipt;
+  paymentReceipts?: InvoicePaymentReceipt[];
 }
 
 export type QuoteStatus = 'pending' | 'approved' | 'rejected';

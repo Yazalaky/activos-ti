@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../firebaseAuth';
 import { db } from '../firebaseDb';
+import { getInvoicePaymentReceipts } from './invoicePayments';
 import type { Act, ActTemplate, Activity, Asset, Assignment, GoogleOneAccount, Invoice, Quote, Site, Supplier, SupplierContract, SupplierContractDocument, Maintenance } from '../types';
 
 export interface QueryFilters {
@@ -447,7 +448,7 @@ export const getInvoices = async (filters?: QueryFilters) => {
     ...item,
     // A partir de este flujo, un pago se considera verificado solo si tiene comprobante.
     // Los registros previos sin soporte se presentan como pendientes para revisión.
-    status: item.paymentReceipt?.url ? 'paid' as const : 'pending' as const,
+    status: getInvoicePaymentReceipts(item).some((receipt) => receipt.url) ? 'paid' as const : 'pending' as const,
   })).filter((item) => {
     if (filters?.siteId && item.siteId !== filters.siteId) return false;
     if (filters?.startDate && item.date < filters.startDate) return false;

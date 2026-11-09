@@ -1232,12 +1232,12 @@ service cloud.firestore {
     function invoicePaymentCreateValid() {
       let data = request.resource.data;
       return data.status == 'pending'
-        && !data.keys().hasAny(['paymentReceipt']);
+        && !data.keys().hasAny(['paymentReceipt', 'paymentReceipts']);
     }
 
     function invoicePaymentUpdateValid() {
       let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
-      return !changedKeys.hasAny(['status', 'paymentReceipt']);
+      return !changedKeys.hasAny(['status', 'paymentReceipt', 'paymentReceipts']);
     }
 
     function quoteAttachmentValid(quoteId) {
