@@ -63,6 +63,24 @@ service cloud.firestore {
       return canWrite() && canReadSite(siteId);
     }
 
+    function canCreateActOnSite(siteId) {
+      let hasUserProfile = hasProfile();
+      let profile = hasUserProfile ? userDoc().data : {};
+      return hasUserProfile
+        && (!profile.keys().hasAny(['active']) || profile.active == true)
+        && profile.role in ['admin', 'tech']
+        && (
+          !profile.keys().hasAny(['accessScope'])
+          || profile.accessScope == 'global'
+          || (
+            profile.accessScope == 'sites'
+            && profile.keys().hasAny(['siteIds'])
+            && profile.siteIds is list
+            && profile.siteIds.hasAny([siteId])
+          )
+        );
+    }
+
     function canManageContracts() {
       return isAdmin() || (isTech() && hasGlobalAccess());
     }
@@ -451,9 +469,9 @@ service cloud.firestore {
 
     function googleOneAccountDataValid(accountId) {
       let data = request.resource.data;
-      return data.keys().hasAll(['accountEmail', 'cardLastFour', 'plan', 'storage', 'billingDay', 'active'])
+      return data.keys().hasAll(['accountEmail', 'cardLastFour', 'plan', 'storage', 'monthlyPrice', 'billingDay', 'active'])
         && data.keys().hasOnly([
-          'accountEmail', 'cardLastFour', 'plan', 'storage', 'billingDay', 'active',
+          'accountEmail', 'cardLastFour', 'plan', 'storage', 'monthlyPrice', 'billingDay', 'active',
           'createdAt', 'createdByUid', 'updatedAt', 'updatedByUid'
         ])
         && isNonEmptyString(data.accountEmail, 254)
@@ -463,6 +481,9 @@ service cloud.firestore {
         && data.cardLastFour.matches('^[0-9]{4}$')
         && isNonEmptyString(data.plan, 120)
         && isNonEmptyString(data.storage, 80)
+        && data.monthlyPrice is int
+        && data.monthlyPrice >= 0
+        && data.monthlyPrice <= 999999999
         && data.billingDay is int
         && data.billingDay >= 1
         && data.billingDay <= 31
@@ -674,7 +695,7 @@ service cloud.firestore {
       let identityValid = details is map
         && details.keys().hasAll(['deviceTypes', 'standardSoftware', 'requestedSoftware', 'discountSources'])
         && details.keys().hasOnly([
-          'deliveredByName', 'deviceTypes', 'charger', 'mouse', 'monitor', 'license',
+          'deliveredByName', 'deviceTypes', 'otherDeviceType', 'charger', 'mouse', 'monitor', 'license',
           'keyboard', 'phoneSerial', 'phoneImei', 'standardSoftware', 'requestedSoftware',
           'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue'
         ]);
@@ -727,6 +748,32 @@ service cloud.firestore {
       return identityValid && deviceTypesValid && standardSoftwareValid && requestedSoftwareValid && discountSourcesValid && textFieldsValid;
     }
 
+    // El borrador valida la estructura necesaria para imprimir, sin repetir todas
+    // las validaciones exhaustivas usadas al editar un acta. Las reglas de
+    // Firestore tienen un límite de evaluación por escritura; la comprobación
+    // completa de cada checkbox y campo opcional hacía que el alta lo superara.
+    function actDraftDocumentDetailsValid(details) {
+      return details is map
+        && details.keys().hasAll(['deviceTypes', 'standardSoftware', 'requestedSoftware', 'discountSources'])
+        && details.keys().hasOnly([
+          'deliveredByName', 'deviceTypes', 'otherDeviceType', 'charger', 'mouse', 'monitor', 'license',
+          'keyboard', 'phoneSerial', 'phoneImei', 'standardSoftware', 'requestedSoftware',
+          'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue'
+        ])
+        && details.deviceTypes is map
+        && details.deviceTypes.keys().hasAll(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
+        && details.deviceTypes.keys().hasOnly(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
+        && details.standardSoftware is map
+        && details.standardSoftware.keys().hasAll(['office365', 'antivirus', 'adobeReader', 'sevenZip', 'chrome', 'mozilla'])
+        && details.standardSoftware.keys().hasOnly(['office365', 'antivirus', 'adobeReader', 'sevenZip', 'chrome', 'mozilla'])
+        && details.requestedSoftware is map
+        && details.requestedSoftware.keys().hasAll(['tns', 'tipificador', 'progsalud', 'ccleaner', 'ipscan', 'anydesk'])
+        && details.requestedSoftware.keys().hasOnly(['tns', 'tipificador', 'progsalud', 'ccleaner', 'ipscan', 'anydesk'])
+        && details.discountSources is map
+        && details.discountSources.keys().hasAll(['fees', 'salary', 'benefits'])
+        && details.discountSources.keys().hasOnly(['fees', 'salary', 'benefits']);
+    }
+
     function actDraftCreateDataValid() {
       let data = request.resource.data;
       let identityValid = data.keys().hasAll([
@@ -737,8 +784,7 @@ service cloud.firestore {
         && data.keys().hasOnly([
           'assetId', 'siteId', 'companyId', 'templateId', 'templateVersion',
           'fixedAssetIdSnapshot', 'assetSnapshot', 'recipient', 'companyNitSnapshot',
-          'documentDetails', 'observations',
-          'status', 'contentRevision', 'createdAt', 'createdByUid'
+          'documentDetails', 'observations', 'status', 'contentRevision', 'createdAt', 'createdByUid'
         ])
         && isNonEmptyString(data.assetId, 150)
         && isNonEmptyString(data.siteId, 150)
@@ -759,23 +805,13 @@ service cloud.firestore {
         && isNonEmptyString(data.assetSnapshot.type, 50)
         && isNonEmptyString(data.assetSnapshot.brand, 100)
         && isNonEmptyString(data.assetSnapshot.model, 150)
-        && isNonEmptyString(data.assetSnapshot.serial, 150)
-        && (!data.assetSnapshot.keys().hasAny(['processor']) || isOptionalString(data.assetSnapshot.processor, 150))
-        && (!data.assetSnapshot.keys().hasAny(['ram']) || isOptionalString(data.assetSnapshot.ram, 100))
-        && (!data.assetSnapshot.keys().hasAny(['storage']) || isOptionalString(data.assetSnapshot.storage, 100))
-        && (!data.assetSnapshot.keys().hasAny(['os']) || isOptionalString(data.assetSnapshot.os, 100));
+        && isNonEmptyString(data.assetSnapshot.serial, 150);
       let recipientValid = data.recipient is map
         && data.recipient.keys().hasAll(['fullName', 'position', 'documentNumber'])
         && data.recipient.keys().hasOnly(['fullName', 'position', 'email', 'documentNumber', 'area', 'phone', 'extension', 'networkUser'])
         && isNonEmptyString(data.recipient.fullName, 200)
         && isNonEmptyString(data.recipient.position, 150)
-        && isNonEmptyString(data.recipient.documentNumber, 80)
-        && (!data.recipient.keys().hasAny(['email']) || isOptionalString(data.recipient.email, 254))
-        && (!data.recipient.keys().hasAny(['area']) || isOptionalString(data.recipient.area, 150))
-        && (!data.recipient.keys().hasAny(['phone']) || isOptionalString(data.recipient.phone, 80))
-        && (!data.recipient.keys().hasAny(['extension']) || isOptionalString(data.recipient.extension, 30))
-        && (!data.recipient.keys().hasAny(['networkUser']) || isOptionalString(data.recipient.networkUser, 150))
-        && (!data.recipient.keys().hasAny(['email']) || data.recipient.email == null || data.recipient.email == '' || (data.recipient.email is string && data.recipient.email.matches('.*@.*')));
+        && isNonEmptyString(data.recipient.documentNumber, 80);
       let site = get(/databases/$(database)/documents/sites/$(data.siteId)).data;
       let asset = get(/databases/$(database)/documents/assets/$(data.assetId)).data;
       let referencesValid = exists(/databases/$(database)/documents/sites/$(data.siteId))
@@ -787,7 +823,7 @@ service cloud.firestore {
         && isNonEmptyString(asset.currentAssignment.assignedToName, 200)
         && isNonEmptyString(asset.currentAssignment.assignedToPosition, 150)
         && isNonEmptyString(asset.currentAssignment.assignedToResponsible, 200);
-      return identityValid && snapshotValid && recipientValid && actDocumentDetailsValid(data.documentDetails) && referencesValid;
+      return identityValid && snapshotValid && recipientValid && actDraftDocumentDetailsValid(data.documentDetails) && referencesValid;
     }
 
     function actPdfFileValid(actId, value) {
@@ -1191,6 +1227,19 @@ service cloud.firestore {
       return pdfPathOk && pdfUrlOk && pdfNameOk && pdfContentTypeOk && pdfSizeOk;
     }
 
+    // El estado de pago y el comprobante solo los actualiza la callable que
+    // verifica el objeto real en Storage. Los clientes no pueden forjarlos.
+    function invoicePaymentCreateValid() {
+      let data = request.resource.data;
+      return data.status == 'pending'
+        && !data.keys().hasAny(['paymentReceipt', 'paymentReceipts']);
+    }
+
+    function invoicePaymentUpdateValid() {
+      let changedKeys = request.resource.data.diff(resource.data).affectedKeys();
+      return !changedKeys.hasAny(['status', 'paymentReceipt', 'paymentReceipts']);
+    }
+
     function quoteAttachmentValid(quoteId) {
       let data = request.resource.data;
 
@@ -1379,11 +1428,13 @@ service cloud.firestore {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
         && invoiceDataValid()
+        && invoicePaymentCreateValid()
         && invoiceAttachmentValid(invoiceId)
         && auditCreateValid();
       allow update: if canWriteSite(resource.data.siteId)
         && canWriteSite(request.resource.data.siteId)
         && invoiceDataValid()
+        && invoicePaymentUpdateValid()
         && invoiceAttachmentValid(invoiceId)
         && auditUpdateValid()
         && softDeleteValid()
@@ -1411,7 +1462,7 @@ service cloud.firestore {
     // ACTS (Actas de entrega)
     match /acts/{actId} {
       allow read: if canReadSite(resource.data.siteId);
-      allow create: if canWriteSite(request.resource.data.siteId)
+      allow create: if canCreateActOnSite(request.resource.data.siteId)
         && actDraftCreateDataValid();
       allow update: if !isLegacyActDocument()
         && canWriteSite(resource.data.siteId)

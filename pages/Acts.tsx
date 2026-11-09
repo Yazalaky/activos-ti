@@ -39,9 +39,11 @@ import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import { useAuth } from '../auth/AuthContext';
-import { addAct, getActs, getActTemplates, getAssets, getSites, updateAct, updateActContent } from '../services/api';
+import { auth } from '../firebaseAuth';
+import { addAct, getActs, getActTemplates, getAssets, getSites, updateActContent } from '../services/api';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { generateActPdf } from '../services/actPdf';
+import { confirmSignedActPdf } from '../services/actSignedPdf';
 import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
 import { isLegacyActPending } from '../services/actLegacy';
 import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site } from '../types';
@@ -88,6 +90,16 @@ const statusColor = (status: ActStatus) => {
 };
 
 const MAX_ACT_PDF_SIZE = 10 * 1024 * 1024;
+
+const toActSnapshotText = (value: unknown): string | undefined => {
+  if (typeof value === 'string') return value.trim() || undefined;
+  if (typeof value === 'number' && Number.isFinite(value)) return String(value);
+  return undefined;
+};
+
+const isSupportedActSnapshotValue = (value: unknown) => value == null
+  || typeof value === 'string'
+  || (typeof value === 'number' && Number.isFinite(value));
 
 const createEmptyDocumentDetails = (): ActDocumentDetails => ({
   deviceTypes: { desktop: false, laptop: false, printer: false, tablet: false, cellphone: false, other: false },
@@ -371,6 +383,62 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'Solo se pueden crear actas para activos asignados con asignación completa.', severity: 'warning' });
       return;
     }
+    const assetSnapshot = {
+      type: toActSnapshotText(asset.type),
+      brand: toActSnapshotText(asset.brand),
+      model: toActSnapshotText(asset.model),
+      serial: toActSnapshotText(asset.serial),
+      processor: toActSnapshotText(asset.processor),
+      ram: toActSnapshotText(asset.ram),
+      storage: toActSnapshotText(asset.storage),
+      os: toActSnapshotText(asset.os),
+    };
+    const requiredSnapshotFields: Array<[string, string | undefined, number]> = [
+      ['tipo', assetSnapshot.type, 50],
+      ['marca', assetSnapshot.brand, 100],
+      ['modelo', assetSnapshot.model, 150],
+      ['serial', assetSnapshot.serial, 150],
+    ];
+    const invalidRequiredSnapshot = requiredSnapshotFields.find(([, value, maxLength]) => !value || value.length > maxLength);
+    if (invalidRequiredSnapshot) {
+      setSnackbar({
+        open: true,
+        message: `El activo ${asset.fixedAssetId} tiene un dato técnico obligatorio vacío o demasiado largo (${invalidRequiredSnapshot[0]}). Corrígelo en Inventario antes de crear el acta.`,
+        severity: 'warning',
+      });
+      return;
+    }
+    const optionalSnapshotFields: Array<[string, unknown, string | undefined, number]> = [
+      ['procesador', asset.processor, assetSnapshot.processor, 150],
+      ['RAM', asset.ram, assetSnapshot.ram, 100],
+      ['almacenamiento', asset.storage, assetSnapshot.storage, 100],
+      ['sistema operativo', asset.os, assetSnapshot.os, 100],
+    ];
+    const invalidOptionalSnapshot = optionalSnapshotFields.find(([, original, value, maxLength]) =>
+      !isSupportedActSnapshotValue(original) || (value !== undefined && value.length > maxLength));
+    if (invalidOptionalSnapshot) {
+      setSnackbar({
+        open: true,
+        message: `El dato de ${invalidOptionalSnapshot[0]} del activo ${asset.fixedAssetId} no tiene un formato válido. Corrígelo en Inventario antes de crear el acta.`,
+        severity: 'warning',
+      });
+      return;
+    }
+    const assignmentFields: Array<[string, unknown, number]> = [
+      ['nombre del responsable', asset.currentAssignment.assignedToName, 200],
+      ['cargo del responsable', asset.currentAssignment.assignedToPosition, 150],
+      ['responsable de entrega', asset.currentAssignment.assignedToResponsible, 200],
+    ];
+    const invalidAssignment = assignmentFields.find(([, value, maxLength]) =>
+      typeof value !== 'string' || !value.trim() || value.length > maxLength);
+    if (invalidAssignment) {
+      setSnackbar({
+        open: true,
+        message: `La asignación actual del activo ${asset.fixedAssetId} tiene un dato inválido (${invalidAssignment[0]}). Corrige la asignación en Inventario y vuelve a intentarlo.`,
+        severity: 'warning',
+      });
+      return;
+    }
     if (acts.some((act) => act.assetId === asset.id && act.status !== 'void')) {
       setSnackbar({ open: true, message: 'El activo ya tiene un acta vigente. Anule la anterior antes de crear otra.', severity: 'warning' });
       return;
@@ -386,16 +454,7 @@ const Acts = () => {
         templateVersion: selectedTemplate.version || 1,
         companyNitSnapshot: selectedTemplate.nit.trim(),
         fixedAssetIdSnapshot: asset.fixedAssetId,
-        assetSnapshot: {
-          type: asset.type,
-          brand: asset.brand,
-          model: asset.model,
-          serial: asset.serial,
-          processor: asset.processor,
-          ram: asset.ram,
-          storage: asset.storage,
-          os: asset.os,
-        },
+        assetSnapshot,
         recipient: {
           fullName: recipientName.trim(),
           position: recipientPosition.trim(),
@@ -419,8 +478,34 @@ const Acts = () => {
       setCreateOpen(false);
       await load();
     } catch (error) {
-      console.error('Create act error:', error);
-      setSnackbar({ open: true, message: 'No se pudo crear el acta.', severity: 'error' });
+      const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code || '')
+        : '';
+      const profileScopeAllowsSite = profile?.accessScope !== 'sites'
+        || Boolean(profile.siteIds?.includes(asset.siteId));
+      console.error('Create act error:', {
+        code,
+        siteId: asset.siteId,
+        assetId: asset.id,
+        fixedAssetId: asset.fixedAssetId,
+        diagnostics: {
+          authenticated: Boolean(auth.currentUser),
+          profileUidMatchesSession: Boolean(auth.currentUser?.uid && auth.currentUser.uid === profile?.uid),
+          roleCanCreate: profile?.role === 'admin' || profile?.role === 'tech',
+          profileActive: profile?.active !== false,
+          profileScopeAllowsSite,
+          assetBelongsToSite: asset.siteId === site.id,
+          siteCompanyMatchesSelection: site.companyId === createCompanyId,
+          assetAssigned: asset.status === 'asignado',
+        },
+      }, error);
+      setSnackbar({
+        open: true,
+        message: code === 'permission-denied'
+          ? `Firestore rechazó el borrador de ${asset.fixedAssetId}. Verifica que tu usuario tenga acceso a ${site.name} y que los datos de sede/asignación sigan vigentes. Si persiste, informa este código de activo al administrador.`
+          : 'No se pudo crear el acta. Inténtalo de nuevo y, si persiste, informa el código de activo al administrador.',
+        severity: 'error',
+      });
     } finally {
       setCreating(false);
     }
@@ -500,14 +585,15 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'El archivo debe ser un PDF.', severity: 'warning' });
       return;
     }
-    if (uploadFile.size > MAX_ACT_PDF_SIZE) {
-      setSnackbar({ open: true, message: 'El PDF no puede superar los 10 MB.', severity: 'warning' });
+    if (uploadFile.size >= MAX_ACT_PDF_SIZE) {
+      setSnackbar({ open: true, message: 'El PDF debe pesar menos de 10 MB.', severity: 'warning' });
       return;
     }
     if (uploadMode === 'replace_signed' && replacementReason.trim().length < 5) {
       setSnackbar({ open: true, message: 'Indique un motivo de al menos 5 caracteres para reemplazar el PDF firmado.', severity: 'warning' });
       return;
     }
+    let uploadPhase: 'subir PDF a Storage' | 'registrar PDF firmado en el servidor' = 'subir PDF a Storage';
     try {
       setUploading(true);
       const ts = Date.now();
@@ -521,46 +607,14 @@ const Acts = () => {
         throw new Error('No se encontró un PDF firmado que pueda reemplazarse.');
       }
       const kind = 'signed';
-      const result = await uploadFileToStorage(`acts/${uploadAct.id}/${kind}/${ts}-${uploadFile.name}`, uploadFile, setUploadPct);
-      const fileInfo = {
-        url: result.url,
-        path: result.path,
-        name: result.name,
-        contentType: result.contentType,
-        size: result.size,
-        createdAt: Date.now(),
-        createdByUid: profile?.uid,
-      };
-      const update: Record<string, unknown> = {
-        pdfUrl: result.url,
-        pdfPath: result.path,
-        pdfName: result.name,
-        pdfContentType: result.contentType,
-        pdfSize: result.size,
-      };
-      if (uploadMode === 'signed') {
-        update.signedPdf = fileInfo;
-        update.signatureMethod = 'uploaded_pdf';
-        update.signedAt = Date.now();
-        update.signedByUid = profile.uid;
-        update.status = 'signed';
-      } else if (uploadMode === 'replace_signed') {
-        const previousPdf = uploadAct.signedPdf;
-        update.signedPdf = fileInfo;
-        update.signatureMethod = 'uploaded_pdf';
-        update.signedPdfHistory = [
-          ...(uploadAct.signedPdfHistory || []),
-          {
-            ...previousPdf,
-            replacedAt: Date.now(),
-            replacedByUid: profile.uid,
-            replacementReason: replacementReason.trim(),
-          },
-        ].slice(-10);
-        update.signedAt = Date.now();
-        update.status = 'signed';
-      }
-      await updateAct(uploadAct.id, update as Partial<Act>, profile?.uid);
+      const result = await uploadFileToStorage(
+        `acts/${uploadAct.id}/${kind}/${ts}-${uploadFile.name}`,
+        uploadFile,
+        setUploadPct,
+        { uploadedByUid: profile.uid },
+      );
+      uploadPhase = 'registrar PDF firmado en el servidor';
+      await confirmSignedActPdf(uploadAct.id, result.path, uploadMode, replacementReason.trim());
 
       setSnackbar({
         open: true,
@@ -572,8 +626,24 @@ const Acts = () => {
       setUploadOpen(false);
       await load();
     } catch (error) {
-      console.error('Upload act PDF error:', error);
-      setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo guardar el PDF.', severity: 'error' });
+      const errorCode = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code || '')
+        : '';
+      console.error('Upload act PDF error:', {
+        phase: uploadPhase,
+        code: errorCode,
+        actId: uploadAct.id,
+        status: uploadAct.status,
+        legacyClassification: uploadAct.legacyClassification || null,
+        fileSize: uploadFile.size,
+        fileType: uploadFile.type || '(vacío)',
+      }, error);
+      const message = uploadPhase === 'subir PDF a Storage'
+        ? 'Storage rechazó el PDF. Verifica que sea un archivo PDF válido, pese menos de 10 MB y que tengas acceso a la sede del acta.'
+        : error instanceof Error
+          ? error.message
+          : 'No se pudo guardar el PDF.';
+      setSnackbar({ open: true, message, severity: 'error' });
     } finally {
       setUploading(false);
     }

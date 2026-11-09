@@ -15,6 +15,7 @@ import {
 } from 'firebase/firestore';
 import { auth } from '../firebaseAuth';
 import { db } from '../firebaseDb';
+import { getInvoicePaymentReceipts } from './invoicePayments';
 import type { Act, ActTemplate, Activity, Asset, Assignment, GoogleOneAccount, Invoice, Quote, Site, Supplier, SupplierContract, SupplierContractDocument, Maintenance } from '../types';
 
 export interface QueryFilters {
@@ -283,7 +284,7 @@ export const getGoogleOneAccounts = async () => (await fetchCollection<GoogleOne
   .sort((a, b) => a.accountEmail.localeCompare(b.accountEmail));
 
 export const addGoogleOneAccount = async (
-  data: Omit<GoogleOneAccount, 'id' | 'createdAt' | 'createdByUid' | 'updatedAt' | 'updatedByUid'>,
+  data: Omit<GoogleOneAccount, 'id' | 'createdAt' | 'createdByUid' | 'updatedAt' | 'updatedByUid' | 'monthlyPrice'> & { monthlyPrice: number },
   actorUid?: string,
 ) => {
   const uid = resolveActorUid(actorUid);
@@ -443,7 +444,12 @@ export const updateSupplierContractRenewalPeriod = async (
 // INVOICES
 export const getInvoices = async (filters?: QueryFilters) => {
   const all = await fetchCollection<Invoice>('invoices', 'siteId');
-  return all.filter((item) => {
+  return all.map((item) => ({
+    ...item,
+    // A partir de este flujo, un pago se considera verificado solo si tiene comprobante.
+    // Los registros previos sin soporte se presentan como pendientes para revisión.
+    status: getInvoicePaymentReceipts(item).some((receipt) => receipt.url) ? 'paid' as const : 'pending' as const,
+  })).filter((item) => {
     if (filters?.siteId && item.siteId !== filters.siteId) return false;
     if (filters?.startDate && item.date < filters.startDate) return false;
     if (filters?.endDate && item.date > filters.endDate) return false;
@@ -588,7 +594,10 @@ export const getActs = async () => {
   }
 };
 
-export const addAct = (data: Omit<Act, 'id'>, actorUid?: string) => addDoc(collection(db, 'acts'), { ...data, createdAt: Date.now(), createdByUid: actorUid });
+export const addAct = (data: Omit<Act, 'id'>, actorUid?: string) => {
+  const uid = resolveActorUid(actorUid);
+  return addDoc(collection(db, 'acts'), { ...data, createdAt: Date.now(), createdByUid: uid });
+};
 export const updateAct = (id: string, data: Partial<Act>, actorUid?: string) => updateDoc(doc(db, 'acts', id), { ...data, updatedAt: Date.now(), updatedByUid: actorUid });
 export const updateActContent = async (
   id: string,

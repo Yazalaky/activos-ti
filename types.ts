@@ -114,6 +114,7 @@ export interface GoogleOneAccount extends AuditFields {
   cardLastFour: string;
   plan: string;
   storage: string;
+  monthlyPrice?: number;
   billingDay: number;
   active: boolean;
 }
@@ -159,6 +160,16 @@ export interface SupplierContractDocument extends AuditFields {
   updatedByUid?: string;
 }
 
+export interface InvoicePaymentReceipt {
+  url: string;
+  path: string;
+  name: string;
+  contentType: 'application/pdf';
+  size: number;
+  uploadedAt: number;
+  uploadedByUid: string;
+}
+
 export interface Invoice extends AuditFields {
   id: string;
   supplierId: string;
@@ -174,6 +185,8 @@ export interface Invoice extends AuditFields {
   pdfName?: string;
   pdfContentType?: string;
   pdfSize?: number;
+  paymentReceipt?: InvoicePaymentReceipt;
+  paymentReceipts?: InvoicePaymentReceipt[];
 }
 
 export type QuoteStatus = 'pending' | 'approved' | 'rejected';
@@ -322,6 +335,7 @@ export interface Act extends AuditFields {
   legacyClassifiedByUid?: string;
   legacySignatureDateUnknown?: boolean;
   legacySignerUnknown?: boolean;
+  inventoryResetId?: string;
   pdfUrl?: string;
   pdfPath?: string;
   pdfName?: string;

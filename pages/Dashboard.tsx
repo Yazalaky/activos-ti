@@ -17,6 +17,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import DevicesOtherOutlinedIcon from '@mui/icons-material/DevicesOtherOutlined';
 import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
@@ -52,7 +53,7 @@ const KpiCard = ({
             borderRadius: 3,
             display: 'grid',
             placeItems: 'center',
-            bgcolor: 'rgba(103,80,164,0.12)',
+            bgcolor: 'primary.light',
             color: 'primary.main',
           }}
         >
@@ -88,6 +89,7 @@ const addDays = (date: Date, days: number) => {
 
 const Dashboard = () => {
   const { role } = useAuth();
+  const theme = useTheme();
   const canWrite = role === 'admin' || role === 'tech';
   const [assets, setAssets] = useState<Asset[]>([]);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -161,12 +163,12 @@ const Dashboard = () => {
 
   const chartData = useMemo(
     () => [
-      { name: 'Asignados', value: stats.assignedAssets, color: '#2E7D32' },
-      { name: 'En Bodega', value: stats.stockAssets, color: '#1565C0' },
-      { name: 'Mantenimiento', value: stats.maintenanceAssets, color: '#ED6C02' },
-      { name: 'De Baja', value: stats.retiredAssets, color: '#D32F2F' },
+      { name: 'Asignados', value: stats.assignedAssets, color: theme.palette.success.main },
+      { name: 'En Bodega', value: stats.stockAssets, color: theme.palette.primary.main },
+      { name: 'Mantenimiento', value: stats.maintenanceAssets, color: theme.palette.warning.main },
+      { name: 'De Baja', value: stats.retiredAssets, color: theme.palette.error.main },
     ],
-    [stats]
+    [stats, theme.palette.error.main, theme.palette.primary.main, theme.palette.success.main, theme.palette.warning.main]
   );
 
   const recentActivities = filteredActivities.slice(0, 6);
@@ -418,8 +420,17 @@ const Dashboard = () => {
                               <Cell key={`cell-${index}`} fill={entry.color} />
                             ))}
                           </Pie>
-                          <RechartsTooltip />
-                          <Legend />
+                          <RechartsTooltip
+                            contentStyle={{
+                              backgroundColor: theme.palette.background.paper,
+                              border: `1px solid ${theme.palette.divider}`,
+                              borderRadius: 12,
+                              color: theme.palette.text.primary,
+                            }}
+                            itemStyle={{ color: theme.palette.text.primary }}
+                            labelStyle={{ color: theme.palette.text.secondary }}
+                          />
+                          <Legend wrapperStyle={{ color: theme.palette.text.secondary }} />
                         </PieChart>
                       </ResponsiveContainer>
                     </Box>

@@ -26,15 +26,19 @@ const contentTypeByExtension: Record<string, string> = {
 };
 
 const resolveContentType = (file: File) => {
-  if (file.type) return file.type;
   const extension = file.name.split('.').pop()?.toLowerCase() || '';
+  // Browsers may report application/octet-stream or application/x-pdf for
+  // files with a .pdf extension; Storage rules require the canonical MIME.
+  if (extension === 'pdf') return 'application/pdf';
+  if (file.type) return file.type;
   return contentTypeByExtension[extension] || '';
 };
 
 export const uploadFileToStorage = (
   storagePath: string,
   file: File,
-  onProgress?: (progressPct: number) => void
+  onProgress?: (progressPct: number) => void,
+  customMetadata: Record<string, string> = {}
 ) =>
   new Promise<UploadResult>((resolve, reject) => {
     const safePath = storagePath.replace(/\/+/g, '/');
@@ -44,6 +48,7 @@ export const uploadFileToStorage = (
     const task = uploadBytesResumable(storageRef, file, {
       contentType: contentType || undefined,
       customMetadata: {
+        ...customMetadata,
         originalName: sanitizeFilename(file.name) || file.name,
       },
     });

@@ -42,6 +42,7 @@ type AccountForm = {
   cardLastFour: string;
   plan: string;
   storage: string;
+  monthlyPrice: string;
   billingDay: string;
   active: boolean;
 };
@@ -53,6 +54,7 @@ const emptyForm = (): AccountForm => ({
   cardLastFour: '',
   plan: '',
   storage: '',
+  monthlyPrice: '',
   billingDay: '1',
   active: true,
 });
@@ -62,6 +64,10 @@ const normalize = (value: string) => value
   .replace(/[\u0300-\u036f]/g, '')
   .toLowerCase()
   .trim();
+
+const formatCop = (value?: number) => typeof value === 'number' && Number.isFinite(value)
+  ? new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(value)
+  : 'Sin registrar';
 
 const GoogleOneAccounts = () => {
   const { role, profile } = useAuth();
@@ -107,6 +113,7 @@ const GoogleOneAccounts = () => {
       account.accountEmail,
       account.plan,
       account.storage,
+      account.monthlyPrice === undefined ? '' : String(account.monthlyPrice),
       account.cardLastFour,
     ].join(' ')).includes(normalize(search));
     const matchesStatus = statusFilter === 'all'
@@ -134,6 +141,7 @@ const GoogleOneAccounts = () => {
       cardLastFour: account.cardLastFour,
       plan: account.plan,
       storage: account.storage,
+      monthlyPrice: account.monthlyPrice === undefined ? '' : String(account.monthlyPrice),
       billingDay: String(account.billingDay),
       active: account.active,
     });
@@ -145,6 +153,7 @@ const GoogleOneAccounts = () => {
     if (!canManage) return;
 
     const accountEmail = form.accountEmail.trim().toLowerCase();
+    const monthlyPrice = Number(form.monthlyPrice);
     const billingDay = Number(form.billingDay);
     if (!/^[^\s/@]+@[^\s/@]+\.[^\s/@]+$/.test(accountEmail)) {
       setSnackbar({ open: true, message: 'Ingresa un correo de Google válido.', severity: 'warning' });
@@ -156,6 +165,10 @@ const GoogleOneAccounts = () => {
     }
     if (!form.plan.trim() || !form.storage.trim()) {
       setSnackbar({ open: true, message: 'Indica el plan y el almacenamiento contratado.', severity: 'warning' });
+      return;
+    }
+    if (!form.monthlyPrice.trim() || !Number.isInteger(monthlyPrice) || monthlyPrice < 0 || monthlyPrice > 999999999) {
+      setSnackbar({ open: true, message: 'Ingresa el valor mensual en pesos colombianos, sin decimales.', severity: 'warning' });
       return;
     }
     if (!Number.isInteger(billingDay) || billingDay < 1 || billingDay > 31) {
@@ -170,6 +183,7 @@ const GoogleOneAccounts = () => {
         cardLastFour: form.cardLastFour,
         plan: form.plan.trim(),
         storage: form.storage.trim(),
+        monthlyPrice,
         billingDay,
         active: form.active,
       };
@@ -178,6 +192,7 @@ const GoogleOneAccounts = () => {
           cardLastFour: accountData.cardLastFour,
           plan: accountData.plan,
           storage: accountData.storage,
+          monthlyPrice: accountData.monthlyPrice,
           billingDay: accountData.billingDay,
           active: accountData.active,
         }, profile?.uid);
@@ -213,7 +228,7 @@ const GoogleOneAccounts = () => {
         <Box>
           <Typography variant="h5" sx={{ fontWeight: 900 }}>Cuentas Google One</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-            Registro de cuentas, plan, tarjeta corporativa y día de cobro.
+            Registro de cuentas, plan, valor mensual, tarjeta corporativa y día de cobro.
           </Typography>
         </Box>
         {canManage && <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate}>Nueva cuenta</Button>}
@@ -262,6 +277,7 @@ const GoogleOneAccounts = () => {
                   <TableCell sx={{ fontWeight: 900 }}>Tarjeta corporativa</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Plan</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Almacenamiento</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Valor mensual</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Cobro mensual</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Estado</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 900 }}>Acciones</TableCell>
@@ -279,6 +295,7 @@ const GoogleOneAccounts = () => {
                     </TableCell>
                     <TableCell>{account.plan}</TableCell>
                     <TableCell>{account.storage}</TableCell>
+                    <TableCell>{formatCop(account.monthlyPrice)}</TableCell>
                     <TableCell>Día {account.billingDay} de cada mes</TableCell>
                     <TableCell><Chip size="small" color={account.active ? 'success' : 'default'} label={account.active ? 'Activa' : 'Inactiva'} /></TableCell>
                     <TableCell align="right">
@@ -288,7 +305,7 @@ const GoogleOneAccounts = () => {
                 ))}
                 {!loading && visibleAccounts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
+                    <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
                       <Typography color="text.secondary">
                         {accounts.length ? 'No hay cuentas que coincidan con los filtros.' : 'Aún no hay cuentas de Google One registradas.'}
                       </Typography>
@@ -334,6 +351,20 @@ const GoogleOneAccounts = () => {
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6 }}>
                   <TextField label="Almacenamiento" required fullWidth value={form.storage} placeholder="Ej. 2 TB" inputProps={{ maxLength: 80 }} onChange={(event) => setForm((current) => ({ ...current, storage: event.target.value }))} disabled={saving} />
+                </Grid>
+                <Grid size={{ xs: 12, sm: 6 }}>
+                  <TextField
+                    label="Valor mensual (COP)"
+                    type="number"
+                    required
+                    fullWidth
+                    value={form.monthlyPrice}
+                    inputProps={{ min: 0, max: 999999999, step: 1 }}
+                    InputProps={{ startAdornment: <InputAdornment position="start">$</InputAdornment> }}
+                    helperText="Valor cobrado cada mes, en pesos colombianos."
+                    onChange={(event) => setForm((current) => ({ ...current, monthlyPrice: event.target.value }))}
+                    disabled={saving}
+                  />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6 }}>
                   <TextField label="Día de cobro mensual" type="number" required fullWidth value={form.billingDay} inputProps={{ min: 1, max: 31, step: 1 }} onChange={(event) => setForm((current) => ({ ...current, billingDay: event.target.value }))} disabled={saving} />

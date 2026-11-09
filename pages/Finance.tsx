@@ -7,6 +7,7 @@ import {
   Card,
   CardContent,
   Chip,
+  CircularProgress,
   Dialog,
   DialogActions,
   DialogContent,
@@ -14,6 +15,7 @@ import {
   Divider,
   FormControl,
   Grid,
+  IconButton,
   InputLabel,
   InputAdornment,
   LinearProgress,
@@ -29,9 +31,13 @@ import {
   TableHead,
   TablePagination,
   TableRow,
+  TableContainer,
   TextField,
   Typography,
+  Tooltip,
+  useMediaQuery,
 } from '@mui/material';
+import { useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
@@ -45,6 +51,7 @@ import ScheduleOutlinedIcon from '@mui/icons-material/ScheduleOutlined';
 import ErrorOutlineOutlinedIcon from '@mui/icons-material/ErrorOutlineOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
+import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import { addInvoice, addSupplier, deleteInvoice, getInvoices, getSites, getSuppliers, updateInvoice, updateSupplier } from '../services/api';
 import type { Invoice, Site, Supplier } from '../types';
@@ -54,6 +61,7 @@ import { deleteStoragePath } from '../services/storageFiles';
 import { exportToCsv } from '../utils/exportCsv';
 import { printReport } from '../utils/printReport';
 import GoogleOneAccounts from './GoogleOneAccounts';
+import { confirmInvoicePaymentReceipt, ensureMultiplePaymentReceiptsSupported, getInvoicePaymentReceipts } from '../services/invoicePayments';
 
 type TabKey = 'invoices' | 'suppliers' | 'reports' | 'google-one';
 
@@ -76,9 +84,11 @@ type InvoiceTableProps = {
   sites: Site[];
   canWrite: boolean;
   canDelete: boolean;
+  uploadingPaymentInvoiceId: string | null;
+  paymentUploadPct: number;
   onEdit: (inv: Invoice) => void;
   onDelete: (inv: Invoice) => void;
-  onToggleStatus: (inv: Invoice) => void;
+  onUploadPaymentReceipt: (inv: Invoice, file: File, replacePath?: string) => void;
 };
 
 const InvoiceTable = React.memo(function InvoiceTable({
@@ -87,31 +97,294 @@ const InvoiceTable = React.memo(function InvoiceTable({
   sites,
   canWrite,
   canDelete,
+  uploadingPaymentInvoiceId,
+  paymentUploadPct,
   onEdit,
   onDelete,
-  onToggleStatus,
+  onUploadPaymentReceipt,
 }: InvoiceTableProps) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
+  const [receiptInvoiceId, setReceiptInvoiceId] = useState<string | null>(null);
+  const theme = useTheme();
+  const showWideTable = useMediaQuery(theme.breakpoints.up('xl'));
   const visibleInvoices = invoices.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
+  const receiptInvoice = invoices.find((invoice) => invoice.id === receiptInvoiceId);
 
   useEffect(() => {
     setPage(0);
   }, [invoices]);
 
+  const renderPaymentReceipt = (inv: Invoice, compact = false) => {
+    const receipts = getInvoicePaymentReceipts(inv);
+    return (
+    <Stack spacing={0.5} alignItems={compact ? 'stretch' : 'flex-start'}>
+      <Stack
+        direction={compact ? 'column' : 'row'}
+        spacing={compact ? 0.5 : 0.25}
+        alignItems={compact ? 'stretch' : 'center'}
+      >
+      {receipts.length > 0 ? (
+        compact ? (
+          <Button
+            size="small"
+            variant="text"
+            startIcon={<OpenInNewOutlinedIcon />}
+            onClick={() => setReceiptInvoiceId(inv.id)}
+          >
+            Ver {receipts.length === 1 ? 'soporte' : 'soportes'}
+          </Button>
+        ) : (
+          <Tooltip title="Ver soportes de pago">
+            <IconButton
+              size="small"
+              aria-label={`Ver ${receipts.length} soporte(s) de pago`}
+              onClick={() => setReceiptInvoiceId(inv.id)}
+            >
+              <OpenInNewOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )
+      ) : (
+        <Typography variant="caption" color="text.secondary">
+          Sin soporte de pago
+        </Typography>
+      )}
+      {canWrite && (
+        compact ? (
+          <Button
+            component="label"
+            size="small"
+            variant="outlined"
+            fullWidth
+            startIcon={uploadingPaymentInvoiceId === inv.id ? <CircularProgress size={15} /> : <UploadFileOutlinedIcon />}
+            disabled={uploadingPaymentInvoiceId !== null}
+          >
+            {uploadingPaymentInvoiceId === inv.id
+              ? `Subiendo ${paymentUploadPct}%`
+              : receipts.length ? 'Agregar soporte' : 'Cargar PDF de pago'}
+            <input
+              hidden
+              type="file"
+              accept="application/pdf,.pdf"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) onUploadPaymentReceipt(inv, file);
+                event.target.value = '';
+              }}
+            />
+          </Button>
+        ) : (
+          <Tooltip
+            title={uploadingPaymentInvoiceId === inv.id
+              ? `Subiendo soporte: ${paymentUploadPct}%`
+              : receipts.length ? 'Agregar otro soporte de pago' : 'Cargar soporte de pago'}
+          >
+            <span>
+              <IconButton
+                component="label"
+                size="small"
+                aria-label={uploadingPaymentInvoiceId === inv.id
+                  ? `Subiendo soporte de pago: ${paymentUploadPct}%`
+                  : receipts.length ? 'Agregar otro soporte de pago' : 'Cargar soporte de pago'}
+                disabled={uploadingPaymentInvoiceId !== null}
+              >
+                {uploadingPaymentInvoiceId === inv.id
+                  ? <CircularProgress size={18} />
+                  : <UploadFileOutlinedIcon fontSize="small" />}
+                <input
+                  hidden
+                  type="file"
+                  accept="application/pdf,.pdf"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    if (file) onUploadPaymentReceipt(inv, file);
+                    event.target.value = '';
+                  }}
+                />
+              </IconButton>
+            </span>
+          </Tooltip>
+        )
+      )}
+      </Stack>
+      {receipts.length > 0 && (
+        <Typography variant="caption" color="text.secondary">
+          {receipts.length === 1 && receipts[0].uploadedAt
+            ? `Cargado ${new Date(receipts[0].uploadedAt).toLocaleDateString('es-CO')}`
+            : `${receipts.length} soportes`}
+        </Typography>
+      )}
+    </Stack>
+    );
+  };
+
+  const renderActions = (inv: Invoice, compact = false) => (
+    <Stack
+      direction="row"
+      spacing={compact ? 0.5 : 0.25}
+      useFlexGap
+      flexWrap="wrap"
+      justifyContent={compact ? 'flex-start' : 'flex-end'}
+    >
+      {canWrite && (
+        compact ? (
+          <Button size="small" variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => onEdit(inv)}>
+            Editar
+          </Button>
+        ) : (
+          <Tooltip title="Editar factura">
+            <IconButton size="small" aria-label="Editar factura" onClick={() => onEdit(inv)}>
+              <EditOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )
+      )}
+      {canDelete && (
+        compact ? (
+          <Button size="small" variant="text" color="error" startIcon={<DeleteOutlineOutlinedIcon />} onClick={() => onDelete(inv)}>
+            Eliminar
+          </Button>
+        ) : (
+          <Tooltip title="Eliminar factura">
+            <IconButton size="small" color="error" aria-label="Eliminar factura" onClick={() => onDelete(inv)}>
+              <DeleteOutlineOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        )
+      )}
+      {compact ? (
+        <Button
+          size="small"
+          variant="text"
+          startIcon={<DescriptionOutlinedIcon />}
+          disabled={!inv.pdfUrl}
+          onClick={() => {
+            if (!inv.pdfUrl) return;
+            window.open(inv.pdfUrl, '_blank', 'noopener,noreferrer');
+          }}
+        >
+          PDF factura
+        </Button>
+      ) : (
+        <Tooltip title="Abrir PDF de la factura">
+          <span>
+            <IconButton
+              size="small"
+              aria-label="Abrir PDF de la factura"
+              disabled={!inv.pdfUrl}
+              onClick={() => {
+                if (!inv.pdfUrl) return;
+                window.open(inv.pdfUrl, '_blank', 'noopener,noreferrer');
+              }}
+            >
+              <DescriptionOutlinedIcon fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      )}
+    </Stack>
+  );
+
   return (
     <>
-    <Table size="small">
+    {!showWideTable ? (
+      <Stack spacing={1.5} sx={{ p: 2 }}>
+        {visibleInvoices.map((inv) => {
+          const statusInfo = getDisplayStatus(inv);
+          const supplierName = suppliers.find((supplier) => supplier.id === inv.supplierId)?.name || 'N/A';
+          const siteName = sites.find((site) => site.id === inv.siteId)?.name || 'Sede N/A';
+
+          return (
+            <Card key={inv.id} variant="outlined">
+              <CardContent sx={{ '&:last-child': { pb: 2 } }}>
+                <Stack spacing={1.5}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" gap={1}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 900, overflowWrap: 'anywhere' }}>
+                        Factura {inv.number}
+                      </Typography>
+                      <Typography variant="body2" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
+                        {supplierName}
+                      </Typography>
+                    </Box>
+                    <Chip
+                      size="small"
+                      icon={statusInfo.icon}
+                      label={statusInfo.label}
+                      color={statusInfo.color}
+                      sx={{ fontWeight: 800, flexShrink: 0 }}
+                    />
+                  </Stack>
+
+                  <Divider />
+
+                  <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="caption" color="text.secondary">Detalle / Sede</Typography>
+                      <Typography variant="body2" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{inv.description}</Typography>
+                      <Stack direction="row" spacing={0.75} alignItems="center" sx={{ mt: 0.5 }}>
+                        <BusinessOutlinedIcon fontSize="small" color="action" />
+                        <Typography variant="body2" color="primary" sx={{ overflowWrap: 'anywhere' }}>{siteName}</Typography>
+                      </Stack>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Fechas</Typography>
+                      <Typography variant="body2">Radicación: {inv.date}</Typography>
+                      <Typography variant="body2" color={statusInfo.label === 'Vencido' ? 'error.main' : 'text.primary'}>
+                        Vencimiento: {inv.dueDate || 'Sin fecha'}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary">Valor</Typography>
+                      <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>
+                        ${Number(inv.total || 0).toLocaleString()}
+                      </Typography>
+                    </Box>
+                    <Box>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                        Soporte de pago
+                      </Typography>
+                      {renderPaymentReceipt(inv, true)}
+                    </Box>
+                  </Box>
+
+                  {(canWrite || canDelete || inv.pdfUrl) && (
+                    <>
+                      <Divider />
+                      <Box>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 0.5 }}>
+                          Acciones
+                        </Typography>
+                        {renderActions(inv, true)}
+                      </Box>
+                    </>
+                  )}
+                </Stack>
+              </CardContent>
+            </Card>
+          );
+        })}
+        {invoices.length === 0 && (
+          <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6 }}>
+            No hay facturas registradas con los filtros seleccionados.
+          </Typography>
+        )}
+      </Stack>
+    ) : (
+    <TableContainer sx={{ width: '100%', overflowX: 'auto' }}>
+    <Table size="small" sx={{ width: '100%', tableLayout: 'fixed', minWidth: 1120 }}>
       <TableHead>
         <TableRow>
-          <TableCell sx={{ fontWeight: 800 }}>Factura</TableCell>
-          <TableCell sx={{ fontWeight: 800 }}>Detalle / Sede</TableCell>
-          <TableCell sx={{ fontWeight: 800 }}>Estado</TableCell>
-          <TableCell sx={{ fontWeight: 800 }}>Fechas</TableCell>
-          <TableCell sx={{ fontWeight: 800 }} align="right">
+          <TableCell sx={{ width: '11%', fontWeight: 800 }}>Factura</TableCell>
+          <TableCell sx={{ width: '21%', fontWeight: 800 }}>Detalle / Sede</TableCell>
+          <TableCell sx={{ width: '12%', fontWeight: 800 }}>Estado</TableCell>
+          <TableCell sx={{ width: '12%', fontWeight: 800 }}>Fechas</TableCell>
+          <TableCell sx={{ width: '10%', fontWeight: 800 }} align="right">
             Valor
           </TableCell>
-          <TableCell sx={{ fontWeight: 800 }} align="right">
+          <TableCell sx={{ width: '16%', fontWeight: 800 }}>Soporte de pago</TableCell>
+          <TableCell sx={{ width: '18%', fontWeight: 800 }} align="right">
             Acciones
           </TableCell>
         </TableRow>
@@ -124,21 +397,21 @@ const InvoiceTable = React.memo(function InvoiceTable({
 
           return (
             <TableRow key={inv.id} hover>
-              <TableCell>
-                <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+              <TableCell sx={{ overflowWrap: 'anywhere' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 900, overflowWrap: 'anywhere' }}>
                   {inv.number}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                   {supplierName}
                 </Typography>
               </TableCell>
-              <TableCell>
-                <Typography variant="body2" sx={{ fontWeight: 700 }} noWrap>
+              <TableCell sx={{ overflowWrap: 'anywhere' }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
                   {inv.description}
                 </Typography>
                 <Stack direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
                   <BusinessOutlinedIcon fontSize="small" color="action" />
-                  <Typography variant="caption" color="primary">
+                  <Typography variant="caption" color="primary" sx={{ overflowWrap: 'anywhere' }}>
                     {siteName}
                   </Typography>
                 </Stack>
@@ -148,7 +421,6 @@ const InvoiceTable = React.memo(function InvoiceTable({
                   icon={statusInfo.icon}
                   label={statusInfo.label}
                   color={statusInfo.color}
-                  onClick={canWrite ? () => onToggleStatus(inv) : undefined}
                   sx={{ fontWeight: 800 }}
                 />
               </TableCell>
@@ -167,39 +439,15 @@ const InvoiceTable = React.memo(function InvoiceTable({
                   ${Number(inv.total || 0).toLocaleString()}
                 </Typography>
               </TableCell>
-              <TableCell align="right">
-                <Stack direction="row" spacing={1} justifyContent="flex-end">
-                  {canWrite && (
-                    <Button size="small" variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => onEdit(inv)}>
-                      Editar
-                    </Button>
-                  )}
-                  {canDelete && (
-                    <Button size="small" variant="text" color="error" startIcon={<DeleteOutlineOutlinedIcon />} onClick={() => onDelete(inv)}>
-                      Eliminar
-                    </Button>
-                  )}
-                  <Button
-                    size="small"
-                    variant="text"
-                    startIcon={<DescriptionOutlinedIcon />}
-                    disabled={!inv.pdfUrl}
-                    onClick={() => {
-                      if (!inv.pdfUrl) return;
-                      window.open(inv.pdfUrl, '_blank', 'noopener,noreferrer');
-                    }}
-                  >
-                    PDF
-                  </Button>
-                </Stack>
-              </TableCell>
+              <TableCell>{renderPaymentReceipt(inv)}</TableCell>
+              <TableCell align="right" sx={{ px: 1 }}>{renderActions(inv)}</TableCell>
             </TableRow>
           );
         })}
 
         {invoices.length === 0 && (
           <TableRow>
-            <TableCell colSpan={6} sx={{ py: 6 }}>
+            <TableCell colSpan={7} sx={{ py: 6 }}>
               <Typography variant="body2" color="text.secondary" align="center">
                 No hay facturas registradas con los filtros seleccionados.
               </Typography>
@@ -208,6 +456,57 @@ const InvoiceTable = React.memo(function InvoiceTable({
         )}
       </TableBody>
     </Table>
+    </TableContainer>
+    )}
+    <Dialog open={Boolean(receiptInvoice)} onClose={() => setReceiptInvoiceId(null)} fullWidth maxWidth="sm">
+      <DialogTitle sx={{ fontWeight: 900 }}>Soportes de pago · Factura {receiptInvoice?.number}</DialogTitle>
+      <DialogContent dividers>
+        <Stack spacing={1.5}>
+          {receiptInvoice && getInvoicePaymentReceipts(receiptInvoice).map((receipt, index) => (
+            <Box key={receipt.path} sx={{ border: '1px solid', borderColor: 'divider', borderRadius: 2, p: 1.5 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
+                {receipt.name || `Soporte ${index + 1}`}
+              </Typography>
+              {receipt.uploadedAt && (
+                <Typography variant="caption" color="text.secondary">
+                  Cargado {new Date(receipt.uploadedAt).toLocaleDateString('es-CO')}
+                </Typography>
+              )}
+              <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap" sx={{ mt: 0.5 }}>
+                <Button size="small" startIcon={<OpenInNewOutlinedIcon />} disabled={!receipt.url}
+                  onClick={() => window.open(receipt.url, '_blank', 'noopener,noreferrer')}>
+                  Abrir PDF
+                </Button>
+                {canWrite && (
+                  <Button component="label" size="small" startIcon={<UploadFileOutlinedIcon />}
+                    disabled={uploadingPaymentInvoiceId !== null}>
+                    Reemplazar
+                    <input hidden type="file" accept="application/pdf,.pdf" onChange={(event) => {
+                      const file = event.target.files?.[0];
+                      if (file) onUploadPaymentReceipt(receiptInvoice, file, receipt.path);
+                      event.target.value = '';
+                    }} />
+                  </Button>
+                )}
+              </Stack>
+            </Box>
+          ))}
+        </Stack>
+      </DialogContent>
+      <DialogActions>
+        {canWrite && receiptInvoice && (
+          <Button component="label" startIcon={<UploadFileOutlinedIcon />} disabled={uploadingPaymentInvoiceId !== null}>
+            {uploadingPaymentInvoiceId === receiptInvoice.id ? `Subiendo ${paymentUploadPct}%` : 'Agregar soporte'}
+            <input hidden type="file" accept="application/pdf,.pdf" onChange={(event) => {
+              const file = event.target.files?.[0];
+              if (file) onUploadPaymentReceipt(receiptInvoice, file);
+              event.target.value = '';
+            }} />
+          </Button>
+        )}
+        <Button onClick={() => setReceiptInvoiceId(null)}>Cerrar</Button>
+      </DialogActions>
+    </Dialog>
     <TablePagination
       component="div"
       count={invoices.length}
@@ -273,6 +572,8 @@ const Finance = () => {
   const [editingInvoiceId, setEditingInvoiceId] = useState<string | null>(null);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [invoiceUploadPct, setInvoiceUploadPct] = useState<number>(0);
+  const [uploadingPaymentInvoiceId, setUploadingPaymentInvoiceId] = useState<string | null>(null);
+  const [paymentUploadPct, setPaymentUploadPct] = useState(0);
   const [savingInvoice, setSavingInvoice] = useState(false);
   const [deleteAttachmentOpen, setDeleteAttachmentOpen] = useState(false);
   const [deleteInvoiceOpen, setDeleteInvoiceOpen] = useState(false);
@@ -449,11 +750,11 @@ const Finance = () => {
     if (!canDelete || !invoiceToDelete) return;
     try {
       setDeletingInvoice(true);
-      const path = String(invoiceToDelete.pdfPath || '').trim();
-      if (path) {
-        await deleteStoragePath(path).catch(() => undefined);
-      }
+      const paths = [invoiceToDelete.pdfPath, ...getInvoicePaymentReceipts(invoiceToDelete).map((receipt) => receipt.path)]
+        .map((path) => String(path || '').trim())
+        .filter(Boolean);
       await deleteInvoice(invoiceToDelete.id, profile?.uid);
+      await Promise.all(paths.map((path) => deleteStoragePath(path).catch(() => undefined)));
       setSnackbar({ open: true, message: 'Factura eliminada.', severity: 'success' });
       closeDeleteInvoice();
       loadData();
@@ -567,7 +868,7 @@ const Finance = () => {
       setSavingInvoice(true);
 
       if (editingInvoiceId) {
-        const { id, createdAt, ...toUpdate } = invoiceForm as any;
+        const { id, createdAt, status: _status, paymentReceipt: _paymentReceipt, paymentReceipts: _paymentReceipts, ...toUpdate } = invoiceForm as any;
 
         if (invoiceFile) {
           const prevPath = String(invoiceForm.pdfPath || '').trim();
@@ -591,8 +892,8 @@ const Finance = () => {
         await updateInvoice(editingInvoiceId, toUpdate, profile?.uid);
         setSnackbar({ open: true, message: 'Factura actualizada.', severity: 'success' });
       } else {
-        const { id, createdAt, pdfUrl, pdfPath, pdfName, pdfContentType, pdfSize, ...createPayload } = invoiceForm as any;
-        const newInvoice = { ...createPayload, status: invoiceForm.status || 'pending' };
+        const { id, createdAt, status: _status, paymentReceipt: _paymentReceipt, paymentReceipts: _paymentReceipts, pdfUrl, pdfPath, pdfName, pdfContentType, pdfSize, ...createPayload } = invoiceForm as any;
+        const newInvoice = { ...createPayload, status: 'pending' as const };
         const docRef: any = await addInvoice(newInvoice as Omit<Invoice, 'id'>, profile?.uid);
 
         if (invoiceFile) {
@@ -624,15 +925,73 @@ const Finance = () => {
     }
   };
 
-  const toggleInvoiceStatus = useCallback(
-    async (inv: Invoice) => {
-      if (!canWrite) return;
-      const newStatus: Invoice['status'] = inv.status === 'paid' ? 'pending' : 'paid';
-      setInvoices((prev) => prev.map((item) => (item.id === inv.id ? { ...item, status: newStatus } : item)));
-      await updateInvoice(inv.id, { status: newStatus }, profile?.uid);
-    },
-    [canWrite]
-  );
+  const handleUploadPaymentReceipt = async (invoice: Invoice, file: File, replacePath?: string) => {
+    if (!canWrite) return;
+
+    const isPdf = file.type === 'application/pdf' || (!file.type && file.name.toLowerCase().endsWith('.pdf'));
+    if (!isPdf) {
+      setSnackbar({ open: true, message: 'El soporte de pago debe estar en formato PDF.', severity: 'warning' });
+      return;
+    }
+    if (file.size <= 0 || file.size >= 10 * 1024 * 1024) {
+      setSnackbar({ open: true, message: 'El PDF debe pesar más de 0 y menos de 10 MB.', severity: 'warning' });
+      return;
+    }
+
+    setUploadingPaymentInvoiceId(invoice.id);
+    setPaymentUploadPct(0);
+    let storagePath = '';
+    try {
+      try {
+        await ensureMultiplePaymentReceiptsSupported();
+      } catch (capabilityError) {
+        console.error('Payment receipt service is not ready:', capabilityError);
+        setSnackbar({ open: true, message: 'El servicio de soportes aún no está actualizado o no responde. No se cargó ningún archivo.', severity: 'error' });
+        return;
+      }
+      const safeName = file.name.replace(/[\\/]/g, '-');
+      const result = await uploadFileToStorage(
+        `invoices/${invoice.id}/payment-receipts/${Date.now()}-${Math.random().toString(36).slice(2)}-${safeName}`,
+        file,
+        setPaymentUploadPct,
+        { uploadedByUid: profile?.uid || '' },
+      );
+      storagePath = result.path;
+
+      const { paymentReceipt, paymentReceipts } = await confirmInvoicePaymentReceipt(invoice.id, result.path, replacePath);
+      setInvoices((current) => current.map((item) => item.id === invoice.id
+        ? { ...item, paymentReceipt, paymentReceipts, status: 'paid' }
+        : item));
+      setSnackbar({ open: true, message: replacePath ? 'Soporte reemplazado correctamente.' : 'Soporte verificado. La factura quedó pagada.', severity: 'success' });
+    } catch (error) {
+      console.error('Error registering invoice payment receipt:', error);
+
+      // Si la respuesta de red se perdió después de guardar, consulta el documento
+      // antes de informar un fallo para no dejar desactualizada la tabla.
+      if (storagePath) {
+        try {
+          const refreshedInvoices = await getInvoices();
+          const confirmedInvoice = refreshedInvoices.find((item) => item.id === invoice.id);
+          if (confirmedInvoice && getInvoicePaymentReceipts(confirmedInvoice).some((receipt) => receipt.path === storagePath)) {
+            setInvoices(refreshedInvoices);
+            setSnackbar({ open: true, message: 'Soporte verificado. La factura quedó pagada.', severity: 'success' });
+            return;
+          }
+        } catch (refreshError) {
+          console.warn('No se pudo confirmar el estado final del soporte:', refreshError);
+        }
+      }
+
+      setSnackbar({
+        open: true,
+        message: 'No se pudo verificar el PDF. Revisa los permisos e inténtalo de nuevo.',
+        severity: 'error',
+      });
+    } finally {
+      setUploadingPaymentInvoiceId(null);
+      setPaymentUploadPct(0);
+    }
+  };
 
   return (
     <Stack spacing={2.5}>
@@ -768,9 +1127,11 @@ const Finance = () => {
                 sites={sites}
                 canWrite={canWrite}
                 canDelete={canDelete}
+                uploadingPaymentInvoiceId={uploadingPaymentInvoiceId}
+                paymentUploadPct={paymentUploadPct}
                 onEdit={openEditInvoice}
                 onDelete={openDeleteInvoice}
-                onToggleStatus={toggleInvoiceStatus}
+                onUploadPaymentReceipt={handleUploadPaymentReceipt}
               />
             </CardContent>
           </Card>
@@ -1065,6 +1426,10 @@ const Finance = () => {
               </Box>
             )}
 
+            <Alert severity="info" sx={{ mb: 2 }}>
+              Las facturas nuevas quedan pendientes. Para registrarlas como pagadas, carga el soporte PDF desde la tabla de facturas.
+            </Alert>
+
             {invoiceFile && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Archivo seleccionado: <strong>{invoiceFile.name}</strong>
@@ -1157,20 +1522,6 @@ const Finance = () => {
                 />
               </Grid>
 
-              <Grid size={{ xs: 12, sm: 6 }}>
-                <FormControl fullWidth>
-                  <InputLabel id="invoice-status-label">Estado</InputLabel>
-                  <Select
-                    labelId="invoice-status-label"
-                    label="Estado"
-                    value={invoiceForm.status || 'pending'}
-                    onChange={(e) => setInvoiceForm({ ...invoiceForm, status: e.target.value as Invoice['status'] })}
-                  >
-                    <MenuItem value="pending">Pendiente</MenuItem>
-                    <MenuItem value="paid">Pagado</MenuItem>
-                  </Select>
-                </FormControl>
-              </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <Button
                   component="label"

@@ -65,6 +65,7 @@ export type PreviewSiteInventoryResetOutput = {
   assetCount: number;
   blocking: ResetDependencyGroup[];
   preserved: ResetDependencyGroup[];
+  actsToRetire: ResetDependencyGroup;
 };
 
 export const previewSiteInventoryReset = async (siteId: string) => {
@@ -77,6 +78,7 @@ export type ResetSiteInventoryOutput = {
   resetId: string;
   siteId: string;
   deletedAssets: number;
+  retiredActs: number;
   deletedStorageFiles: number;
   storageCleanupPending: boolean;
 };

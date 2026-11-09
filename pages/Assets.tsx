@@ -950,9 +950,12 @@ const Assets = () => {
       const storageMessage = result.storageCleanupPending
         ? ' Algunas fotos quedaron pendientes de limpieza en Storage.'
         : '';
+      const actsMessage = result.retiredActs > 0
+        ? ` ${result.retiredActs} acta(s) vinculada(s) se retiraron del módulo y quedaron en el respaldo recuperable.`
+        : '';
       setSnackbar({
         open: true,
-        message: `Inventario de ${selectedSite?.name || 'la sede'} reiniciado. ${result.deletedAssets} activo(s) eliminado(s); el próximo código será ${selectedSite?.prefix || 'GEN'}-001.${storageMessage}`,
+        message: `Inventario de ${selectedSite?.name || 'la sede'} reiniciado. ${result.deletedAssets} activo(s) eliminado(s); el próximo código será ${selectedSite?.prefix || 'GEN'}-001.${actsMessage}${storageMessage}`,
         severity: result.storageCleanupPending ? 'warning' : 'success',
       });
       closeResetInventory();
@@ -1273,8 +1276,9 @@ const Assets = () => {
                       mb: 2,
                       p: 2,
                       borderRadius: 4,
-                      bgcolor: 'rgba(0,0,0,0.02)',
-                      border: '1px solid rgba(0,0,0,0.06)',
+                      bgcolor: 'action.hover',
+                      border: '1px solid',
+                      borderColor: 'divider',
                     }}
                   >
                     <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>
@@ -1453,7 +1457,7 @@ const Assets = () => {
                   <Avatar
                     variant="rounded"
                     src={previewImage || undefined}
-                    sx={{ width: 96, height: 96, borderRadius: 3, bgcolor: 'rgba(0,0,0,0.06)' }}
+                    sx={{ width: 96, height: 96, borderRadius: 3, bgcolor: 'action.hover' }}
                   />
                   <Stack
                     direction="row"
@@ -1600,13 +1604,13 @@ const Assets = () => {
           <Stack spacing={2} sx={{ mt: 1 }}>
             <Alert severity="error">
               Esta operación es exclusiva para administradores y eliminará todos los activos de{' '}
-              <strong>{selectedSite?.name || 'la sede seleccionada'}</strong>, incluyendo sus registros de baja. También eliminará sus fotos y reiniciará el consecutivo.
+              <strong>{selectedSite?.name || 'la sede seleccionada'}</strong>, incluyendo sus registros de baja. También eliminará sus fotos y reiniciará el consecutivo. Las actas vinculadas se retirarán del módulo.
             </Alert>
             <Alert severity="info">
-              No es una baja de equipos. “Dar de baja” conserva el historial. Esta operación elimina únicamente los activos y sus fotos; las facturas, cotizaciones y actividades generales de la sede se conservarán.
+              Antes de los cambios se respaldarán los activos y las actas vinculadas. Las actas dejarán de aparecer en el módulo, pero su copia y PDFs quedarán recuperables; las facturas, cotizaciones y actividades generales de la sede se conservarán.
             </Alert>
             <Typography variant="body2" color="text.secondary">
-              Activos detectados: <strong>{resetAnalysis?.assetCount ?? siteAssetsForReset.length}</strong>. Antes de eliminar, el sistema creará un respaldo técnico y bloqueará la operación si encuentra actas, mantenimientos o registros vinculados a los activos.
+              Activos detectados: <strong>{resetAnalysis?.assetCount ?? siteAssetsForReset.length}</strong>. Las actas vinculadas que se retirarán también se mostrarán abajo; el sistema bloqueará el reinicio si encuentra otras dependencias que requieren revisión.
             </Typography>
             {loadingResetAnalysis && (
               <Alert severity="info" icon={<CircularProgress size={18} />}>
@@ -1623,8 +1627,30 @@ const Assets = () => {
                 <Alert severity={resetAnalysis.blocking.length > 0 ? 'warning' : 'success'}>
                   {resetAnalysis.blocking.length > 0
                     ? 'El reinicio está bloqueado hasta resolver las dependencias mostradas.'
-                    : 'No se encontraron registros que dependan directamente de los activos. El reinicio puede continuar.'}
+                    : `No hay otras dependencias que bloqueen el reinicio. Se retirarán ${resetAnalysis.actsToRetire.count} acta(s) vinculada(s), con copia recuperable.`}
                 </Alert>
+                {resetAnalysis.actsToRetire.count > 0 && (
+                  <Box sx={{ border: '1px solid', borderColor: 'warning.light', borderRadius: 2, p: 1.25 }}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                      Actas que se retirarán y respaldarán: {resetAnalysis.actsToRetire.count}
+                    </Typography>
+                    <Stack spacing={0.25} sx={{ mt: 0.5 }}>
+                      {(resetAnalysis.actsToRetire.items || []).map((item) => (
+                        <Typography key={item.id} variant="caption" color="text.secondary">
+                          {item.date || 'Sin fecha'} · {item.assetLabel || 'Activo no identificado'} · {item.title}
+                        </Typography>
+                      ))}
+                      {resetAnalysis.actsToRetire.count > (resetAnalysis.actsToRetire.items || []).length && (
+                        <Typography variant="caption" color="text.secondary">
+                          … y {resetAnalysis.actsToRetire.count - (resetAnalysis.actsToRetire.items || []).length} acta(s) más.
+                        </Typography>
+                      )}
+                    </Stack>
+                    <Typography variant="caption" color="text.secondary" display="block" sx={{ mt: 0.75 }}>
+                      Dejarán de aparecer en Actas. El PDF no se elimina y queda asociado al respaldo del reinicio.
+                    </Typography>
+                  </Box>
+                )}
                 {resetAnalysis.blocking.map((group) => (
                   <Box key={group.collection} sx={{ border: '1px solid', borderColor: 'warning.light', borderRadius: 2, p: 1.25 }}>
                     <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
@@ -1693,10 +1719,10 @@ const Assets = () => {
                       component="img"
                       src={decommissionTarget.imageUrl}
                       alt={`Foto de ${decommissionTarget.fixedAssetId}`}
-                      sx={{ width: '100%', maxHeight: 210, objectFit: 'contain', borderRadius: 3, bgcolor: 'rgba(0,0,0,0.04)' }}
+                      sx={{ width: '100%', maxHeight: 210, objectFit: 'contain', borderRadius: 3, bgcolor: 'action.hover' }}
                     />
                   ) : (
-                    <Box sx={{ minHeight: 160, display: 'grid', placeItems: 'center', borderRadius: 3, bgcolor: 'rgba(0,0,0,0.04)' }}>
+                    <Box sx={{ minHeight: 160, display: 'grid', placeItems: 'center', borderRadius: 3, bgcolor: 'action.hover' }}>
                       <PhotoCameraOutlinedIcon color="disabled" sx={{ fontSize: 48 }} />
                     </Box>
                   )}
