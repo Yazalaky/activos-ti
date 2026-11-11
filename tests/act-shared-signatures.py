@@ -33,6 +33,18 @@ def act(company="redinsalud", count=None):
     }
 
 
+def signature_alignment(pdf):
+    """Mide en el PDF la posición horizontal del texto y del primer firmante."""
+    positions = {}
+    for page in PdfReader(BytesIO(pdf)).pages[1:]:
+        def collect(text, cm, tm, _font, _size):
+            for label in ("En constancia firman:", "Firmante 1"):
+                if text.startswith(label):
+                    positions[label] = cm[0] * tm[4] + cm[2] * tm[5] + cm[4]
+        page.extract_text(visitor_text=collect)
+    return positions
+
+
 class SharedSignatureTests(unittest.TestCase):
     def test_original_and_shared_docx_for_every_company(self):
         for company, filename in TEMPLATE_FILES.items():
@@ -73,6 +85,10 @@ class SharedSignatureTests(unittest.TestCase):
                 self.assertIn("AUTORIZACION DE DESCUENTO", pages[1])
                 self.assertNotIn("AUTORIZACION DE DESCUENTO", pages[0])
                 if count > 1:
+                    positions = signature_alignment(pdf)
+                    self.assertIn("En constancia firman:", positions)
+                    self.assertIn("Firmante 1", positions)
+                    self.assertAlmostEqual(positions["Firmante 1"], positions["En constancia firman:"], delta=1)
                     self.assertNotIn("Receptora Ficticia", " ".join(pages[1:]))
                     for number in range(1, count + 1):
                         matching = [page for page in pages[1:] if f"Firmante {number}" in page]
@@ -92,6 +108,10 @@ class SharedSignatureTests(unittest.TestCase):
                 pages = [page.extract_text() for page in PdfReader(BytesIO(pdf)).pages]
                 self.assertIn("Receptora Ficticia", pages[0])
                 self.assertIn("AUTORIZACION DE DESCUENTO", pages[1])
+                positions = signature_alignment(pdf)
+                self.assertIn("En constancia firman:", positions)
+                self.assertIn("Firmante 1", positions)
+                self.assertAlmostEqual(positions["Firmante 1"], positions["En constancia firman:"], delta=1)
                 for number in range(1, 6):
                     matching = [page for page in pages[1:] if f"Firmante {number}" in page]
                     self.assertEqual(len(matching), 1)
