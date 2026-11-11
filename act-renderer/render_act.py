@@ -341,11 +341,26 @@ def _add_shared_signature_spaces(document: Any, count: int) -> None:
 
     table = document.add_table(rows=(count + 1) // 2, cols=2)
     table.autofit = False
+    # La tabla debe conservar el mismo margen que la autorización, no el de
+    # las tablas anchas de la primera página. La sangría se ajusta después en
+    # _adjust_print_layout, junto con la de los párrafos originales.
+    table_properties = table._tbl.tblPr
+    table_indent = OxmlElement("w:tblInd")
+    table_indent.set(qn("w:w"), "0")
+    table_indent.set(qn("w:type"), "dxa")
+    table_properties.insert_element_before(table_indent, "w:tblBorders", "w:shd", "w:tblLayout", "w:tblCellMar", "w:tblLook")
+    cell_margins = OxmlElement("w:tblCellMar")
+    for side in ("left", "right"):
+        margin = OxmlElement(f"w:{side}")
+        margin.set(qn("w:w"), "0")
+        margin.set(qn("w:type"), "dxa")
+        cell_margins.append(margin)
+    table_properties.insert_element_before(cell_margins, "w:tblLook")
     anchor._p.addnext(table._tbl)
     for index in range(count):
         cell = table.cell(index // 2, index % 2)
         cell.text = ""
-        for line_index, label in enumerate((f"Firmante {index + 1}", "Nombre: _____________________________", "Identificación: __________________________", "Cargo: ______________________________", "Firma: ______________________________")):
+        for line_index, label in enumerate((f"Firmante {index + 1}", "Nombre: _____________________________________", "Identificación: __________________________________", "Cargo: ______________________________________", "Firma: ______________________________________")):
             paragraph = cell.paragraphs[0] if line_index == 0 else cell.add_paragraph()
             paragraph.paragraph_format.space_before = Pt(0)
             paragraph.paragraph_format.space_after = Pt(9 if line_index == 4 else 5)
