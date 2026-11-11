@@ -595,6 +595,10 @@ exports.generateActPdf = onCall({
     throw new HttpsError('not-found', 'No se encontró el acta.');
   }
   const act = actSnapshot.data() || {};
+  const discountSignatureCount = act.documentDetails?.discountSignatureCount ?? 1;
+  if (!Number.isInteger(discountSignatureCount) || discountSignatureCount < 1 || discountSignatureCount > 5) {
+    throw new HttpsError('failed-precondition', 'La cantidad de firmas de la autorización no es válida.');
+  }
   if (!['draft', 'issued'].includes(act.status)) {
     throw new HttpsError('failed-precondition', 'Solo se pueden imprimir actas en borrador o emitidas.');
   }
@@ -704,6 +708,9 @@ exports.generateActPdf = onCall({
     throw new HttpsError('unavailable', 'No se pudo conectar con el servicio de impresión. Inténtalo de nuevo.');
   }
 
+  if (discountSignatureCount > 1 && renderResponse.discountSignatureCount !== discountSignatureCount) {
+    throw new HttpsError('failed-precondition', 'El servicio de impresión todavía no admite varias firmas. El acta no se emitió.');
+  }
   if (typeof renderResponse.pdfBase64 !== 'string' || renderResponse.pdfBase64.length > 8 * 1024 * 1024) {
     throw new HttpsError('internal', 'El servicio de impresión devolvió un archivo no válido.');
   }
@@ -772,6 +779,10 @@ exports.generateActPdf = onCall({
     issuedAt,
   };
 });
+
+// Un endpoint nuevo permite que el cliente detecte una función antigua antes
+// de emitir un acta compartida con un PDF de una sola firma.
+exports.generateSharedActPdf = exports.generateActPdf;
 
 const assertActWriteSiteAccess = (profile, siteId) => {
   if (!profile || profile.active === false || !['admin', 'tech'].includes(profile.role)) {

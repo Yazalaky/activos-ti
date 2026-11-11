@@ -17,6 +17,12 @@ PORT=8080 /tmp/act-renderer-venv/bin/python main.py
 
 `GET http://localhost:8080/healthz` debe responder `{"status":"ok"}`. El endpoint `POST /render` está pensado para el tráfico interno autenticado de Cloud Run; no se debe hacer público.
 
+Para probar las firmas compartidas sin datos reales, instala además `pypdf` en el entorno temporal y ejecuta desde la raíz `python tests/act-shared-signatures.py`. Las reglas y la protección frente a un renderizador antiguo se prueban con los scripts `tests/act-shared-signatures.cjs` y `tests/act-shared-renderer-guard.cjs` bajo el emulador Firestore `demo-act-signatures`.
+
+El servidor local de Vite sigue usando Firebase y el renderizador configurados en el proyecto: no permite probar de extremo a extremo las firmas compartidas si las reglas y funciones de ese proyecto no se han actualizado. La callable nueva `generateSharedActPdf` y la comprobación de capacidad impiden emitir una autorización incompleta con el renderizador anterior.
+
+Para una publicación autorizada de esta característica, el orden seguro es: primero el renderizador privado de Cloud Run; después ambas funciones `generateActPdf` y `generateSharedActPdf`; luego las reglas de Firestore; finalmente Hosting. Verifica cada etapa antes de continuar y conserva la privacidad del servicio y sus permisos actuales. El despliegue habitual de Firebase por sí solo no actualiza el renderizador de Cloud Run.
+
 ## Preparación de Google Cloud
 
 Proyecto y región usados por esta app: `gestion-ti-d18d1` y `us-central1`. Primero inicia sesión con `gcloud auth login`, luego ejecuta desde la raíz del repo:

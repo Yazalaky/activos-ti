@@ -294,6 +294,7 @@ export interface ActDocumentDetails {
   };
   discountAmountWords?: string;
   discountAmountValue?: string;
+  discountSignatureCount?: number;
 }
 
 export interface Act extends AuditFields {

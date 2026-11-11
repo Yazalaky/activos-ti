@@ -46,6 +46,13 @@ def _text(value: Any) -> str:
     return str(value or "").strip()
 
 
+def _signature_count(details: dict[str, Any]) -> int:
+    count = details.get("discountSignatureCount", 1)
+    if type(count) is not int or not 1 <= count <= 5:
+        raise ActDocumentError("La cantidad de firmas debe ser un número entero entre 1 y 5.")
+    return count
+
+
 def _details_for(act: dict[str, Any]) -> dict[str, Any]:
     asset = act.get("assetSnapshot") or {}
     raw = act.get("documentDetails") or {}
@@ -281,21 +288,27 @@ def _fill_legal_text(document: Any, act: dict[str, Any], template: dict[str, Any
             label="valor autorizado",
         )
 
-    for paragraph in document.paragraphs:
-        if paragraph.text.startswith("Nombre:"):
-            _replace_paragraph_pattern(
-                paragraph,
-                r"(?<=Nombre:)_+",
-                f" {full_name}",
-                label="nombre en el espacio de firma",
-            )
-        elif paragraph.text.startswith("C.C. N°") and document_number:
-            _replace_paragraph_pattern(
-                paragraph,
-                r"(?<=C\.C\. N°)_+",
-                f" {document_number}",
-                label="documento en el espacio de firma",
-            )
+    signature_count = _signature_count(details)
+    if signature_count == 1:
+        for paragraph in document.paragraphs:
+            if paragraph.text.startswith("Nombre:"):
+                _replace_paragraph_pattern(
+                    paragraph, r"(?<=Nombre:)_+", f" {full_name}", label="nombre en el espacio de firma",
+                )
+            elif paragraph.text.startswith("C.C. N°") and document_number:
+                _replace_paragraph_pattern(
+                    paragraph, r"(?<=C\.C\. N°)_+", f" {document_number}", label="documento en el espacio de firma",
+                )
+    else:
+        for pattern, replacement, label in (
+            (r"^En tal virtud:.*?AUTORIZO", "En tal virtud, las personas firmantes identificadas a continuación AUTORIZAN", "identificación de firmantes"),
+            (r"\bmis honorarios", "sus honorarios", "honorarios de firmantes"),
+            (r"\bme adeude", "les adeude", "obligaciones de firmantes"),
+            (r"\bme están siendo entregados", "les están siendo entregados", "entrega a firmantes"),
+            (r"\bse encuentra bajo mi responsabilidad", "se encuentran bajo su responsabilidad", "responsabilidad de firmantes"),
+        ):
+            _replace_paragraph_pattern(authorization, pattern, replacement, label=label)
+        _add_shared_signature_spaces(document, signature_count)
 
     observations = _text(act.get("observations"))
     if observations:
@@ -306,6 +319,43 @@ def _fill_legal_text(document: Any, act: dict[str, Any], template: dict[str, Any
         run = paragraph.add_run(f"Observaciones adicionales: {observations}")
         run.font.name = FONT_NAME
         run.font.size = Pt(9)
+
+
+def _add_shared_signature_spaces(document: Any, count: int) -> None:
+    paragraphs = document.paragraphs
+    anchor_index = next((i for i, p in enumerate(paragraphs) if p.text.startswith("En constancia firma")), None)
+    if anchor_index is None:
+        raise ActDocumentError("No se encontró el espacio de firma en la plantilla.")
+    trailing = paragraphs[anchor_index + 1:]
+    if not any(p.text.startswith("Firma:") for p in trailing) or not any(p.text.startswith("C.C.") for p in trailing):
+        raise ActDocumentError("La plantilla no contiene los campos de firma esperados.")
+    if any(p.text.strip() and not p.text.strip().startswith(("Firma:", "Nombre:", "C.C.", "Huella:")) for p in trailing):
+        raise ActDocumentError("La plantilla contiene texto adicional después de las firmas y no se puede modificar automáticamente.")
+    anchor = paragraphs[anchor_index]
+    for paragraph in trailing:
+        paragraph._element.getparent().remove(paragraph._element)
+    for run in anchor.runs:
+        run.text = ""
+    anchor.add_run("En constancia firman:")
+    anchor.paragraph_format.keep_with_next = True
+
+    table = document.add_table(rows=(count + 1) // 2, cols=2)
+    table.autofit = False
+    anchor._p.addnext(table._tbl)
+    for index in range(count):
+        cell = table.cell(index // 2, index % 2)
+        cell.text = ""
+        for line_index, label in enumerate((f"Firmante {index + 1}", "Nombre: _____________________________", "Identificación: __________________________", "Cargo: ______________________________", "Firma: ______________________________")):
+            paragraph = cell.paragraphs[0] if line_index == 0 else cell.add_paragraph()
+            paragraph.paragraph_format.space_before = Pt(0)
+            paragraph.paragraph_format.space_after = Pt(9 if line_index == 4 else 5)
+            run = paragraph.add_run(label)
+            run.font.name = FONT_NAME
+            run.font.size = Pt(11)
+            run.bold = line_index == 0
+        row_properties = table.rows[index // 2]._tr.get_or_add_trPr()
+        if row_properties.find(qn("w:cantSplit")) is None:
+            row_properties.append(OxmlElement("w:cantSplit"))
 
 
 def _adjust_print_layout(document: Any) -> None:
