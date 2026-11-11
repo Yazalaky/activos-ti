@@ -63,6 +63,21 @@ service cloud.firestore {
       return canWrite() && canReadSite(siteId);
     }
 
+    // Evalúa una sola vez el perfil al actualizar un activo entre dos sedes.
+    function canWriteAssetSites(fromSiteId, toSiteId) {
+      let profile = userDoc().data;
+      return (!profile.keys().hasAny(['active']) || profile.active == true)
+        && profile.role in ['admin', 'tech']
+        && (
+          !profile.keys().hasAny(['accessScope'])
+          || profile.accessScope == 'global'
+          || (profile.accessScope == 'sites'
+            && profile.keys().hasAny(['siteIds'])
+            && profile.siteIds is list
+            && profile.siteIds.hasAll([fromSiteId, toSiteId]))
+        );
+    }
+
     function canCreateActOnSite(siteId) {
       let hasUserProfile = hasProfile();
       let profile = hasUserProfile ? userDoc().data : {};
@@ -180,6 +195,61 @@ service cloud.firestore {
         && auditUpdateValid();
     }
 
+    // El código del traslado debe corresponder al consecutivo incrementado de
+    // la sede de destino en la misma transacción.
+    function assetMoveDestinationValid() {
+      let sitePath = /databases/$(database)/documents/sites/$(request.resource.data.siteId);
+      let before = get(sitePath).data;
+      let after = getAfter(sitePath).data;
+      let previousSeq = before.get('assetSeq', 0);
+      let nextSeq = after.assetSeq;
+      let padded = nextSeq < 10 ? '00' + string(nextSeq)
+        : nextSeq < 100 ? '0' + string(nextSeq) : string(nextSeq);
+      return before.prefix is string
+        && before.prefix.matches('^[A-Z0-9]{2,8}$')
+        && (!before.keys().hasAny(['isDeleted']) || before.isDeleted != true)
+        && previousSeq is int && previousSeq >= 0
+        && nextSeq is int && nextSeq == previousSeq + 1
+        && request.resource.data.fixedAssetId == before.prefix + '-' + padded;
+    }
+
+    // El traslado solo modifica sede, código e historial; los demás datos del
+    // equipo no se vuelven a evaluar ni se pueden alterar por esta ruta.
+    function assetMoveUpdateValid() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let next = request.resource.data;
+      return changed.hasAll(['siteId', 'fixedAssetId'])
+        && changed.hasOnly(['siteId', 'fixedAssetId', 'previousFixedAssetIds', 'movedAt', 'movedFromSiteId', 'updatedAt', 'updatedByUid'])
+        && next.siteId is string && next.siteId != resource.data.siteId
+        && isNonEmptyString(resource.data.fixedAssetId, 50)
+        && isNonEmptyString(next.fixedAssetId, 50)
+        && next.previousFixedAssetIds is list && next.previousFixedAssetIds.size() <= 10
+        && next.previousFixedAssetIds.hasAny([resource.data.fixedAssetId])
+        && next.movedFromSiteId == resource.data.siteId
+        && next.movedAt is int && next.movedAt > 0
+        && next.status in ['bodega', 'asignado', 'mantenimiento', 'baja']
+        && (next.status != 'baja' || assetLifecycleValid())
+        && siteReferenceValid()
+        && auditUpdateValid()
+        && assetMoveDestinationValid();
+    }
+
+    // La baja cambia únicamente el estado y sus datos de auditoría.
+    function assetDecommissionUpdateValid() {
+      let changed = request.resource.data.diff(resource.data).affectedKeys();
+      let next = request.resource.data;
+      return changed.hasAny(['status'])
+        && changed.hasOnly(['status', 'currentAssignment', 'decommissionReason', 'decommissionedAt', 'decommissionedByUid', 'updatedAt', 'updatedByUid'])
+        && resource.data.status in ['bodega', 'asignado', 'mantenimiento']
+        && next.status == 'baja'
+        && next.currentAssignment == null
+        && isNonEmptyString(next.decommissionReason, 1000)
+        && next.decommissionReason.size() >= 5
+        && next.decommissionedAt is int && next.decommissionedAt > 0
+        && next.decommissionedByUid == request.auth.uid
+        && auditUpdateValid();
+    }
+
     // Permite reparar la asignación de activos antiguos sin volver a validar
     // todos sus campos históricos. Solo se pueden modificar la asignación y
     // los campos de auditoría, y la asignación debe quedar completa.
@@ -188,6 +258,7 @@ service cloud.firestore {
       let data = request.resource.data;
       return changedKeys.hasAny(['currentAssignment'])
         && changedKeys.hasOnly(['currentAssignment', 'status', 'updatedAt', 'updatedByUid'])
+        && (!resource.data.keys().hasAny(['status']) || resource.data.status != 'baja')
         && data.keys().hasAny(['status'])
         && data.status == 'asignado'
         && data.keys().hasAny(['currentAssignment'])
@@ -206,6 +277,7 @@ service cloud.firestore {
       let data = request.resource.data;
       return changedKeys.hasAny(['status'])
         && changedKeys.hasOnly(['status', 'currentAssignment', 'updatedAt', 'updatedByUid'])
+        && (!resource.data.keys().hasAny(['status']) || resource.data.status != 'baja')
         && data.keys().hasAny(['status'])
         && data.status in ['bodega', 'mantenimiento']
         && data.keys().hasAny(['currentAssignment'])
@@ -1335,10 +1407,12 @@ service cloud.firestore {
         && assetAttachmentValid(assetId)
         && assetLifecycleValid()
         && auditCreateValid();
-      allow update: if canWriteSite(resource.data.siteId)
-        && canWriteSite(request.resource.data.siteId)
+      allow update: if hasProfile()
+        && canWriteAssetSites(resource.data.siteId, request.resource.data.siteId)
         && (
-          assetImageUpdateValid(assetId)
+          assetMoveUpdateValid()
+          || assetDecommissionUpdateValid()
+          || assetImageUpdateValid(assetId)
           || assetAssignmentUpdateValid()
           || assetStatusUpdateValid()
           || assetLegacyFieldUpdateValid()
@@ -1349,6 +1423,7 @@ service cloud.firestore {
             && assetLifecycleValid()
             && auditUpdateValid()
             && softDeleteValid()
+            && !request.resource.data.diff(resource.data).affectedKeys().hasAny(['siteId', 'fixedAssetId'])
             // La baja es un estado final; no se puede reactivar por una edición común.
             && (resource.data.status != 'baja' || request.resource.data.status == 'baja')
           )
