@@ -12,9 +12,22 @@ const generateActPdfCallable = httpsCallable<{ actId: string }, GenerateActPdfRe
   'generateActPdf',
   { timeout: 180_000 },
 );
+const generateSharedActPdfCallable = httpsCallable<{ actId: string }, GenerateActPdfResponse>(
+  functions,
+  'generateSharedActPdf',
+  { timeout: 180_000 },
+);
 
-export const generateActPdf = async (actId: string) => {
-  const { data } = await generateActPdfCallable({ actId });
+export const generateActPdf = async (actId: string, signatureCount = 1) => {
+  let data: GenerateActPdfResponse;
+  try {
+    ({ data } = await (signatureCount > 1 ? generateSharedActPdfCallable : generateActPdfCallable)({ actId }));
+  } catch (error) {
+    if (signatureCount > 1 && error && typeof error === 'object' && 'code' in error && (error.code === 'functions/not-found' || error.code === 'functions/unimplemented')) {
+      throw new Error('El servicio de impresión todavía no admite varias firmas. El acta no se emitió; contacta al administrador.');
+    }
+    throw error;
+  }
   if (!data.pdfBase64 || !data.fileName || !Number.isFinite(data.issuedAt)) {
     throw new Error('El servicio de impresión devolvió una respuesta incompleta.');
   }

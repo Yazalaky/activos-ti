@@ -350,7 +350,14 @@ const Acts = () => {
         await load();
       } catch (error) {
         console.error('Edit act error:', error);
-        setSnackbar({ open: true, message: error instanceof Error ? error.message : 'No se pudo actualizar el acta.', severity: 'error' });
+        const code = typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : '';
+        setSnackbar({
+          open: true,
+          message: code === 'permission-denied' && (documentDetails.discountSignatureCount ?? 1) > 1
+            ? 'No se pudo guardar la corrección. Verifica los permisos y que las reglas del servidor admitan varias firmas.'
+            : error instanceof Error ? error.message : 'No se pudo actualizar el acta.',
+          severity: 'error',
+        });
       } finally {
         setCreating(false);
       }
@@ -501,7 +508,9 @@ const Acts = () => {
       }, error);
       setSnackbar({
         open: true,
-        message: code === 'permission-denied'
+        message: code === 'permission-denied' && (documentDetails.discountSignatureCount ?? 1) > 1
+          ? 'No se pudo guardar el acta. Verifica los permisos y que las reglas del servidor admitan varias firmas.'
+          : code === 'permission-denied'
           ? `Firestore rechazó el borrador de ${asset.fixedAssetId}. Verifica que tu usuario tenga acceso a ${site.name} y que los datos de sede/asignación sigan vigentes. Si persiste, informa este código de activo al administrador.`
           : 'No se pudo crear el acta. Inténtalo de nuevo y, si persiste, informa el código de activo al administrador.',
         severity: 'error',
@@ -537,7 +546,7 @@ const Acts = () => {
     if (printWindow) printWindow.opener = null;
     try {
       setGeneratingActId(act.id);
-      const { file } = await generateActPdf(act.id);
+      const { file } = await generateActPdf(act.id, act.documentDetails?.discountSignatureCount ?? 1);
       const objectUrl = URL.createObjectURL(file);
       let openedInTab = false;
       if (printWindow && !printWindow.closed) {
@@ -1146,6 +1155,27 @@ const Acts = () => {
                 <Grid size={{ xs: 12, sm: 7 }}><TextField label="Valor en letras (opcional)" value={documentDetails.discountAmountWords || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, discountAmountWords: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
                 <Grid size={{ xs: 12, sm: 5 }}><TextField label="Valor numérico (opcional)" value={documentDetails.discountAmountValue || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, discountAmountValue: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
               </Grid>
+              <FormControl fullWidth disabled={!canWrite || creating}>
+                <InputLabel id="act-discount-signatures-label">Firmas para la autorización</InputLabel>
+                <Select
+                  labelId="act-discount-signatures-label"
+                  label="Firmas para la autorización"
+                  value={documentDetails.discountSignatureCount ?? 1}
+                  onChange={(event) => setDocumentDetails((current) => {
+                    const { discountSignatureCount: _previousCount, ...remaining } = current;
+                    const count = Number(event.target.value);
+                    return count === 1 ? remaining : { ...remaining, discountSignatureCount: count };
+                  })}
+                >
+                  <MenuItem value={1}>Una firma: la persona que recibe</MenuItem>
+                  {[2, 3, 4, 5].map((count) => <MenuItem key={count} value={count}>{count} espacios en blanco</MenuItem>)}
+                </Select>
+              </FormControl>
+              <Typography variant="body2" color="text.secondary">
+                {(documentDetails.discountSignatureCount ?? 1) === 1
+                  ? 'La autorización incluirá los datos de la persona que recibe el activo.'
+                  : 'La entrega conserva al receptor. En la autorización se imprimirán espacios en blanco para nombre, identificación, cargo y firma.'}
+              </Typography>
               <Divider />
               <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Observaciones</Typography>
               <TextField
