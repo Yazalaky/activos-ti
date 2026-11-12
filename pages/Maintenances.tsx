@@ -27,9 +27,11 @@ import {
   TablePagination,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
   LinearProgress,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
@@ -37,11 +39,14 @@ import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { addMaintenance, getAssets, getMaintenances, getSites, getSuppliers, softDeleteMaintenance, updateMaintenance } from '../services/api';
 import type { Asset, Maintenance, Site, Supplier } from '../types';
 import { useAuth } from '../auth/AuthContext';
 import { exportToCsv } from '../utils/exportCsv';
 import { printReport } from '../utils/printReport';
+import { compareSiteNames } from '../utils/sortSites';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { deleteStoragePath } from '../services/storageFiles';
 
@@ -80,11 +85,13 @@ const MAX_EVIDENCE_BYTES = 10 * 1024 * 1024;
 
 const Maintenances = () => {
   const { role, profile } = useAuth();
+  const theme = useTheme();
   const canWrite = role === 'admin' || role === 'tech';
   const canDelete = role === 'admin';
   
   const [maintenances, setMaintenances] = useState<Maintenance[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
+  const sortedFilterSites = useMemo(() => sites.slice().sort(compareSiteNames), [sites]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   
@@ -275,12 +282,29 @@ const Maintenances = () => {
 
   const siteAssets = useMemo(() => assets.filter(a => a.siteId === formData.siteId && a.status !== 'baja'), [assets, formData.siteId]);
 
+  const renderEvidence = (maintenance: Maintenance) => maintenance.evidenceUrl ? (
+    <Button size="small" variant="text" href={maintenance.evidenceUrl} target="_blank" rel="noopener noreferrer" startIcon={<OpenInNewOutlinedIcon />}>
+      Abrir
+    </Button>
+  ) : <Typography variant="caption" color="text.secondary">Sin evidencia</Typography>;
+
+  const renderActions = (maintenance: Maintenance) => (
+    <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="nowrap">
+      {canWrite && <Tooltip title="Editar mantenimiento"><IconButton size="small" aria-label="Editar mantenimiento" onClick={() => openEdit(maintenance)}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip>}
+      {canDelete && <Tooltip title="Eliminar mantenimiento"><IconButton size="small" aria-label="Eliminar mantenimiento" color="error" onClick={() => handleDelete(maintenance.id)}><DeleteOutlineOutlinedIcon fontSize="small" /></IconButton></Tooltip>}
+    </Stack>
+  );
+
   return (
-    <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between">
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiStack-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ sm: 'flex-end' }} sx={{ pt: { xs: 0.5, md: 1 }, pb: 0.5 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>Mantenimientos</Typography>
-          <Typography variant="body2" color="text.secondary">Gestión de mantenimientos preventivos y correctivos</Typography>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+            <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Gestión de activos TI</Typography>
+          </Stack>
+          <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>Mantenimientos</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Gestión de mantenimientos preventivos y correctivos</Typography>
         </Box>
         {canWrite && (
           <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate}>Nuevo mantenimiento</Button>
@@ -289,62 +313,75 @@ const Maintenances = () => {
 
       <Card>
         <CardContent>
-          <Grid container spacing={2} alignItems="flex-end">
-            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-              <TextField label="Desde" type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtros de consulta</Typography>
+              <Typography variant="caption" color="text.secondary">Filtra por fecha, sede, tipo o estado</Typography>
+            </Box>
+          </Stack>
+          <Grid container spacing={2} alignItems="center">
+            <Grid size={{ xs: 12, sm: 6, lg: 2.25 }}>
+              <TextField label="Desde" size="small" type="date" value={filterStartDate} onChange={e => setFilterStartDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
             </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-              <TextField label="Hasta" type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
+            <Grid size={{ xs: 12, sm: 6, lg: 2.25 }}>
+              <TextField label="Hasta" size="small" type="date" value={filterEndDate} onChange={e => setFilterEndDate(e.target.value)} InputLabelProps={{ shrink: true }} fullWidth />
             </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Sede</InputLabel>
-                <Select value={filterSite} label="Sede" onChange={e => setFilterSite(e.target.value)}>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="maintenance-filter-site-label">Sede</InputLabel>
+                <Select labelId="maintenance-filter-site-label" value={filterSite} label="Sede" onChange={e => setFilterSite(e.target.value)}>
                   <MenuItem value="">Todas</MenuItem>
-                  {sites.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                  {sortedFilterSites.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Tipo</InputLabel>
-                <Select value={filterType} label="Tipo" onChange={e => setFilterType(e.target.value)}>
+            <Grid size={{ xs: 12, sm: 6, lg: 2.25 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="maintenance-filter-type-label">Tipo</InputLabel>
+                <Select labelId="maintenance-filter-type-label" value={filterType} label="Tipo" onChange={e => setFilterType(e.target.value)}>
                   <MenuItem value="">Todos</MenuItem>
                   <MenuItem value="preventivo">Preventivo</MenuItem>
                   <MenuItem value="correctivo">Correctivo</MenuItem>
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, sm: 6, md: 2 }}>
-              <FormControl fullWidth>
-                <InputLabel>Estado</InputLabel>
-                <Select value={filterStatus} label="Estado" onChange={e => setFilterStatus(e.target.value)}>
+            <Grid size={{ xs: 12, sm: 6, lg: 2.25 }}>
+              <FormControl fullWidth size="small">
+                <InputLabel id="maintenance-filter-status-label">Estado</InputLabel>
+                <Select labelId="maintenance-filter-status-label" value={filterStatus} label="Estado" onChange={e => setFilterStatus(e.target.value)}>
                   <MenuItem value="">Todos</MenuItem>
                   {Object.entries(statusMap).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, md: 2 }} sx={{ display: 'flex', gap: 1 }}>
-              {(filterStartDate || filterEndDate || filterSite || filterType || filterStatus) && (
-                <Button variant="text" color="error" onClick={clearFilters}>Limpiar</Button>
-              )}
-              <Button variant="outlined" onClick={exportData} startIcon={<DownloadOutlinedIcon />} disabled={!maintenanceReportRows.length}>CSV</Button>
-              <Button
-                variant="outlined"
-                onClick={() => printReport('Reporte de mantenimientos', maintenanceReportColumns, maintenanceReportRows)}
-                startIcon={<PrintOutlinedIcon />}
-                disabled={!maintenanceReportRows.length}
-              >
-                PDF / Imprimir
-              </Button>
-            </Grid>
           </Grid>
+          {(filterStartDate || filterEndDate || filterSite || filterType || filterStatus) && (
+            <Box sx={{ mt: 1.25, display: 'flex', justifyContent: 'flex-end' }}><Button size="small" variant="text" onClick={clearFilters}>Limpiar</Button></Box>
+          )}
         </CardContent>
       </Card>
 
       <Card>
         <CardContent sx={{ p: 0 }}>
-          <Table size="small">
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ px: 2.5, py: 2 }}>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><BuildOutlinedIcon fontSize="small" /></Box>
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 750, letterSpacing: '-0.015em' }}>Registro de mantenimientos</Typography>
+                <Typography variant="caption" color="text.secondary">{filteredMaintenances.length.toLocaleString('es-CO')} {filteredMaintenances.length === 1 ? 'mantenimiento coincide' : 'mantenimientos coinciden'} con los filtros actuales</Typography>
+              </Box>
+            </Stack>
+            <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+              <Button size="small" variant="outlined" onClick={exportData} startIcon={<DownloadOutlinedIcon />} disabled={!maintenanceReportRows.length}>CSV</Button>
+              <Button size="small" variant="outlined" onClick={() => printReport('Reporte de mantenimientos', maintenanceReportColumns, maintenanceReportRows)} startIcon={<PrintOutlinedIcon />} disabled={!maintenanceReportRows.length}>PDF / Imprimir</Button>
+            </Stack>
+          </Stack>
+          <Box sx={{ display: { xs: 'none', lg: 'block' }, overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 850, tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25, py: 1.25 }, '& .MuiTableCell-head': { fontWeight: 700, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
+            <colgroup>
+              <col style={{ width: '12%' }} /><col style={{ width: '20%' }} /><col style={{ width: '17%' }} /><col style={{ width: '14%' }} /><col style={{ width: '12%' }} /><col style={{ width: '12%' }} /><col style={{ width: 100 }} />
+            </colgroup>
             <TableHead>
               <TableRow>
                 <TableCell>Fecha Prog.</TableCell>
@@ -364,41 +401,19 @@ const Maintenances = () => {
                   <TableRow key={m.id} hover>
                     <TableCell>{m.scheduledDate || '—'}</TableCell>
                     <TableCell>
-                      <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{a?.fixedAssetId || 'Desconocido'}</Typography>
-                      <Typography variant="caption">{a?.brand} {a?.model}</Typography>
+                      <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{a?.fixedAssetId || 'Desconocido'}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{a?.brand} {a?.model}</Typography>
                     </TableCell>
-                    <TableCell>{s?.name}</TableCell>
+                    <TableCell sx={{ overflowWrap: 'anywhere' }}>{s?.name || 'Sin sede'}</TableCell>
                     <TableCell>
-                      <Stack spacing={0.5}>
+                      <Stack spacing={0.5} alignItems="flex-start">
                         <Typography variant="caption" sx={{ textTransform: 'uppercase' }}>{m.type}</Typography>
-                        <Chip size="small" label={statusMap[m.status]?.label} color={statusMap[m.status]?.color} />
+                        <Chip size="small" label={statusMap[m.status]?.label || m.status} color={statusMap[m.status]?.color} sx={{ fontWeight: 700, fontSize: '0.72rem', maxWidth: '100%' }} />
                       </Stack>
                     </TableCell>
-                    <TableCell>
-                      {m.evidenceUrl ? (
-                        <Button
-                          size="small"
-                          variant="text"
-                          href={m.evidenceUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          startIcon={<OpenInNewOutlinedIcon />}
-                        >
-                          Abrir
-                        </Button>
-                      ) : (
-                        <Typography variant="caption" color="text.secondary">Sin evidencia</Typography>
-                      )}
-                    </TableCell>
-                    <TableCell align="right">${Number(m.cost || 0).toLocaleString()}</TableCell>
-                    <TableCell align="right">
-                      {canWrite && (
-                        <IconButton size="small" onClick={() => openEdit(m)}><EditOutlinedIcon /></IconButton>
-                      )}
-                      {canDelete && (
-                        <IconButton size="small" color="error" onClick={() => handleDelete(m.id)}><DeleteOutlineOutlinedIcon /></IconButton>
-                      )}
-                    </TableCell>
+                    <TableCell>{renderEvidence(m)}</TableCell>
+                    <TableCell align="right" sx={{ overflowWrap: 'anywhere' }}>${Number(m.cost || 0).toLocaleString()}</TableCell>
+                    <TableCell align="right">{renderActions(m)}</TableCell>
                   </TableRow>
                 );
               })}
@@ -407,6 +422,32 @@ const Maintenances = () => {
               )}
             </TableBody>
           </Table>
+          </Box>
+          <Box sx={{ display: { xs: 'block', lg: 'none' }, px: 2 }}>
+            {visibleMaintenances.map(m => {
+              const site = sites.find(item => item.id === m.siteId);
+              const asset = assets.find(item => item.id === m.assetId);
+              return (
+                <Box component="article" key={m.id} sx={{ py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{asset?.fixedAssetId || 'Desconocido'}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{asset?.brand} {asset?.model}</Typography>
+                    </Box>
+                    <Chip size="small" label={statusMap[m.status]?.label || m.status} color={statusMap[m.status]?.color} sx={{ fontWeight: 700 }} />
+                  </Stack>
+                  <Typography variant="body2" sx={{ mt: 1, overflowWrap: 'anywhere' }}>{site?.name || 'Sin sede'}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, textTransform: 'capitalize' }}>{m.type} · Programado: {m.scheduledDate || '—'}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>Costo: ${Number(m.cost || 0).toLocaleString()}</Typography>
+                  <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1} sx={{ mt: 0.75 }}>
+                    {renderEvidence(m)}
+                    {renderActions(m)}
+                  </Stack>
+                </Box>
+              );
+            })}
+            {filteredMaintenances.length === 0 && <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6 }}>No hay mantenimientos registrados.</Typography>}
+          </Box>
           <TablePagination
             component="div"
             count={filteredMaintenances.length}
@@ -414,6 +455,8 @@ const Maintenances = () => {
             rowsPerPage={tableRowsPerPage}
             rowsPerPageOptions={[25, 50, 100]}
             labelRowsPerPage="Filas por página"
+            labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+            sx={{ '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', justifyContent: 'flex-end', minHeight: 56 }, '& .MuiTablePagination-spacer': { display: { xs: 'none', sm: 'block' } } }}
             onPageChange={(_event, nextPage) => setTablePage(nextPage)}
             onRowsPerPageChange={(event) => {
               setTableRowsPerPage(Number(event.target.value));
@@ -423,31 +466,37 @@ const Maintenances = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
-        <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar mantenimiento' : 'Nuevo mantenimiento'}</DialogTitle>
-        <DialogContent>
+      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>{editingId ? 'Editar mantenimiento' : 'Nuevo mantenimiento'}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Registra el equipo, las fechas y los detalles del mantenimiento.</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
           <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
+            <Box sx={{ p: { xs: 2, sm: 2.25 }, border: '1px solid', borderColor: 'divider', borderRadius: '12px', bgcolor: 'background.paper' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 750, mb: 0.5 }}>Datos del mantenimiento</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>Selecciona la sede y el activo al que corresponde el trabajo.</Typography>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth required>
-                  <InputLabel>Sede</InputLabel>
-                  <Select value={formData.siteId} label="Sede" onChange={e => setFormData({ ...formData, siteId: e.target.value, assetId: '' })}>
-                    {sites.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
+                  <InputLabel id="maintenance-form-site-label">Sede</InputLabel>
+                  <Select labelId="maintenance-form-site-label" value={formData.siteId} label="Sede" onChange={e => setFormData({ ...formData, siteId: e.target.value, assetId: '' })}>
+                    {sortedFilterSites.map(s => <MenuItem key={s.id} value={s.id}>{s.name}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth required disabled={!formData.siteId}>
-                  <InputLabel>Activo</InputLabel>
-                  <Select value={formData.assetId} label="Activo" onChange={e => setFormData({ ...formData, assetId: e.target.value })}>
+                  <InputLabel id="maintenance-form-asset-label">Activo</InputLabel>
+                  <Select labelId="maintenance-form-asset-label" value={formData.assetId} label="Activo" onChange={e => setFormData({ ...formData, assetId: e.target.value })}>
                     {siteAssets.map(a => <MenuItem key={a.id} value={a.id}>{a.fixedAssetId} - {a.brand} {a.model}</MenuItem>)}
                   </Select>
                 </FormControl>
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth>
-                  <InputLabel>Tipo</InputLabel>
-                  <Select value={formData.type} label="Tipo" onChange={e => setFormData({ ...formData, type: e.target.value as any })}>
+                  <InputLabel id="maintenance-form-type-label">Tipo</InputLabel>
+                  <Select labelId="maintenance-form-type-label" value={formData.type} label="Tipo" onChange={e => setFormData({ ...formData, type: e.target.value as any })}>
                     <MenuItem value="preventivo">Preventivo</MenuItem>
                     <MenuItem value="correctivo">Correctivo</MenuItem>
                   </Select>
@@ -455,8 +504,8 @@ const Maintenances = () => {
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth>
-                  <InputLabel>Estado</InputLabel>
-                  <Select value={formData.status} label="Estado" onChange={e => setFormData({ ...formData, status: e.target.value as any })}>
+                  <InputLabel id="maintenance-form-status-label">Estado</InputLabel>
+                  <Select labelId="maintenance-form-status-label" value={formData.status} label="Estado" onChange={e => setFormData({ ...formData, status: e.target.value as any })}>
                     {Object.entries(statusMap).map(([k, v]) => <MenuItem key={k} value={k}>{v.label}</MenuItem>)}
                   </Select>
                 </FormControl>
@@ -469,8 +518,8 @@ const Maintenances = () => {
               </Grid>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth>
-                  <InputLabel>Proveedor (Opcional)</InputLabel>
-                  <Select value={formData.supplierId || ''} label="Proveedor (Opcional)" onChange={e => setFormData({ ...formData, supplierId: e.target.value })}>
+                  <InputLabel id="maintenance-form-supplier-label">Proveedor (Opcional)</InputLabel>
+                  <Select labelId="maintenance-form-supplier-label" value={formData.supplierId || ''} label="Proveedor (Opcional)" onChange={e => setFormData({ ...formData, supplierId: e.target.value })}>
                     <MenuItem value="">Ninguno</MenuItem>
                     {suppliers.map(sup => <MenuItem key={sup.id} value={sup.id}>{sup.name}</MenuItem>)}
                   </Select>
@@ -538,7 +587,8 @@ const Maintenances = () => {
                 </Stack>
               </Grid>
             </Grid>
-            <DialogActions sx={{ px: 0, mt: 2 }}>
+            </Box>
+            <DialogActions sx={{ position: 'sticky', bottom: 0, zIndex: 1, mt: 2, px: 1.5, py: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', boxShadow: 2 }}>
               <Button onClick={closeDialog} disabled={saving}>Cancelar</Button>
               <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Guardando...' : 'Guardar'}</Button>
             </DialogActions>

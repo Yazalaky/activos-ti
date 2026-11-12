@@ -37,13 +37,12 @@ import {
   Tooltip,
   useMediaQuery,
 } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
-import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import ClearOutlinedIcon from '@mui/icons-material/ClearOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import CheckCircleOutlinedIcon from '@mui/icons-material/CheckCircleOutlined';
@@ -53,6 +52,8 @@ import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
 import { addInvoice, addSupplier, deleteInvoice, getInvoices, getSites, getSuppliers, updateInvoice, updateSupplier } from '../services/api';
 import type { Invoice, Site, Supplier } from '../types';
 import { uploadFileToStorage } from '../services/storageUpload';
@@ -60,6 +61,7 @@ import { useAuth } from '../auth/AuthContext';
 import { deleteStoragePath } from '../services/storageFiles';
 import { exportToCsv } from '../utils/exportCsv';
 import { printReport } from '../utils/printReport';
+import { compareSiteNames } from '../utils/sortSites';
 import GoogleOneAccounts from './GoogleOneAccounts';
 import { confirmInvoicePaymentReceipt, ensureMultiplePaymentReceiptsSupported, getInvoicePaymentReceipts } from '../services/invoicePayments';
 
@@ -514,6 +516,8 @@ const InvoiceTable = React.memo(function InvoiceTable({
       rowsPerPage={rowsPerPage}
       rowsPerPageOptions={[25, 50, 100]}
       labelRowsPerPage="Filas por página"
+      labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+      sx={{ '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', justifyContent: 'flex-end', minHeight: 56 }, '& .MuiTablePagination-spacer': { display: { xs: 'none', sm: 'block' } } }}
       onPageChange={(_event, nextPage) => setPage(nextPage)}
       onRowsPerPageChange={(event) => {
         setRowsPerPage(Number(event.target.value));
@@ -547,6 +551,7 @@ const invoiceReportColumns = [
 
 const Finance = () => {
   const { role, profile } = useAuth();
+  const theme = useTheme();
   const navigate = useNavigate();
   const canWrite = role === 'admin' || role === 'tech';
   const canDelete = role === 'admin';
@@ -611,7 +616,7 @@ const Finance = () => {
   );
 
   const sortedSites = useMemo(
-    () => sites.slice().sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })),
+    () => sites.slice().sort(compareSiteNames),
     [sites]
   );
 
@@ -994,9 +999,13 @@ const Finance = () => {
   };
 
   return (
-    <Stack spacing={2.5}>
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiStack-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
       <Box>
-        <Typography variant="h5" sx={{ fontWeight: 900 }}>
+        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+          <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+          <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Gestión de activos TI</Typography>
+        </Stack>
+        <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>
           Gestión financiera
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -1007,7 +1016,10 @@ const Finance = () => {
       <Tabs
         value={activeTab}
         onChange={(_, v) => setActiveTab(v)}
-        sx={{ '& .MuiTab-root': { fontWeight: 800 } }}
+        variant="scrollable"
+        scrollButtons="auto"
+        allowScrollButtonsMobile
+        sx={{ minHeight: 44, borderBottom: 1, borderColor: 'divider', '& .MuiTab-root': { minHeight: 44, fontWeight: 750, textTransform: 'none', px: 2 } }}
       >
         <Tab value="invoices" label="Facturas" />
         <Tab value="suppliers" label="Proveedores" />
@@ -1020,36 +1032,44 @@ const Finance = () => {
       {(activeTab === 'invoices' || activeTab === 'reports') && (
         <Card>
           <CardContent>
-            <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'flex-end' }}>
-              <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 220 }}>
-                <FilterAltOutlinedIcon color="action" />
-                <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                  Filtros
-                </Typography>
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+              <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtros de consulta</Typography>
+                <Typography variant="caption" color="text.secondary">Filtra por fecha, factura, sede o proveedor</Typography>
+              </Box>
               </Stack>
-
+            <Grid container spacing={2} alignItems="center">
+              <Grid size={{ xs: 12, sm: 6, lg: 3, xl: 2.5 }}>
               <TextField
                 label="Desde"
+                size="small"
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
                 InputLabelProps={{ shrink: true }}
-                sx={{ width: { xs: '100%', sm: 220 } }}
+                fullWidth
               />
+              </Grid>
+              <Grid size={{ xs: 12, sm: 6, lg: 3, xl: 2.5 }}>
               <TextField
                 label="Hasta"
+                size="small"
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
                 InputLabelProps={{ shrink: true }}
-                sx={{ width: { xs: '100%', sm: 220 } }}
+                fullWidth
               />
+              </Grid>
 
+              <Grid size={{ xs: 12, sm: 6, lg: 3, xl: 2 }}>
               <TextField
                 label="No. Factura"
+                size="small"
                 value={invoiceNumberFilter}
                 onChange={(e) => setInvoiceNumberFilter(e.target.value)}
-                sx={{ width: { xs: '100%', sm: 220 } }}
+                fullWidth
                 InputProps={{
                   startAdornment: (
                     <InputAdornment position="start">
@@ -1058,8 +1078,10 @@ const Finance = () => {
                   ),
                 }}
               />
+              </Grid>
 
-              <FormControl sx={{ width: { xs: '100%', sm: 260 } }}>
+              <Grid size={{ xs: 12, sm: 6, lg: 3, xl: 2.5 }}>
+              <FormControl fullWidth size="small">
                 <InputLabel id="filter-site-label">Sede</InputLabel>
                 <Select
                   labelId="filter-site-label"
@@ -1075,8 +1097,10 @@ const Finance = () => {
                   ))}
                 </Select>
               </FormControl>
+              </Grid>
 
-              <FormControl sx={{ width: { xs: '100%', sm: 260 } }}>
+              <Grid size={{ xs: 12, sm: 6, lg: 3, xl: 2.5 }}>
+              <FormControl fullWidth size="small">
                 <InputLabel id="filter-supplier-label">Proveedor</InputLabel>
                 <Select
                   labelId="filter-supplier-label"
@@ -1092,19 +1116,21 @@ const Finance = () => {
                   ))}
                 </Select>
               </FormControl>
+              </Grid>
+            </Grid>
 
               {(startDate || endDate || selectedSiteFilter || selectedSupplierFilter || invoiceNumberFilter) && (
+                <Box sx={{ mt: 1.25, display: 'flex', justifyContent: 'flex-end' }}>
                 <Button
                   variant="text"
-                  color="error"
+                  size="small"
                   startIcon={<ClearOutlinedIcon />}
                   onClick={clearFilters}
-                  sx={{ ml: 'auto' }}
                 >
                   Limpiar
                 </Button>
+                </Box>
               )}
-            </Stack>
           </CardContent>
         </Card>
       )}
@@ -1121,6 +1147,14 @@ const Finance = () => {
 
           <Card>
             <CardContent sx={{ p: 0 }}>
+              <Stack direction="row" spacing={1.25} alignItems="center" sx={{ px: 2.5, py: 2 }}>
+                <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><ReceiptLongOutlinedIcon fontSize="small" /></Box>
+                <Box>
+                  <Typography variant="subtitle1" sx={{ fontWeight: 750, letterSpacing: '-0.015em' }}>Registro de facturas</Typography>
+                  <Typography variant="caption" color="text.secondary">{filteredInvoices.length.toLocaleString('es-CO')} {filteredInvoices.length === 1 ? 'factura coincide' : 'facturas coinciden'} con los filtros actuales</Typography>
+                </Box>
+              </Stack>
+              <Divider />
               <InvoiceTable
                 invoices={filteredInvoices}
                 suppliers={suppliers}
@@ -1151,11 +1185,11 @@ const Finance = () => {
           <Grid container spacing={2}>
             {suppliers.map((sup) => (
               <Grid key={sup.id} size={{ xs: 12, sm: 6, md: 4 }}>
-                <Card>
+                <Card sx={{ borderRadius: '16px', height: '100%' }}>
                   <CardContent>
                     <Stack direction="row" spacing={1} justifyContent="space-between" alignItems="flex-start">
                       <Box sx={{ minWidth: 0 }}>
-                        <Typography variant="h6" sx={{ fontWeight: 900 }} noWrap>
+                        <Typography variant="subtitle1" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>
                           {sup.name}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
@@ -1169,8 +1203,8 @@ const Finance = () => {
                       )}
                     </Stack>
                     <Divider sx={{ my: 1.5 }} />
-                    <Typography variant="body2">Tel: {sup.phone || '—'}</Typography>
-                    <Typography variant="body2">Email: {sup.email || '—'}</Typography>
+                    <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Tel: {sup.phone || '—'}</Typography>
+                    <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>Email: {sup.email || '—'}</Typography>
                     <Box sx={{ mt: 1.5 }}>
                       <Chip label={sup.category || '—'} variant="outlined" />
                     </Box>
@@ -1256,12 +1290,13 @@ const Finance = () => {
 
           <Card>
             <CardContent sx={{ p: 0 }}>
-              <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <Typography variant="h6" sx={{ fontWeight: 900 }}>
+              <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ px: 2.5, py: 2 }}>
+                <Typography variant="subtitle1" sx={{ fontWeight: 750 }}>
                   Detalle de costos
                 </Typography>
-                <Stack direction="row" spacing={2} justifyContent="flex-end" sx={{ mt: 3 }}>
+                <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
                 <Button
+                  size="small"
                   variant="outlined"
                   startIcon={<DownloadOutlinedIcon />}
                   disabled={!invoiceReportRows.length}
@@ -1270,6 +1305,7 @@ const Finance = () => {
                   CSV
                 </Button>
                 <Button
+                  size="small"
                   variant="outlined"
                   startIcon={<PrintOutlinedIcon />}
                   disabled={!invoiceReportRows.length}
@@ -1278,9 +1314,10 @@ const Finance = () => {
                   PDF / Imprimir
                 </Button>
               </Stack>
-              </Box>
+              </Stack>
               <Divider />
-              <Table size="small">
+              <Box sx={{ display: { xs: 'none', lg: 'block' }, overflowX: 'auto' }}>
+              <Table size="small" sx={{ minWidth: 850, tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25, py: 1.25, overflowWrap: 'anywhere' } }}>
                 <TableHead>
                   <TableRow>
                     <TableCell sx={{ fontWeight: 800 }}>Fecha</TableCell>
@@ -1326,6 +1363,26 @@ const Finance = () => {
                   )}
                 </TableBody>
               </Table>
+              </Box>
+              <Box sx={{ display: { xs: 'block', lg: 'none' }, px: 2 }}>
+                {visibleReportInvoices.map((inv) => {
+                  const statusInfo = getDisplayStatus(inv);
+                  const supplierName = suppliers.find((s) => s.id === inv.supplierId)?.name || 'N/A';
+                  const siteName = sites.find((s) => s.id === inv.siteId)?.name || 'Sede N/A';
+                  return (
+                    <Box component="article" key={inv.id} sx={{ py: 2, borderBottom: 1, borderColor: 'divider' }}>
+                      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                        <Box sx={{ minWidth: 0 }}><Typography variant="subtitle2" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>Factura {inv.number}</Typography><Typography variant="caption" color="text.secondary">{inv.date}</Typography></Box>
+                        <Chip icon={statusInfo.icon} label={statusInfo.label} color={statusInfo.color} size="small" />
+                      </Stack>
+                      <Typography variant="body2" sx={{ mt: 1, overflowWrap: 'anywhere' }}>{supplierName}</Typography>
+                      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{siteName}</Typography>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 750, mt: 0.75, overflowWrap: 'anywhere' }}>${Number(inv.total || 0).toLocaleString()}</Typography>
+                    </Box>
+                  );
+                })}
+                {filteredInvoices.length === 0 && <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6 }}>No hay datos para el periodo seleccionado.</Typography>}
+              </Box>
               <TablePagination
                 component="div"
                 count={filteredInvoices.length}
@@ -1333,6 +1390,8 @@ const Finance = () => {
                 rowsPerPage={reportRowsPerPage}
                 rowsPerPageOptions={[25, 50, 100]}
                 labelRowsPerPage="Filas por página"
+                labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+                sx={{ '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', justifyContent: 'flex-end', minHeight: 56 }, '& .MuiTablePagination-spacer': { display: { xs: 'none', sm: 'block' } } }}
                 onPageChange={(_event, nextPage) => setReportPage(nextPage)}
                 onRowsPerPageChange={(event) => {
                   setReportRowsPerPage(Number(event.target.value));
@@ -1344,18 +1403,19 @@ const Finance = () => {
         </Stack>
       )}
 
-      <Dialog open={showSupplierDialog} onClose={closeSupplierDialog} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>
-          {editingSupplierId ? 'Editar proveedor' : 'Nuevo proveedor'}
+      <Dialog open={showSupplierDialog} onClose={closeSupplierDialog} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>{editingSupplierId ? 'Editar proveedor' : 'Nuevo proveedor'}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Datos de identificación y contacto del proveedor.</Typography>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
           <Box component="form" onSubmit={handleSaveSupplier} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar proveedores.
               </Alert>
             )}
-            <Stack spacing={2}>
+            <Stack spacing={2} sx={{ p: { xs: 2, sm: 2.25 }, border: '1px solid', borderColor: 'divider', borderRadius: '12px', bgcolor: 'background.paper' }}>
               <TextField
                 label="Nombre"
                 value={supplierForm.name || ''}
@@ -1396,7 +1456,7 @@ const Finance = () => {
               />
             </Stack>
 
-            <DialogActions sx={{ px: 0, mt: 2 }}>
+            <DialogActions sx={{ position: 'sticky', bottom: 0, zIndex: 1, mt: 2, px: 1.5, py: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', boxShadow: 2 }}>
               <Button onClick={closeSupplierDialog}>Cancelar</Button>
               <Button type="submit" variant="contained" disabled={!canWrite}>
                 Guardar
@@ -1406,11 +1466,12 @@ const Finance = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={showInvoiceDialog} onClose={closeInvoiceDialog} fullWidth maxWidth="md">
-        <DialogTitle sx={{ fontWeight: 900 }}>
-          {editingInvoiceId ? 'Editar factura' : 'Nueva factura'}
+      <Dialog open={showInvoiceDialog} onClose={closeInvoiceDialog} fullWidth maxWidth="md" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>{editingInvoiceId ? 'Editar factura' : 'Nueva factura'}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Datos de radicación, proveedor y documento de la factura.</Typography>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
           <Box component="form" onSubmit={handleSaveInvoice} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
@@ -1436,6 +1497,7 @@ const Finance = () => {
               </Alert>
             )}
 
+            <Box sx={{ p: { xs: 2, sm: 2.25 }, border: '1px solid', borderColor: 'divider', borderRadius: '12px', bgcolor: 'background.paper' }}>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 6 }}>
                 <FormControl fullWidth required>
@@ -1557,9 +1619,10 @@ const Finance = () => {
                 />
               </Grid>
             </Grid>
+            </Box>
 
             <Divider sx={{ my: 2 }} />
-            <DialogActions sx={{ px: 0 }}>
+            <DialogActions sx={{ position: 'sticky', bottom: 0, zIndex: 1, flexWrap: 'wrap', px: 1.5, py: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', boxShadow: 2 }}>
               {invoiceForm.pdfUrl && (
                 <Button
                   startIcon={<OpenInNewOutlinedIcon />}

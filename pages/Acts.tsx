@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -16,6 +17,7 @@ import {
   FormControlLabel,
   FormGroup,
   Grid,
+  IconButton,
   InputAdornment,
   InputLabel,
   LinearProgress,
@@ -29,15 +31,20 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import UploadFileOutlinedIcon from '@mui/icons-material/UploadFileOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
-import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import AssignmentOutlinedIcon from '@mui/icons-material/AssignmentOutlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
+import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { auth } from '../firebaseAuth';
 import { addAct, getActs, getActTemplates, getAssets, getSites, updateActContent } from '../services/api';
@@ -47,6 +54,7 @@ import { confirmSignedActPdf } from '../services/actSignedPdf';
 import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
 import { isLegacyActPending } from '../services/actLegacy';
 import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site } from '../types';
+import { compareSiteNames } from '../utils/sortSites';
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -138,6 +146,7 @@ const requestedSoftwareOptions: Array<{ key: keyof ActDocumentDetails['requested
 
 const Acts = () => {
   const { role, profile } = useAuth();
+  const theme = useTheme();
   const canWrite = role === 'admin' || role === 'tech';
 
   const [acts, setActs] = useState<Act[]>([]);
@@ -204,7 +213,7 @@ const Acts = () => {
     [templates, createCompanyId]
   );
   const sitesForCreateCompany = useMemo(
-    () => sites.filter((site) => site.companyId === createCompanyId).slice().sort((a, b) => a.name.localeCompare(b.name)),
+    () => sites.filter((site) => site.companyId === createCompanyId).sort(compareSiteNames),
     [sites, createCompanyId]
   );
   const availableCompanies = useMemo(
@@ -658,11 +667,51 @@ const Acts = () => {
     }
   };
 
+  const renderActStatus = (act: Act) => (
+    <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap sx={{ minWidth: 0 }}>
+      <Chip size="small" label={statusLabel[act.status]} color={statusColor(act.status) as any} sx={{ fontWeight: 700 }} />
+      {isLegacyActPending(act) && <Chip size="small" label="Revisión pendiente" color="warning" variant="outlined" sx={{ height: 'auto', maxWidth: '100%', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.25 } }} />}
+      {act.signatureMethod === 'electronic' && <Chip size="small" label="Firma electrónica histórica" variant="outlined" sx={{ height: 'auto', maxWidth: '100%', '& .MuiChip-label': { whiteSpace: 'normal', py: 0.25 } }} />}
+    </Stack>
+  );
+
+  const renderActPdf = (act: Act) => (
+    <Button size="small" variant="text" startIcon={<OpenInNewOutlinedIcon />} disabled={!act.pdfUrl} onClick={() => {
+      if (act.pdfUrl) window.open(act.pdfUrl, '_blank', 'noopener,noreferrer');
+    }}>Abrir PDF</Button>
+  );
+
+  const renderActActions = (act: Act, mobile = false) => {
+    const canEdit = canWrite && ['draft', 'issued'].includes(act.status) && !isLegacyActPending(act);
+    if (mobile) {
+      return (
+        <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+          {canEdit && <Button size="small" startIcon={<EditOutlinedIcon />} aria-label={act.status === 'issued' ? 'Corregir acta' : 'Editar borrador'} onClick={() => openEdit(act)}>{act.status === 'issued' ? 'Corregir' : 'Editar'}</Button>}
+          {canEdit && <Button size="small" startIcon={<DescriptionOutlinedIcon />} aria-label="Imprimir acta" onClick={() => handleGeneratePdf(act)} disabled={generatingActId === act.id}>{generatingActId === act.id ? 'Preparando…' : 'Imprimir'}</Button>}
+          {canEdit && <Button size="small" startIcon={<UploadFileOutlinedIcon />} aria-label="Cargar PDF firmado" onClick={() => openUpload(act, 'signed')}>Cargar firmado</Button>}
+          {act.status === 'signed' && act.signedPdf && canWrite && <Button size="small" startIcon={<UploadFileOutlinedIcon />} aria-label="Reemplazar PDF" onClick={() => openUpload(act, 'replace_signed')}>Reemplazar PDF</Button>}
+        </Stack>
+      );
+    }
+    return (
+      <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="nowrap">
+        {canEdit && <Tooltip title={act.status === 'issued' ? 'Corregir acta' : 'Editar borrador'}><IconButton size="small" aria-label={act.status === 'issued' ? 'Corregir acta' : 'Editar borrador'} onClick={() => openEdit(act)}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip>}
+        {canEdit && <Tooltip title={generatingActId === act.id ? 'Preparando…' : 'Imprimir acta'}><span><IconButton size="small" aria-label="Imprimir acta" onClick={() => handleGeneratePdf(act)} disabled={generatingActId === act.id}><DescriptionOutlinedIcon fontSize="small" /></IconButton></span></Tooltip>}
+        {canEdit && <Tooltip title="Cargar PDF firmado"><IconButton size="small" aria-label="Cargar PDF firmado" onClick={() => openUpload(act, 'signed')}><UploadFileOutlinedIcon fontSize="small" /></IconButton></Tooltip>}
+        {act.status === 'signed' && act.signedPdf && canWrite && <Tooltip title="Reemplazar PDF"><IconButton size="small" aria-label="Reemplazar PDF" onClick={() => openUpload(act, 'replace_signed')}><UploadFileOutlinedIcon fontSize="small" /></IconButton></Tooltip>}
+      </Stack>
+    );
+  };
+
   return (
-    <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ sm: 'center' }}>
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiStack-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ sm: 'flex-end' }} sx={{ pt: { xs: 0.5, md: 1 }, pb: 0.5 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+            <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Gestión de activos TI</Typography>
+          </Stack>
+          <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>
             Actas
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -670,11 +719,11 @@ const Acts = () => {
           </Typography>
         </Box>
 
-        {canWrite && (
-          <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate}>
-            Nueva acta
-          </Button>
-        )}
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap flexWrap="wrap" justifyContent={{ sm: 'flex-end' }}>
+          {role === 'admin' && <Button component={RouterLink} to="/act-legacy" variant="outlined" startIcon={<FactCheckOutlinedIcon />}>Revisar actas antiguas</Button>}
+          {role === 'admin' && <Button component={RouterLink} to="/act-templates" variant="outlined" startIcon={<SettingsOutlinedIcon />}>Configurar empresas</Button>}
+          {canWrite && <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate}>Nueva acta</Button>}
+        </Stack>
       </Stack>
 
       {!canWrite && (
@@ -683,10 +732,18 @@ const Acts = () => {
 
       <Card>
         <CardContent>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtros de consulta</Typography>
+              <Typography variant="caption" color="text.secondary">Encuentra actas por activo, colaborador, estado o sede</Typography>
+            </Box>
+          </Stack>
           <Grid container spacing={2} alignItems="center">
             <Grid size={{ xs: 12, md: 6 }}>
               <TextField
                 label="Buscar"
+                size="small"
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Código del activo o nombre del colaborador..."
@@ -701,18 +758,13 @@ const Acts = () => {
               />
             </Grid>
             <Grid size={{ xs: 12, md: 3 }}>
-              <FormControl fullWidth>
+              <FormControl fullWidth size="small">
                 <InputLabel id="act-status-label">Estado</InputLabel>
                 <Select
                   labelId="act-status-label"
                   label="Estado"
                   value={filterStatus}
                   onChange={(e) => setFilterStatus((e.target.value as any) || '')}
-                  startAdornment={
-                    <InputAdornment position="start">
-                      <FilterAltOutlinedIcon />
-                    </InputAdornment>
-                  }
                 >
                   <MenuItem value="">Todos</MenuItem>
                   <MenuItem value="draft">Borrador</MenuItem>
@@ -723,13 +775,13 @@ const Acts = () => {
               </FormControl>
             </Grid>
             <Grid size={{ xs: 12, md: 3 }}>
-              <FormControl fullWidth>
+              <FormControl fullWidth size="small">
                 <InputLabel id="act-site-label">Sede</InputLabel>
                 <Select labelId="act-site-label" label="Sede" value={filterSiteId} onChange={(e) => setFilterSiteId(String(e.target.value))}>
                   <MenuItem value="">Todas</MenuItem>
                   {sites
                     .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .sort(compareSiteNames)
                     .map((s) => (
                       <MenuItem key={s.id} value={s.id}>
                         {s.name} ({s.prefix})
@@ -739,11 +791,21 @@ const Acts = () => {
               </FormControl>
             </Grid>
           </Grid>
+          {(filterText || filterStatus || filterSiteId) && (
+            <Box sx={{ mt: 1.25, display: 'flex', justifyContent: 'flex-end' }}><Button size="small" onClick={() => { setFilterText(''); setFilterStatus(''); setFilterSiteId(''); }}>Restablecer filtros</Button></Box>
+          )}
         </CardContent>
       </Card>
 
       <Card>
         <CardContent sx={{ p: 0 }}>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ px: 2.5, py: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><AssignmentOutlinedIcon fontSize="small" /></Box>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 750, letterSpacing: '-0.015em' }}>Registro de actas</Typography>
+              <Typography variant="caption" color="text.secondary">{loading ? 'Consultando actas…' : `${filteredActs.length.toLocaleString('es-CO')} ${filteredActs.length === 1 ? 'acta coincide' : 'actas coinciden'} con los filtros actuales`}</Typography>
+            </Box>
+          </Stack>
           {loading ? (
             <Box sx={{ p: 3 }}>
               <Typography variant="body2" color="text.secondary">
@@ -751,15 +813,16 @@ const Acts = () => {
               </Typography>
             </Box>
           ) : (
-            <Table size="small">
+            <>
+            <Box sx={{ display: { xs: 'none', lg: 'block' }, overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 850, tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25, py: 1.25 }, '& .MuiTableCell-head': { fontWeight: 700, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
+              <colgroup><col style={{ width: '24%' }} /><col style={{ width: '22%' }} /><col style={{ width: '20%' }} /><col style={{ width: '16%' }} /><col style={{ width: 120 }} /></colgroup>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 900 }}>Activo</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Colaborador</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Sede</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Empresa</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Estado</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>PDF</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Sede / Empresa</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Estado / PDF</TableCell>
                   <TableCell sx={{ fontWeight: 900 }} align="right">
                     Acciones
                   </TableCell>
@@ -768,94 +831,40 @@ const Acts = () => {
               <TableBody>
                 {filteredActs.map((act) => {
                   const site = sites.find((s) => s.id === act.siteId);
-                  const legacyPending = isLegacyActPending(act);
                   return (
                     <TableRow key={act.id} hover>
                       <TableCell>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 900, color: 'primary.main' }}>
+                        <Typography variant="subtitle2" sx={{ fontWeight: 750, color: 'primary.main', overflowWrap: 'anywhere' }}>
                           {act.fixedAssetIdSnapshot || '—'}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                           {act.assetSnapshot?.brand} {act.assetSnapshot?.model} · S/N: {act.assetSnapshot?.serial}
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
                           {act.recipient?.fullName || '—'}
                         </Typography>
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                           {act.recipient?.position || '—'}
                         </Typography>
                       </TableCell>
                       <TableCell>
-                        <Typography variant="body2">{site?.name || '—'}</Typography>
+                        <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{site?.name || '—'}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{companyLabel(act.companyId)}</Typography>
                       </TableCell>
                       <TableCell>
-                        <Chip label={companyLabel(act.companyId)} variant="outlined" />
+                        {renderActStatus(act)}
+                        {renderActPdf(act)}
                       </TableCell>
-                      <TableCell>
-                        <Stack direction="row" spacing={0.75} flexWrap="wrap" useFlexGap>
-                          <Chip label={statusLabel[act.status]} color={statusColor(act.status) as any} />
-                          {legacyPending && <Chip label="Revisión pendiente" color="warning" variant="outlined" />}
-                          {act.signatureMethod === 'electronic' && <Chip label="Firma electrónica histórica" variant="outlined" />}
-                        </Stack>
-                      </TableCell>
-                      <TableCell>
-                        <Button
-                          size="small"
-                          variant="text"
-                          startIcon={<OpenInNewOutlinedIcon />}
-                          disabled={!act.pdfUrl}
-                          onClick={() => {
-                            if (!act.pdfUrl) return;
-                            window.open(act.pdfUrl, '_blank', 'noopener,noreferrer');
-                          }}
-                        >
-                          Abrir
-                        </Button>
-                      </TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={1} justifyContent="flex-end" flexWrap="wrap">
-                          {canWrite && ['draft', 'issued'].includes(act.status) && !legacyPending && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<EditOutlinedIcon />}
-                              onClick={() => openEdit(act)}
-                            >
-                              {act.status === 'issued' ? 'Corregir' : 'Editar'}
-                            </Button>
-                          )}
-                          {canWrite && ['draft', 'issued'].includes(act.status) && !legacyPending && (
-                            <Button
-                              size="small"
-                              variant="outlined"
-                              startIcon={<DescriptionOutlinedIcon />}
-                              onClick={() => handleGeneratePdf(act)}
-                              disabled={generatingActId === act.id}
-                            >
-                              {generatingActId === act.id ? 'Preparando…' : 'Imprimir acta'}
-                            </Button>
-                          )}
-                          {canWrite && ['draft', 'issued'].includes(act.status) && !legacyPending && (
-                            <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'signed')}>
-                              Cargar PDF firmado
-                            </Button>
-                          )}
-                          {act.status === 'signed' && act.signedPdf && canWrite && (
-                            <Button size="small" variant="outlined" startIcon={<UploadFileOutlinedIcon />} onClick={() => openUpload(act, 'replace_signed')}>
-                              Reemplazar PDF
-                            </Button>
-                          )}
-                        </Stack>
-                      </TableCell>
+                      <TableCell align="right">{renderActActions(act)}</TableCell>
                     </TableRow>
                   );
                 })}
 
                 {filteredActs.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} sx={{ py: 6 }}>
+                    <TableCell colSpan={5} sx={{ py: 6 }}>
                       <Typography variant="body2" color="text.secondary" align="center">
                         No hay actas.
                       </Typography>
@@ -864,6 +873,32 @@ const Acts = () => {
                 )}
               </TableBody>
             </Table>
+            </Box>
+            <Box sx={{ display: { xs: 'block', lg: 'none' }, px: 2 }}>
+              {filteredActs.map((act) => {
+                const site = sites.find((item) => item.id === act.siteId);
+                return (
+                  <Box component="article" key={act.id} sx={{ py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                    <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{act.fixedAssetIdSnapshot || '—'}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{act.assetSnapshot?.brand} {act.assetSnapshot?.model} · S/N: {act.assetSnapshot?.serial}</Typography>
+                      </Box>
+                      {renderActStatus(act)}
+                    </Stack>
+                    <Typography variant="body2" sx={{ fontWeight: 700, mt: 1.25, overflowWrap: 'anywhere' }}>{act.recipient?.fullName || '—'}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{act.recipient?.position || '—'}</Typography>
+                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, overflowWrap: 'anywhere' }}>{site?.name || '—'} · {companyLabel(act.companyId)}</Typography>
+                    <Stack alignItems="flex-start" spacing={0.5} sx={{ mt: 0.75 }}>
+                      {renderActPdf(act)}
+                      {renderActActions(act, true)}
+                    </Stack>
+                  </Box>
+                );
+              })}
+              {filteredActs.length === 0 && <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6 }}>No hay actas.</Typography>}
+            </Box>
+            </>
           )}
         </CardContent>
       </Card>
@@ -873,13 +908,15 @@ const Acts = () => {
         onClose={() => !creating && setCreateOpen(false)}
         fullWidth
         maxWidth="md"
-        PaperProps={{ sx: { maxHeight: '92vh' } }}
+        PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: '92vh' }, m: { xs: 1.5, sm: 4 } } }}
       >
-        <DialogTitle sx={{ fontWeight: 900 }}>
-          {editingAct ? (editingAct.status === 'issued' ? 'Corregir acta emitida' : 'Editar borrador') : 'Nueva acta'}
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>{editingAct ? (editingAct.status === 'issued' ? 'Corregir acta emitida' : 'Editar borrador') : 'Nueva acta'}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Datos del equipo, colaborador y autorización de entrega.</Typography>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
           <Box component="form" onSubmit={handleSaveCreate} sx={{ mt: 1 }}>
+            <Box sx={{ p: { xs: 2, sm: 2.25 }, border: '1px solid', borderColor: 'divider', borderRadius: '12px', bgcolor: 'background.paper' }}>
             <Stack spacing={2}>
               {editingAct && (
                 <>
@@ -1188,8 +1225,9 @@ const Acts = () => {
                 disabled={!canWrite || creating}
               />
             </Stack>
+            </Box>
 
-            <DialogActions sx={{ px: 0, mt: 2 }}>
+            <DialogActions sx={{ position: 'sticky', bottom: 0, zIndex: 1, mt: 2, px: 1.5, py: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', boxShadow: 2 }}>
               <Button onClick={() => setCreateOpen(false)} disabled={creating}>Cancelar</Button>
               <Button type="submit" variant="contained" disabled={!canWrite || creating}>
                 {editingAct ? 'Guardar cambios' : 'Guardar borrador'}

@@ -17,7 +17,7 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
-import { useTheme } from '@mui/material/styles';
+import { alpha, useTheme } from '@mui/material/styles';
 import DevicesOtherOutlinedIcon from '@mui/icons-material/DevicesOtherOutlined';
 import CheckCircleOutlineOutlinedIcon from '@mui/icons-material/CheckCircleOutlineOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
@@ -26,56 +26,56 @@ import ArrowForwardOutlinedIcon from '@mui/icons-material/ArrowForwardOutlined';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import ListAltOutlinedIcon from '@mui/icons-material/ListAltOutlined';
 import ReceiptLongOutlinedIcon from '@mui/icons-material/ReceiptLongOutlined';
-import { Pie, PieChart, Cell, Legend, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import InsightsOutlinedIcon from '@mui/icons-material/InsightsOutlined';
+import { Pie, PieChart, Cell, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { Link as RouterLink } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { getActivities, getAssets, getSites } from '../services/api';
 import type { Activity, Asset, Site } from '../types';
+import { compareSiteNames } from '../utils/sortSites';
 
 const KpiCard = ({
   label,
   value,
   icon,
   helper,
+  tone = 'primary',
 }: {
   label: string;
   value: number;
   icon: React.ReactNode;
   helper?: string;
-}) => (
-  <Card>
-    <CardContent>
-      <Stack direction="row" spacing={2} alignItems="center">
+  tone?: 'primary' | 'success' | 'warning' | 'secondary';
+}) => {
+  const theme = useTheme();
+  const accent = theme.palette[tone].main;
+  return (
+  <Card sx={{ height: '100%', position: 'relative', overflow: 'hidden', transition: 'border-color 160ms ease, transform 160ms ease', '&:hover': { borderColor: alpha(accent, 0.45), transform: 'translateY(-2px)' }, '@media (prefers-reduced-motion: reduce)': { transition: 'none', '&:hover': { transform: 'none' } } }}>
+    <CardContent sx={{ p: 2.25, '&:last-child': { pb: 2.25 } }}>
+      <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+        <Typography variant="body2" color="text.secondary" sx={{ fontWeight: 600 }}>{label}</Typography>
         <Box
           sx={{
-            width: 44,
-            height: 44,
-            borderRadius: 3,
+            width: 39,
+            height: 39,
+            borderRadius: '11px',
             display: 'grid',
             placeItems: 'center',
-            bgcolor: 'primary.light',
-            color: 'primary.main',
+            bgcolor: alpha(accent, theme.palette.mode === 'dark' ? 0.16 : 0.1),
+            color: accent,
+            '& svg': { fontSize: 21 },
           }}
         >
           {icon}
         </Box>
-        <Box sx={{ minWidth: 0 }}>
-          <Typography variant="body2" color="text.secondary">
-            {label}
-          </Typography>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>
-            {value}
-          </Typography>
-          {helper && (
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
-              {helper}
-            </Typography>
-          )}
-        </Box>
       </Stack>
+      <Typography variant="inherit" sx={{ fontWeight: 750, fontSize: '1.9rem', lineHeight: 1.1, letterSpacing: '-0.04em', mt: 0.5 }}>{value.toLocaleString('es-CO')}</Typography>
+      <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>{helper || 'Activos en este estado'}</Typography>
     </CardContent>
   </Card>
-);
+  );
+};
 
 const formatPct = (value: number) => `${Math.round(value * 100)}%`;
 
@@ -207,12 +207,31 @@ const Dashboard = () => {
   }
 
   return (
-    <Stack spacing={2.5}>
+    <Stack spacing={2.25} sx={{ '& .MuiCard-root': { borderRadius: '16px' }, '& .MuiButton-root': { borderRadius: '10px' } }}>
+      <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ lg: 'flex-end' }} sx={{ pt: { xs: 0.5, md: 1 }, pb: 0.5 }}>
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+            <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Centro de operaciones TI</Typography>
+          </Stack>
+          <Typography component="h1" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>Resumen de operaciones</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.8 }}>Una vista general de tus activos y la actividad del área.</Typography>
+        </Box>
+        <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+          <Button component={RouterLink} to="/assets" variant="contained" startIcon={<AddOutlinedIcon />} disabled={!canWrite}>Nuevo activo</Button>
+          <Button component={RouterLink} to="/activities" variant="outlined" startIcon={<ListAltOutlinedIcon />} disabled={!canWrite}>Nueva actividad</Button>
+          <Button component={RouterLink} to="/finance" variant="outlined" startIcon={<ReceiptLongOutlinedIcon />} disabled={!canWrite}>Nueva factura</Button>
+        </Stack>
+      </Stack>
       <Card>
         <CardContent>
           <Stack direction={{ xs: 'column', lg: 'row' }} spacing={2} alignItems={{ lg: 'center' }} justifyContent="space-between">
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} flexWrap="wrap">
-              <FormControl sx={{ minWidth: 220 }}>
+            <Stack direction="row" spacing={1.25} alignItems="center" sx={{ minWidth: 180 }}>
+              <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+              <Box><Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtros de consulta</Typography><Typography variant="caption" color="text.secondary">Ajusta la vista general</Typography></Box>
+            </Stack>
+            <Stack direction={{ xs: 'column', sm: 'row' }} useFlexGap spacing={1.5} alignItems={{ sm: 'center' }} flexWrap="wrap" sx={{ flex: 1, justifyContent: { lg: 'flex-end' } }}>
+              <FormControl size="small" sx={{ minWidth: { xs: '100%', sm: 210 }, maxWidth: { sm: 280 }, flex: { lg: 1 } }}>
                 <InputLabel id="dashboard-site-label">Sede</InputLabel>
                 <Select
                   labelId="dashboard-site-label"
@@ -223,7 +242,7 @@ const Dashboard = () => {
                   <MenuItem value="">Todas</MenuItem>
                   {sites
                     .slice()
-                    .sort((a, b) => a.name.localeCompare(b.name))
+                    .sort(compareSiteNames)
                     .map((s) => (
                       <MenuItem key={s.id} value={s.id}>
                         {s.name} ({s.prefix})
@@ -234,6 +253,7 @@ const Dashboard = () => {
 
               <TextField
                 label="Desde"
+                size="small"
                 type="date"
                 value={startDate}
                 onChange={(e) => setStartDate(e.target.value)}
@@ -242,6 +262,7 @@ const Dashboard = () => {
               />
               <TextField
                 label="Hasta"
+                size="small"
                 type="date"
                 value={endDate}
                 onChange={(e) => setEndDate(e.target.value)}
@@ -249,43 +270,10 @@ const Dashboard = () => {
                 sx={{ width: { xs: '100%', sm: 190 } }}
               />
               {isFiltered && (
-                <Button size="small" variant="text" color="error" onClick={clearFilters}>
-                  Limpiar
+                <Button size="small" variant="text" onClick={clearFilters}>
+                  Restablecer
                 </Button>
               )}
-            </Stack>
-
-            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ width: { xs: '100%', lg: 'auto' } }}>
-              <Button
-                component={RouterLink}
-                to="/assets"
-                variant="contained"
-                startIcon={<AddOutlinedIcon />}
-                endIcon={<ArrowForwardOutlinedIcon />}
-                disabled={!canWrite}
-              >
-                Nuevo activo
-              </Button>
-              <Button
-                component={RouterLink}
-                to="/activities"
-                variant="outlined"
-                startIcon={<ListAltOutlinedIcon />}
-                endIcon={<ArrowForwardOutlinedIcon />}
-                disabled={!canWrite}
-              >
-                Nueva actividad
-              </Button>
-              <Button
-                component={RouterLink}
-                to="/finance"
-                variant="outlined"
-                startIcon={<ReceiptLongOutlinedIcon />}
-                endIcon={<ArrowForwardOutlinedIcon />}
-                disabled={!canWrite}
-              >
-                Nueva factura
-              </Button>
             </Stack>
           </Stack>
 
@@ -295,7 +283,8 @@ const Dashboard = () => {
             </Alert>
           )}
 
-          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} sx={{ mt: 2 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} sx={{ mt: 1.75, pt: 1.25, borderTop: `1px solid ${theme.palette.divider}` }}>
+            <Typography variant="caption" color="text.secondary" sx={{ alignSelf: { sm: 'center' }, mr: 0.5 }}>Fechas para actividad:</Typography>
             <Button
               size="small"
               variant="text"
@@ -336,23 +325,30 @@ const Dashboard = () => {
         </CardContent>
       </Card>
 
+      <Stack direction="row" alignItems="center" justifyContent="space-between" sx={{ pt: 0.5 }}>
+        <Box>
+          <Typography variant="subtitle1" sx={{ fontWeight: 750, letterSpacing: '-0.015em' }}>Inventario en cifras</Typography>
+          <Typography variant="caption" color="text.secondary">{selectedSite ? selectedSite.name : 'Todas las sedes'} · estado actual de los activos</Typography>
+        </Box>
+        <InsightsOutlinedIcon sx={{ color: 'text.secondary', fontSize: 21 }} />
+      </Stack>
       <Grid container spacing={2}>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiCard
             label="Total activos"
             value={stats.totalAssets}
             icon={<DevicesOtherOutlinedIcon />}
-            helper={selectedSite ? selectedSite.prefix : 'Consolidado'}
+            helper={selectedSite ? `Sede ${selectedSite.prefix}` : 'Consolidado de sedes'}
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <KpiCard label="Asignados" value={stats.assignedAssets} icon={<CheckCircleOutlineOutlinedIcon />} />
+          <KpiCard label="Asignados" value={stats.assignedAssets} icon={<CheckCircleOutlineOutlinedIcon />} tone="success" />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
           <KpiCard label="En bodega" value={stats.stockAssets} icon={<Inventory2OutlinedIcon />} />
         </Grid>
         <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
-          <KpiCard label="Mantenimiento" value={stats.maintenanceAssets} icon={<BuildCircleOutlinedIcon />} />
+          <KpiCard label="Mantenimiento" value={stats.maintenanceAssets} icon={<BuildCircleOutlinedIcon />} tone="warning" />
         </Grid>
       </Grid>
 
@@ -362,7 +358,7 @@ const Dashboard = () => {
             <CardContent>
               <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'center' }} justifyContent="space-between">
                 <Box>
-                  <Typography variant="h6" sx={{ fontWeight: 900 }}>
+                  <Typography variant="h6" sx={{ fontWeight: 750, letterSpacing: '-0.02em' }}>
                     Estado del inventario
                   </Typography>
                   <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -370,9 +366,10 @@ const Dashboard = () => {
                   </Typography>
                 </Box>
 
-                <Stack direction="row" spacing={1} flexWrap="wrap">
-                  <Chip label={`De baja: ${stats.retiredAssets}`} color={stats.retiredAssets ? 'error' : 'default'} variant="outlined" />
+                <Stack direction="row" useFlexGap spacing={1} flexWrap="wrap">
+                  <Chip size="small" label={`De baja: ${stats.retiredAssets}`} color={stats.retiredAssets ? 'error' : 'default'} variant="outlined" />
                   <Chip
+                    size="small"
                     label={`Sin evidencia: ${stats.missingEvidence}`}
                     color={stats.missingEvidence ? 'info' : 'default'}
                     variant="outlined"
@@ -403,18 +400,19 @@ const Dashboard = () => {
                 </Box>
               ) : (
                 <Grid container spacing={2} sx={{ mt: 1 }}>
-                  <Grid size={{ xs: 12, md: 7 }}>
-                    <Box sx={{ height: 320 }}>
+                  <Grid size={{ xs: 12, md: 5 }}>
+                    <Box sx={{ height: 250, minWidth: 0, position: 'relative' }}>
                       <ResponsiveContainer width="100%" height="100%">
                         <PieChart>
                           <Pie
                             data={chartData}
                             cx="50%"
                             cy="50%"
-                            innerRadius={78}
-                            outerRadius={116}
-                            paddingAngle={4}
+                            innerRadius={67}
+                            outerRadius={93}
+                            paddingAngle={3}
                             dataKey="value"
+                            isAnimationActive={false}
                           >
                             {chartData.map((entry, index) => (
                               <Cell key={`cell-${index}`} fill={entry.color} />
@@ -430,13 +428,16 @@ const Dashboard = () => {
                             itemStyle={{ color: theme.palette.text.primary }}
                             labelStyle={{ color: theme.palette.text.secondary }}
                           />
-                          <Legend wrapperStyle={{ color: theme.palette.text.secondary }} />
                         </PieChart>
                       </ResponsiveContainer>
+                      <Box aria-hidden="true" sx={{ pointerEvents: 'none', position: 'absolute', inset: 0, display: 'grid', placeContent: 'center', textAlign: 'center' }}>
+                        <Typography variant="inherit" sx={{ fontSize: '1.65rem', lineHeight: 1.05, fontWeight: 750 }}>{stats.totalAssets.toLocaleString('es-CO')}</Typography>
+                        <Typography variant="caption" color="text.secondary">activos</Typography>
+                      </Box>
                     </Box>
                   </Grid>
-                  <Grid size={{ xs: 12, md: 5 }}>
-                    <Stack spacing={1.25} sx={{ pt: { md: 2 } }}>
+                  <Grid size={{ xs: 12, md: 7 }}>
+                    <Stack spacing={1.5} sx={{ pt: { md: 1 } }}>
                       {chartData.map((item) => {
                         const pct = stats.totalAssets ? item.value / stats.totalAssets : 0;
                         return (
@@ -444,24 +445,27 @@ const Dashboard = () => {
                             <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between">
                               <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 0 }}>
                                 <Box sx={{ width: 10, height: 10, borderRadius: 99, bgcolor: item.color }} />
-                                <Typography variant="body2" sx={{ fontWeight: 800 }} noWrap>
+                                <Typography variant="body2" sx={{ fontWeight: 600 }} noWrap>
                                   {item.name}
                                 </Typography>
                               </Stack>
-                              <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                              <Typography variant="body2" sx={{ fontWeight: 700 }}>
                                 {item.value}{' '}
                                 <Typography component="span" variant="caption" color="text.secondary">
                                   ({formatPct(pct)})
                                 </Typography>
                               </Typography>
                             </Stack>
+                            <Box aria-hidden="true" sx={{ mt: 0.7, height: 5, borderRadius: 9, bgcolor: alpha(item.color, 0.12), overflow: 'hidden' }}>
+                              <Box sx={{ width: `${Math.min(100, pct * 100)}%`, height: '100%', borderRadius: 9, bgcolor: item.color }} />
+                            </Box>
                           </Box>
                         );
                       })}
                       {bySite.length > 0 && !selectedSiteId && (
                         <>
                           <Divider sx={{ my: 1 }} />
-                          <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
+                          <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>
                             Top sedes por activos
                           </Typography>
                           <Stack spacing={0.75}>
@@ -470,7 +474,7 @@ const Dashboard = () => {
                                 <Typography variant="body2" color="text.secondary" noWrap>
                                   {s.name}
                                 </Typography>
-                                <Typography variant="body2" sx={{ fontWeight: 900 }}>
+                                <Typography variant="body2" sx={{ fontWeight: 700 }}>
                                   {s.count}
                                 </Typography>
                               </Stack>
@@ -491,7 +495,7 @@ const Dashboard = () => {
         <CardContent>
           <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between">
             <Box>
-              <Typography variant="h6" sx={{ fontWeight: 900 }}>
+              <Typography variant="h6" sx={{ fontWeight: 750, letterSpacing: '-0.02em' }}>
                 Actividad reciente
               </Typography>
               <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -538,7 +542,7 @@ const Dashboard = () => {
                     <Stack direction="row" spacing={1.25} alignItems="flex-start">
                       <Box sx={{ width: 10, height: 10, borderRadius: 99, bgcolor: dotColor, mt: '6px' }} />
                       <Box sx={{ minWidth: 0, flex: 1 }}>
-                        <Typography variant="body2" sx={{ fontWeight: 800 }} noWrap>
+                        <Typography variant="body2" sx={{ fontWeight: 650 }} noWrap title={activity.description}>
                           {activity.description}
                         </Typography>
                         <Typography variant="caption" color="text.secondary">
