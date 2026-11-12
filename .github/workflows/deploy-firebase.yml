@@ -25,6 +25,10 @@ on:
         type: string
         required: true
         default: manual
+      expected_commit:
+        description: Commit completo aprobado (obligatorio para desplegar Hosting)
+        type: string
+        required: false
 
 permissions:
   contents: read
@@ -53,6 +57,20 @@ jobs:
       VITE_FIREBASE_MEASUREMENT_ID: ${{ vars.VITE_FIREBASE_MEASUREMENT_ID }}
 
     steps:
+      - name: Verify approved Hosting commit
+        if: ${{ inputs.mode == 'deploy' && inputs.target == 'hosting' }}
+        env:
+          EXPECTED_COMMIT: ${{ inputs.expected_commit }}
+          ACTUAL_COMMIT: ${{ github.sha }}
+          ACTUAL_REF: ${{ github.ref }}
+        run: |
+          if [[ ! "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || \
+             [[ "$ACTUAL_COMMIT" != "$EXPECTED_COMMIT" ]] || \
+             [[ "$ACTUAL_REF" != "refs/heads/main" ]]; then
+            echo "El commit o la rama no coinciden con la solicitud aprobada." >&2
+            exit 1
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
