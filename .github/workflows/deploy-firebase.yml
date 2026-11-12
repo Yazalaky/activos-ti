@@ -1,4 +1,5 @@
 name: Firebase Production
+run-name: "${{ github.workflow }} · ${{ inputs.mode }} · ${{ inputs.target }} · ${{ inputs.request_id }}"
 
 on:
   workflow_dispatch:
@@ -11,6 +12,19 @@ on:
         options:
           - validate
           - deploy
+      target:
+        description: Alcance del despliegue
+        type: choice
+        required: true
+        default: full
+        options:
+          - hosting
+          - full
+      request_id:
+        description: Identificador de la solicitud aprobada
+        type: string
+        required: true
+        default: manual
 
 permissions:
   contents: read
@@ -81,8 +95,16 @@ jobs:
             --project "$FIREBASE_PROJECT_ID" \
             --non-interactive
 
-      - name: Deploy Firebase
-        if: ${{ inputs.mode == 'deploy' }}
+      - name: Deploy Hosting
+        if: ${{ inputs.mode == 'deploy' && inputs.target == 'hosting' }}
+        run: |
+          npx --yes firebase-tools@15.23.0 deploy \
+            --project "$FIREBASE_PROJECT_ID" \
+            --only "hosting" \
+            --non-interactive
+
+      - name: Deploy Firebase completo
+        if: ${{ inputs.mode == 'deploy' && inputs.target == 'full' }}
         run: |
           npx --yes firebase-tools@15.23.0 deploy \
             --project "$FIREBASE_PROJECT_ID" \
