@@ -1,10 +1,13 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Alert,
   Box,
   Button,
   Card,
   CardContent,
+  FormControl,
+  InputLabel,
   MenuItem,
   Select,
   Snackbar,
@@ -12,7 +15,10 @@ import {
   TextField,
   Typography,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined';
+import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined';
+import BusinessOutlinedIcon from '@mui/icons-material/BusinessOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { getActTemplates, upsertActTemplate } from '../services/api';
 import { ACT_COMPANIES, defaultTemplateForCompany } from '../services/actTemplates';
@@ -20,6 +26,7 @@ import type { ActTemplate } from '../types';
 
 const ActTemplates = () => {
   const { role, profile } = useAuth();
+  const theme = useTheme();
   const isAdmin = role === 'admin';
   const [templates, setTemplates] = useState<ActTemplate[]>([]);
   const [companyId, setCompanyId] = useState<string>(ACT_COMPANIES[0].id);
@@ -77,26 +84,40 @@ const ActTemplates = () => {
   if (!isAdmin) return <Alert severity="error">Solo los administradores pueden configurar los datos de las empresas.</Alert>;
 
   return (
-    <Stack spacing={2.5}>
-      <Box>
-        <Typography variant="h5" sx={{ fontWeight: 900 }}>Empresas para actas</Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          El formato común y los logos ya están integrados al sistema. Aquí solo se administra el NIT que se imprime en el acta.
-        </Typography>
-      </Box>
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiStack-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ sm: 'flex-end' }} sx={{ pt: { xs: 0.5, md: 1 }, pb: 0.5 }}>
+        <Box>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+            <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Configuración de actas</Typography>
+          </Stack>
+          <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>Empresas para actas</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            Administra el NIT de cada empresa utilizado en las actas.
+          </Typography>
+        </Box>
+        <Button component={RouterLink} to="/acts" variant="outlined" startIcon={<ArrowBackOutlinedIcon />}>Volver a actas</Button>
+      </Stack>
 
       <Alert severity="info">
         Ya no es necesario cargar archivos DOCX ni preparar PDFs rellenables. Los formatos fuente se conservan en el proyecto y el acta se diligencia desde el formulario.
       </Alert>
 
-      <Card>
+      <Card sx={{ maxWidth: 760, width: '100%' }}>
         <CardContent>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><BusinessOutlinedIcon fontSize="small" /></Box>
+            <Box><Typography variant="subtitle1" sx={{ fontWeight: 750 }}>Datos de la empresa</Typography><Typography variant="caption" color="text.secondary">Selecciona una empresa y revisa el NIT registrado</Typography></Box>
+          </Stack>
           <Stack spacing={2}>
-            <Select value={companyId} onChange={(event) => setCompanyId(String(event.target.value))} disabled={saving} fullWidth>
+            <FormControl fullWidth>
+            <InputLabel id="act-template-company-label">Empresa</InputLabel>
+            <Select labelId="act-template-company-label" label="Empresa" value={companyId} onChange={(event) => setCompanyId(String(event.target.value))} disabled={saving} fullWidth>
               {ACT_COMPANIES.map((company) => <MenuItem key={company.id} value={company.id}>{company.label}</MenuItem>)}
             </Select>
+            </FormControl>
             <TextField label="NIT de la empresa" value={nit} onChange={(event) => setNit(event.target.value)} disabled={saving} fullWidth required />
-            <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={handleSave} disabled={saving}>
+            <Button variant="contained" startIcon={<SaveOutlinedIcon />} onClick={handleSave} disabled={saving} sx={{ alignSelf: { xs: 'stretch', sm: 'flex-start' } }}>
               {saving ? 'Guardando…' : 'Guardar NIT'}
             </Button>
           </Stack>

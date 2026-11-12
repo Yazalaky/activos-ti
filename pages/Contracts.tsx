@@ -14,6 +14,7 @@ import {
   Divider,
   FormControl,
   Grid,
+  IconButton,
   InputAdornment,
   InputLabel,
   LinearProgress,
@@ -28,8 +29,10 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
@@ -38,6 +41,8 @@ import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
 import StopCircleOutlinedIcon from '@mui/icons-material/StopCircleOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import { useAuth } from '../auth/AuthContext';
 import {
   addSupplierContract,
@@ -160,6 +165,7 @@ const validatePdf = (file: File) => {
 
 const Contracts = () => {
   const { role, profile } = useAuth();
+  const theme = useTheme();
   const [searchParams] = useSearchParams();
   const canRead = role === 'admin'
     || role === 'management'
@@ -571,12 +577,43 @@ const Contracts = () => {
   const currentEditMainPdf = editingDocuments.find((document) => document.id === editingContract?.currentSignedDocumentId);
   const currentDialogMainPdf = documents.find((document) => document.id === documentsContract?.currentSignedDocumentId);
 
+  const renderPeriod = (contract: SupplierContract) => {
+    const period = getEffectivePeriod(contract);
+    return (
+      <Box>
+        <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{period.renewed ? 'Inicio renovación' : 'Inicio'}: {formatDate(period.startDate)}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{period.renewed ? 'Firmado originalmente' : 'Firmado'}: {formatDate(contract.signedDate)}</Typography>
+        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{period.renewed ? 'Fin renovación' : 'Fin'}: {period.endDate ? formatDate(period.endDate) : 'Sin fecha de vencimiento'}</Typography>
+      </Box>
+    );
+  };
+
+  const renderDocumentStatus = (contract: SupplierContract) => (
+    <Chip size="small" variant={contract.currentSignedDocumentId ? 'filled' : 'outlined'} color={contract.currentSignedDocumentId ? 'success' : 'warning'} label={contract.currentSignedDocumentId ? 'PDF cargado' : 'PDF pendiente'} sx={{ fontWeight: 700, maxWidth: '100%' }} />
+  );
+
+  const renderActions = (contract: SupplierContract, mobile = false) => mobile ? (
+    <Stack direction="row" spacing={0.5} useFlexGap flexWrap="wrap">
+      <Button size="small" startIcon={<VisibilityOutlinedIcon />} onClick={() => void openDocuments(contract)}>Archivos</Button>
+      {canManage && contract.status !== 'terminated' && <><Button size="small" startIcon={<EditOutlinedIcon />} onClick={() => void openEdit(contract)}>Editar</Button><Button size="small" color="error" startIcon={<StopCircleOutlinedIcon />} onClick={() => setTerminateTarget(contract)}>Terminar</Button></>}
+    </Stack>
+  ) : (
+    <Stack direction="row" spacing={0.5} justifyContent="flex-end">
+      <Tooltip title="Ver archivos"><IconButton size="small" aria-label="Ver archivos" onClick={() => void openDocuments(contract)}><VisibilityOutlinedIcon fontSize="small" /></IconButton></Tooltip>
+      {canManage && contract.status !== 'terminated' && <><Tooltip title="Editar contrato"><IconButton size="small" aria-label="Editar contrato" onClick={() => void openEdit(contract)}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip><Tooltip title="Terminar contrato"><IconButton size="small" color="error" aria-label="Terminar contrato" onClick={() => setTerminateTarget(contract)}><StopCircleOutlinedIcon fontSize="small" /></IconButton></Tooltip></>}
+    </Stack>
+  );
+
   return (
-    <Stack spacing={2.5}>
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiBox-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
       <Box>
         <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1.5}>
           <Box>
-            <Typography variant="h5" sx={{ fontWeight: 900 }}>Contratos de proveedores</Typography>
+            <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+              <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+              <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Gestión de activos TI</Typography>
+            </Stack>
+            <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>Contratos de proveedores</Typography>
             <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
               Centraliza contratos firmados, adendas y renovaciones del área de sistemas.
             </Typography>
@@ -593,10 +630,17 @@ const Contracts = () => {
         Los PDFs se conservan como historial: reemplazar el principal no borra la versión anterior y terminar un contrato tampoco elimina sus archivos.
       </Alert>
 
+      <Card>
+      <CardContent>
+      <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+        <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+        <Box><Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtros de consulta</Typography><Typography variant="caption" color="text.secondary">Busca por proveedor, objeto, número o estado</Typography></Box>
+      </Stack>
       <Grid container spacing={1.5}>
         <Grid size={{ xs: 12, sm: 4 }}>
           <TextField
             label="Buscar"
+            size="small"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             fullWidth
@@ -605,7 +649,7 @@ const Contracts = () => {
           />
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
-          <FormControl fullWidth>
+          <FormControl fullWidth size="small">
             <InputLabel id="contract-supplier-filter">Proveedor</InputLabel>
             <Select
               labelId="contract-supplier-filter"
@@ -619,7 +663,7 @@ const Contracts = () => {
           </FormControl>
         </Grid>
         <Grid size={{ xs: 12, sm: 4 }}>
-          <FormControl fullWidth>
+          <FormControl fullWidth size="small">
             <InputLabel id="contract-status-filter">Estado</InputLabel>
             <Select
               labelId="contract-status-filter"
@@ -638,20 +682,26 @@ const Contracts = () => {
           </FormControl>
         </Grid>
       </Grid>
+      {(search || supplierFilter || statusFilter !== 'all') && <Box sx={{ mt: 1.25, display: 'flex', justifyContent: 'flex-end' }}><Button size="small" onClick={() => { setSearch(''); setSupplierFilter(''); setStatusFilter('all'); }}>Limpiar</Button></Box>}
+      </CardContent>
+      </Card>
 
       <Card>
         <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
           {loading && <LinearProgress />}
-          <Box sx={{ overflowX: 'auto' }}>
-            <Table size="small" sx={{ minWidth: 900 }}>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ px: 2.5, py: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><FolderOutlinedIcon fontSize="small" /></Box>
+            <Box><Typography variant="subtitle1" sx={{ fontWeight: 750 }}>Registro de contratos</Typography><Typography variant="caption" color="text.secondary">{loading ? 'Consultando contratos…' : `${visibleContracts.length.toLocaleString('es-CO')} ${visibleContracts.length === 1 ? 'contrato coincide' : 'contratos coinciden'} con los filtros actuales`}</Typography></Box>
+          </Stack>
+          <Box sx={{ display: { xs: 'none', lg: 'block' }, overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 850, tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25, py: 1.25 }, '& .MuiTableCell-head': { fontWeight: 700, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
+              <colgroup><col style={{ width: '30%' }} /><col style={{ width: '23%' }} /><col style={{ width: '13%' }} /><col style={{ width: '18%' }} /><col style={{ width: 120 }} /></colgroup>
               <TableHead>
                 <TableRow>
-                  <TableCell sx={{ fontWeight: 900 }}>Proveedor</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Objeto / contrato</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Proveedor / Contrato</TableCell>
                   <TableCell sx={{ fontWeight: 900 }}>Vigencia</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 900 }}>Valor</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Estado</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>PDF principal</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Estado / PDF</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 900 }}>Acciones</TableCell>
                 </TableRow>
               </TableHead>
@@ -662,60 +712,24 @@ const Contracts = () => {
                   return (
                     <TableRow key={contract.id} hover>
                       <TableCell>
-                        <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>{supplierName}</Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{contract.object}</Typography>
-                        <Typography variant="caption" color="text.secondary">
+                        <Typography variant="subtitle2" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{supplierName}</Typography>
+                        <Typography variant="body2" sx={{ mt: 0.25, overflowWrap: 'anywhere' }}>{contract.object}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                           {contract.contractNumber ? `No. ${contract.contractNumber}` : 'Sin número registrado'}
                         </Typography>
                       </TableCell>
+                      <TableCell>{renderPeriod(contract)}</TableCell>
+                      <TableCell align="right" sx={{ overflowWrap: 'anywhere' }}>{contract.value != null ? `$${Number(contract.value).toLocaleString('es-CO')}` : '—'}</TableCell>
                       <TableCell>
-                        {(() => {
-                          const period = getEffectivePeriod(contract);
-                          return (
-                            <>
-                              <Typography variant="body2">{period.renewed ? 'Inicio renovación' : 'Inicio'}: {formatDate(period.startDate)}</Typography>
-                              <Typography variant="caption" color="text.secondary">{period.renewed ? 'Firmado originalmente' : 'Firmado'}: {formatDate(contract.signedDate)}</Typography>
-                              <br />
-                              <Typography variant="caption" color="text.secondary">
-                                {period.renewed ? 'Fin renovación' : 'Fin'}: {period.endDate ? formatDate(period.endDate) : 'Sin fecha de vencimiento'}
-                              </Typography>
-                            </>
-                          );
-                        })()}
+                        <Stack spacing={0.75} alignItems="flex-start"><Chip size="small" label={status.label} color={status.color} sx={{ fontWeight: 700 }} />{renderDocumentStatus(contract)}</Stack>
                       </TableCell>
-                      <TableCell align="right">{contract.value != null ? `$${Number(contract.value).toLocaleString('es-CO')}` : '—'}</TableCell>
-                      <TableCell><Chip size="small" label={status.label} color={status.color} /></TableCell>
-                      <TableCell>
-                        <Chip
-                          size="small"
-                          variant={contract.currentSignedDocumentId ? 'filled' : 'outlined'}
-                          color={contract.currentSignedDocumentId ? 'success' : 'warning'}
-                          label={contract.currentSignedDocumentId ? 'Cargado' : 'Pendiente'}
-                        />
-                      </TableCell>
-                      <TableCell align="right">
-                        <Stack direction="row" spacing={0.5} justifyContent="flex-end" flexWrap="wrap">
-                          <Button size="small" startIcon={<VisibilityOutlinedIcon />} onClick={() => void openDocuments(contract)}>
-                            Archivos
-                          </Button>
-                          {canManage && contract.status !== 'terminated' && (
-                            <>
-                              <Button size="small" startIcon={<EditOutlinedIcon />} onClick={() => void openEdit(contract)}>Editar</Button>
-                              <Button size="small" color="error" startIcon={<StopCircleOutlinedIcon />} onClick={() => setTerminateTarget(contract)}>
-                                Terminar
-                              </Button>
-                            </>
-                          )}
-                        </Stack>
-                      </TableCell>
+                      <TableCell align="right">{renderActions(contract)}</TableCell>
                     </TableRow>
                   );
                 })}
                 {!loading && visibleContracts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={7} align="center" sx={{ py: 6 }}>
+                    <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
                       <Typography color="text.secondary">No hay contratos que coincidan con los filtros.</Typography>
                     </TableCell>
                   </TableRow>
@@ -723,14 +737,38 @@ const Contracts = () => {
               </TableBody>
             </Table>
           </Box>
+          <Box sx={{ display: { xs: 'block', lg: 'none' }, px: 2 }}>
+            {visibleContracts.map((contract) => {
+              const supplierName = supplierById.get(contract.supplierId)?.name || contract.supplierNameSnapshot;
+              const status = getStatus(contract);
+              return (
+                <Box component="article" key={contract.id} sx={{ py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                    <Typography variant="subtitle2" sx={{ fontWeight: 750, minWidth: 0, overflowWrap: 'anywhere' }}>{supplierName}</Typography>
+                    <Chip size="small" label={status.label} color={status.color} sx={{ fontWeight: 700 }} />
+                  </Stack>
+                  <Typography variant="body2" sx={{ mt: 0.75, overflowWrap: 'anywhere' }}>{contract.object}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{contract.contractNumber ? `No. ${contract.contractNumber}` : 'Sin número registrado'}</Typography>
+                  <Box sx={{ mt: 1 }}>{renderPeriod(contract)}</Box>
+                  <Typography variant="body2" sx={{ mt: 0.75, overflowWrap: 'anywhere' }}>Valor: {contract.value != null ? `$${Number(contract.value).toLocaleString('es-CO')}` : '—'}</Typography>
+                  <Box sx={{ mt: 0.75 }}>{renderDocumentStatus(contract)}</Box>
+                  <Box sx={{ mt: 0.75 }}>{renderActions(contract, true)}</Box>
+                </Box>
+              );
+            })}
+            {!loading && visibleContracts.length === 0 && <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6 }}>No hay contratos que coincidan con los filtros.</Typography>}
+          </Box>
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onClose={() => !saving && resetEditor()} fullWidth maxWidth="md" PaperProps={{ sx: { maxHeight: '92vh' } }}>
-        <DialogTitle sx={{ fontWeight: 900 }}>{editingContract ? 'Editar contrato' : 'Registrar contrato'}</DialogTitle>
-        <DialogContent>
+      <Dialog open={dialogOpen} onClose={() => !saving && resetEditor()} fullWidth maxWidth="md" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: '92vh' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>{editingContract ? 'Editar contrato' : 'Registrar contrato'}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Datos, vigencias y documentos asociados al proveedor.</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
           <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
-            <Stack spacing={2}>
+            <Stack spacing={2} sx={{ p: { xs: 2, sm: 2.25 }, border: '1px solid', borderColor: 'divider', borderRadius: '12px', bgcolor: 'background.paper' }}>
               {editingContract && (
                 <Alert severity="info">
                   El PDF principal y cada adenda o renovación se guardan como documentos separados para mantener el historial.
@@ -763,7 +801,7 @@ const Contracts = () => {
                   />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
-                  <TextField label="Número del contrato (opcional)" fullWidth value={form.contractNumber} inputProps={{ maxLength: 120 }} onChange={(event) => setForm((current) => ({ ...current, contractNumber: event.target.value }))} disabled={saving || editingContract?.status === 'terminated'} />
+                  <TextField label="Número de contrato" fullWidth value={form.contractNumber} inputProps={{ maxLength: 120 }} onChange={(event) => setForm((current) => ({ ...current, contractNumber: event.target.value }))} disabled={saving || editingContract?.status === 'terminated'} />
                 </Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                   <TextField label="Fecha de firma" type="date" fullWidth value={form.signedDate} InputLabelProps={{ shrink: true }} onChange={(event) => setForm((current) => ({ ...current, signedDate: event.target.value }))} disabled={saving || editingContract?.status === 'terminated'} />
@@ -864,7 +902,7 @@ const Contracts = () => {
                     {relatedDrafts.map((draft) => (
                       <Paper key={draft.key} variant="outlined" sx={{ p: 1.5 }}>
                         <Grid container spacing={1.5} alignItems="center">
-                          <Grid size={{ xs: 12, sm: 3 }}>
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <FormControl fullWidth size="small">
                               <InputLabel id={`kind-${draft.key}`}>Tipo</InputLabel>
                               <Select labelId={`kind-${draft.key}`} label="Tipo" value={draft.kind} onChange={(event) => setRelatedDrafts((rows) => rows.map((row) => row.key === draft.key ? { ...row, kind: event.target.value as RelatedDraft['kind'] } : row))}>
@@ -874,14 +912,15 @@ const Contracts = () => {
                               </Select>
                             </FormControl>
                           </Grid>
-                          <Grid size={{ xs: 12, sm: 4 }}>
+                          <Grid size={{ xs: 12, sm: 6, md: 4 }}>
                             <TextField size="small" label="Nombre o detalle" required fullWidth value={draft.title} onChange={(event) => setRelatedDrafts((rows) => rows.map((row) => row.key === draft.key ? { ...row, title: event.target.value } : row))} />
                           </Grid>
-                          <Grid size={{ xs: 12, sm: 2 }}>
+                          <Grid size={{ xs: 12, sm: 6, md: 3 }}>
                             <TextField size="small" label="Fecha del documento" type="date" fullWidth value={draft.date} InputLabelProps={{ shrink: true }} onChange={(event) => setRelatedDrafts((rows) => rows.map((row) => row.key === draft.key ? { ...row, date: event.target.value } : row))} />
                           </Grid>
-                          <Grid size={{ xs: 10, sm: 2 }}>
-                            <Button component="label" size="small" fullWidth startIcon={<AttachFileOutlinedIcon />}>
+                          <Grid size={{ xs: 12, sm: 6, md: 2 }}>
+                            <Stack direction="row" alignItems="center" spacing={0.5}>
+                            <Button component="label" size="small" startIcon={<AttachFileOutlinedIcon />} sx={{ minWidth: 0 }}>
                               {draft.file ? 'PDF listo' : 'PDF'}
                               <input hidden type="file" accept="application/pdf,.pdf" onChange={(event) => {
                                 const file = event.target.files?.[0] || null;
@@ -889,9 +928,8 @@ const Contracts = () => {
                                 event.target.value = '';
                               }} />
                             </Button>
-                          </Grid>
-                          <Grid size={{ xs: 2, sm: 1 }}>
-                            <Button color="error" aria-label="Quitar documento" onClick={() => setRelatedDrafts((rows) => rows.filter((row) => row.key !== draft.key))}>×</Button>
+                            <IconButton size="small" color="error" aria-label="Quitar documento" onClick={() => setRelatedDrafts((rows) => rows.filter((row) => row.key !== draft.key))}>×</IconButton>
+                            </Stack>
                           </Grid>
                           {draft.file && <Grid size={12}><Typography variant="caption" color="text.secondary">{draft.file.name}</Typography></Grid>}
                         </Grid>
@@ -916,7 +954,7 @@ const Contracts = () => {
               )}
 
               {saving && <LinearProgress variant={uploadPct > 0 ? 'determinate' : 'indeterminate'} value={uploadPct} />}
-              <DialogActions sx={{ px: 0 }}>
+              <DialogActions sx={{ position: 'sticky', bottom: 0, zIndex: 1, flexWrap: 'wrap', px: 1.5, py: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', boxShadow: 2 }}>
                 <Button onClick={resetEditor} disabled={saving}>Cancelar</Button>
                 {editingContract?.status !== 'terminated' && canManage && (
                   <Button type="submit" variant="contained" disabled={saving || loadingEditDocuments}>
@@ -929,9 +967,9 @@ const Contracts = () => {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={documentsOpen} onClose={() => setDocumentsOpen(false)} fullWidth maxWidth="md">
-        <DialogTitle sx={{ fontWeight: 900 }}>Documentos del contrato</DialogTitle>
-        <DialogContent>
+      <Dialog open={documentsOpen} onClose={() => setDocumentsOpen(false)} fullWidth maxWidth="md" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}><Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>Documentos del contrato</Typography></DialogTitle>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 } }}>
           {documentsContract && (
             <Typography variant="body2" color="text.secondary" sx={{ mb: 2 }}>
               {supplierById.get(documentsContract.supplierId)?.name || documentsContract.supplierNameSnapshot} · {documentsContract.object}
@@ -940,48 +978,35 @@ const Contracts = () => {
           {loadingDocuments && <LinearProgress />}
           {!loadingDocuments && documents.length === 0 && <Alert severity="warning">Este contrato todavía no tiene documentos cargados.</Alert>}
           {!loadingDocuments && documents.length > 0 && (
-            <Table size="small">
-              <TableHead><TableRow>
-                <TableCell sx={{ fontWeight: 900 }}>Tipo / nombre</TableCell>
-                <TableCell sx={{ fontWeight: 900 }}>Fecha</TableCell>
-                <TableCell sx={{ fontWeight: 900 }}>Archivo</TableCell>
-                <TableCell align="right" sx={{ fontWeight: 900 }}>PDF</TableCell>
-              </TableRow></TableHead>
-              <TableBody>
+            <Stack spacing={1}>
                 {documents.slice().reverse().map((document) => {
                   const isCurrent = document.id === documentsContract?.currentSignedDocumentId;
                   return (
-                    <TableRow key={document.id}>
-                      <TableCell>
-                        <Typography variant="body2" sx={{ fontWeight: 800 }}>{document.title}</Typography>
-                        <Stack direction="row" spacing={0.75} sx={{ mt: 0.5 }}>
+                    <Box component="article" key={document.id} sx={{ p: 1.5, border: '1px solid', borderColor: 'divider', borderRadius: '12px' }}>
+                      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} justifyContent="space-between" alignItems={{ sm: 'flex-start' }}>
+                        <Box sx={{ minWidth: 0 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 800, overflowWrap: 'anywhere' }}>{document.title}</Typography>
+                        <Stack direction="row" spacing={0.75} useFlexGap flexWrap="wrap" sx={{ mt: 0.5 }}>
                           <Chip size="small" variant="outlined" label={documentKindLabels[document.kind]} />
                           {isCurrent && <Chip size="small" color="success" label="Principal actual" />}
                           {document.kind === 'signed_contract' && !isCurrent && <Chip size="small" label="Versión anterior" />}
                         </Stack>
-                        {document.replacementReason && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>Motivo de reemplazo: {document.replacementReason}</Typography>}
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2">{formatDate(document.documentDate)}</Typography>
+                        {document.replacementReason && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, overflowWrap: 'anywhere' }}>Motivo de reemplazo: {document.replacementReason}</Typography>}
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>Fecha del documento: {formatDate(document.documentDate)}</Typography>
                         {document.kind === 'renewal' && document.renewalStartDate && document.renewalEndDate && (
                           <Typography variant="caption" color="text.secondary" display="block">
                             Vigencia: {formatDate(document.renewalStartDate)} – {formatDate(document.renewalEndDate)}
                           </Typography>
                         )}
-                        <Typography variant="caption" color="text.secondary">Cargado: {formatTimestamp(document.createdAt)}</Typography>
-                      </TableCell>
-                      <TableCell>
-                        <Typography variant="body2" noWrap sx={{ maxWidth: 250 }}>{document.fileName}</Typography>
-                        <Typography variant="caption" color="text.secondary">{(document.size / (1024 * 1024)).toFixed(2)} MB</Typography>
-                      </TableCell>
-                      <TableCell align="right">
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block' }}>Cargado: {formatTimestamp(document.createdAt)}</Typography>
+                        <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5, overflowWrap: 'anywhere' }}>Archivo: {document.fileName} · {(document.size / (1024 * 1024)).toFixed(2)} MB</Typography>
+                        </Box>
                         <Button size="small" startIcon={<OpenInNewOutlinedIcon />} onClick={() => void openPdf(document)}>Abrir</Button>
-                      </TableCell>
-                    </TableRow>
+                      </Stack>
+                    </Box>
                   );
                 })}
-              </TableBody>
-            </Table>
+            </Stack>
           )}
           {currentDialogMainPdf && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 1 }}>El contrato principal actual está identificado; las versiones anteriores se conservan como historial.</Typography>}
         </DialogContent>

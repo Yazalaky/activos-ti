@@ -21,15 +21,19 @@ import {
   Snackbar,
   Stack,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
-import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import ClearOutlinedIcon from '@mui/icons-material/ClearOutlined';
 import CalendarTodayOutlinedIcon from '@mui/icons-material/CalendarTodayOutlined';
 import PersonOutlineOutlinedIcon from '@mui/icons-material/PersonOutlineOutlined';
 import LaptopMacOutlinedIcon from '@mui/icons-material/LaptopMacOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import LocationOnOutlinedIcon from '@mui/icons-material/LocationOnOutlined';
+import MenuBookOutlinedIcon from '@mui/icons-material/MenuBookOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import { format } from 'date-fns';
 import { es } from 'date-fns/locale';
 import { addActivity, getActivities, getAssets, getSites, updateActivity } from '../services/api';
@@ -39,6 +43,7 @@ import { exportToCsv } from '../utils/exportCsv';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import { printReport } from '../utils/printReport';
+import { compareSiteNames } from '../utils/sortSites';
 
 const parseLocalDate = (dateStr: string) => {
   const [y, m, d] = dateStr.split('-').map((v) => Number(v));
@@ -82,86 +87,63 @@ type ActivityListProps = {
 
 const ActivityList = React.memo(function ActivityList({ activities, sites, assets, canWrite, onEdit }: ActivityListProps) {
   return (
-    <Stack spacing={2}>
+    <Box>
       {activities.map((activity) => {
         const assetInfo = activity.assetId ? assets.find((a) => a.id === activity.assetId) : null;
         const siteName = sites.find((s) => s.id === activity.siteId)?.name || 'Sede N/A';
 
         return (
-          <Card key={activity.id}>
-            <CardContent>
-              <Grid container spacing={2}>
-                <Grid size={{ xs: 12, sm: 3, md: 2 }}>
-                  <Box
-                    sx={{
-                      borderRadius: 3,
-                      p: 1.5,
-                      bgcolor: 'action.hover',
-                      border: '1px solid',
-                      borderColor: 'divider',
-                    }}
-                  >
-                    <Stack direction="row" spacing={1} alignItems="center">
-                      <CalendarTodayOutlinedIcon color="action" fontSize="small" />
-                      <Typography variant="subtitle2" sx={{ fontWeight: 900 }}>
-                        {activity.date}
-                      </Typography>
-                    </Stack>
-                    <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                      {format(parseLocalDate(activity.date), 'EEEE', { locale: es })}
-                    </Typography>
-                  </Box>
-                </Grid>
-
-                <Grid size={{ xs: 12, sm: 9, md: 10 }}>
-                  <Stack spacing={1}>
-                    <Stack direction="row" spacing={1} alignItems="center" justifyContent="space-between" flexWrap="wrap">
-                      <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                        <Chip label={activity.type} variant="outlined" />
-                        <Chip label={activity.priority.toUpperCase()} color={getPriorityColor(activity.priority)} />
-                        <Chip icon={<PersonOutlineOutlinedIcon />} label={`Tec: ${activity.techName}`} variant="outlined" />
-                        <Chip label={siteName} variant="outlined" />
-                        {assetInfo && (
-                          <Chip
-                            icon={<LaptopMacOutlinedIcon />}
-                            label={`${assetInfo.fixedAssetId} · ${assetInfo.brand} ${assetInfo.model}`}
-                            variant="outlined"
-                          />
-                        )}
-                      </Stack>
-                      {canWrite && (
-                        <IconButton size="small" onClick={() => onEdit(activity)} aria-label="Editar actividad">
-                          <EditOutlinedIcon />
-                        </IconButton>
-                      )}
-                    </Stack>
-
-                    <Typography variant="body1" sx={{ fontWeight: 700 }}>
-                      {activity.description}
-                    </Typography>
+          <Box component="article" key={activity.id} sx={{ px: { xs: 2, sm: 2.5 }, py: 2, borderTop: '1px solid', borderColor: 'divider', '&:hover': { bgcolor: 'action.hover' } }}>
+            <Stack direction={{ xs: 'column', sm: 'row' }} spacing={{ xs: 1.25, sm: 2.5 }} alignItems={{ sm: 'flex-start' }}>
+              <Stack direction={{ xs: 'row', sm: 'column' }} spacing={{ xs: 1, sm: 0.25 }} alignItems={{ xs: 'center', sm: 'flex-start' }} sx={{ flexShrink: 0, minWidth: { sm: 116 } }}>
+                <Stack direction="row" spacing={0.75} alignItems="center">
+                  <CalendarTodayOutlinedIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                  <Typography variant="body2" sx={{ fontWeight: 750 }}>{activity.date}</Typography>
+                </Stack>
+                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'capitalize', pl: { sm: 2.75 } }}>
+                  {format(parseLocalDate(activity.date), 'EEEE', { locale: es })}
+                </Typography>
+              </Stack>
+              <Box sx={{ minWidth: 0, flex: 1 }}>
+                <Stack direction="row" alignItems="flex-start" justifyContent="space-between" spacing={1}>
+                  <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.75} sx={{ minWidth: 0 }}>
+                    <Chip size="small" label={activity.type} variant="outlined" sx={{ fontWeight: 650, maxWidth: '100%' }} />
+                    <Chip size="small" label={`Prioridad ${activity.priority}`} color={getPriorityColor(activity.priority)} sx={{ fontWeight: 700, textTransform: 'capitalize' }} />
                   </Stack>
-                </Grid>
-              </Grid>
-            </CardContent>
-          </Card>
+                  {canWrite && (
+                    <Tooltip title="Editar actividad">
+                      <IconButton size="small" onClick={() => onEdit(activity)} aria-label="Editar actividad" sx={{ flexShrink: 0 }}>
+                        <EditOutlinedIcon fontSize="small" />
+                      </IconButton>
+                    </Tooltip>
+                  )}
+                </Stack>
+                <Typography variant="body2" sx={{ fontWeight: 650, mt: 1, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>
+                  {activity.description}
+                </Typography>
+                <Stack direction="row" useFlexGap flexWrap="wrap" columnGap={2} rowGap={0.75} sx={{ mt: 1.25, color: 'text.secondary' }}>
+                  <Stack direction="row" spacing={0.5} alignItems="flex-start" sx={{ minWidth: 0 }}><PersonOutlineOutlinedIcon sx={{ fontSize: 16 }} /><Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>Técnico: {activity.techName}</Typography></Stack>
+                  <Stack direction="row" spacing={0.5} alignItems="flex-start" sx={{ minWidth: 0 }}><LocationOnOutlinedIcon sx={{ fontSize: 16 }} /><Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{siteName}</Typography></Stack>
+                  {assetInfo && <Stack direction="row" spacing={0.5} alignItems="flex-start" sx={{ minWidth: 0 }}><LaptopMacOutlinedIcon sx={{ fontSize: 16 }} /><Typography variant="caption" sx={{ overflowWrap: 'anywhere' }}>{assetInfo.fixedAssetId} · {assetInfo.brand} {assetInfo.model}</Typography></Stack>}
+                </Stack>
+              </Box>
+            </Stack>
+          </Box>
         );
       })}
 
       {activities.length === 0 && (
-        <Card sx={{ borderStyle: 'dashed' }}>
-          <CardContent>
-            <Typography variant="body2" color="text.secondary" align="center">
-              No se encontraron actividades con los filtros seleccionados.
-            </Typography>
-          </CardContent>
-        </Card>
+        <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6, px: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+          No se encontraron actividades con los filtros seleccionados.
+        </Typography>
       )}
-    </Stack>
+    </Box>
   );
 });
 
 const Activities = () => {
   const { profile } = useAuth();
+  const theme = useTheme();
   const canWrite = profile?.role === 'admin' || profile?.role === 'tech';
   const [activities, setActivities] = useState<Activity[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
@@ -190,6 +172,8 @@ const Activities = () => {
   useEffect(() => {
     loadData();
   }, []);
+
+  const sortedSites = useMemo(() => sites.slice().sort(compareSiteNames), [sites]);
 
   const siteAssets = useMemo(
     () => assets.filter((a) => a.siteId === formData.siteId && a.status !== 'baja'),
@@ -293,10 +277,14 @@ const Activities = () => {
   };
 
   return (
-    <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} justifyContent="space-between">
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiStack-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'flex-end' }} justifyContent="space-between" sx={{ pt: { xs: 0.5, md: 1 }, pb: 0.5 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+            <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Gestión de activos TI</Typography>
+          </Stack>
+          <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>
             Bitácora de sistemas
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -313,16 +301,17 @@ const Activities = () => {
 
       <Card>
         <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'flex-end' }}>
-            <Stack direction="row" spacing={1} alignItems="center" sx={{ minWidth: 220 }}>
-              <FilterAltOutlinedIcon color="action" />
-              <Typography variant="subtitle2" sx={{ fontWeight: 800 }}>
-                Filtrar periodo
-              </Typography>
-            </Stack>
-
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtrar periodo</Typography>
+              <Typography variant="caption" color="text.secondary">Consulta las actividades por rango de fechas</Typography>
+            </Box>
+          </Stack>
+          <Stack direction={{ xs: 'column', sm: 'row' }} useFlexGap spacing={1.5} alignItems={{ sm: 'center' }} flexWrap="wrap">
             <TextField
               label="Desde"
+              size="small"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
@@ -331,6 +320,7 @@ const Activities = () => {
             />
             <TextField
               label="Hasta"
+              size="small"
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
@@ -339,59 +329,62 @@ const Activities = () => {
             />
 
             {(startDate || endDate) && (
-              <Button variant="text" color="error" startIcon={<ClearOutlinedIcon />} onClick={clearFilters} sx={{ ml: 'auto' }}>
+              <Button variant="text" startIcon={<ClearOutlinedIcon />} onClick={clearFilters}>
                 Limpiar
               </Button>
             )}
-            <Button
-              variant="outlined"
-              startIcon={<DownloadOutlinedIcon />}
-              sx={{ ml: (startDate || endDate) ? 1 : 'auto' }}
-              disabled={!activityReportRows.length}
-              onClick={() => exportToCsv('Bitacora', activityReportRows)}
-            >
-              CSV
-            </Button>
-            <Button
-              variant="outlined"
-              startIcon={<PrintOutlinedIcon />}
-              disabled={!activityReportRows.length}
-              onClick={() => printReport('Reporte de bitácora', activityReportColumns, activityReportRows)}
-            >
-              PDF / Imprimir
-            </Button>
           </Stack>
         </CardContent>
       </Card>
 
-      <ActivityList
-        activities={visibleActivities}
-        sites={sites}
-        assets={assets}
-        canWrite={canWrite}
-        onEdit={openEdit}
-      />
-
-      {filteredActivities.length > activityPageSize && (
-        <Stack alignItems="center">
-          <Pagination
-            color="primary"
-            page={activityPage}
-            count={Math.ceil(filteredActivities.length / activityPageSize)}
-            onChange={(_event, nextPage) => setActivityPage(nextPage)}
-          />
+      <Card>
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ px: 2.5, py: 2 }}>
+          <Stack direction="row" spacing={1.25} alignItems="center">
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><MenuBookOutlinedIcon fontSize="small" /></Box>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 750, letterSpacing: '-0.015em' }}>Registro de actividades</Typography>
+              <Typography variant="caption" color="text.secondary">{filteredActivities.length.toLocaleString('es-CO')} {filteredActivities.length === 1 ? 'actividad coincide' : 'actividades coinciden'} con el periodo seleccionado</Typography>
+            </Box>
+          </Stack>
+          <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+            <Button size="small" variant="outlined" startIcon={<DownloadOutlinedIcon />} disabled={!activityReportRows.length} onClick={() => exportToCsv('Bitacora', activityReportRows)}>CSV</Button>
+            <Button size="small" variant="outlined" startIcon={<PrintOutlinedIcon />} disabled={!activityReportRows.length} onClick={() => printReport('Reporte de bitácora', activityReportColumns, activityReportRows)}>PDF / Imprimir</Button>
+          </Stack>
         </Stack>
-      )}
+        <ActivityList
+          activities={visibleActivities}
+          sites={sites}
+          assets={assets}
+          canWrite={canWrite}
+          onEdit={openEdit}
+        />
+        {filteredActivities.length > activityPageSize && (
+          <Stack alignItems="center" sx={{ py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+            <Pagination
+              color="primary"
+              page={activityPage}
+              count={Math.ceil(filteredActivities.length / activityPageSize)}
+              onChange={(_event, nextPage) => setActivityPage(nextPage)}
+            />
+          </Stack>
+        )}
+      </Card>
 
-      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
-        <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar actividad' : 'Registrar actividad'}</DialogTitle>
-        <DialogContent>
+      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>{editingId ? 'Editar actividad' : 'Registrar actividad'}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Información de la actividad, responsable y sede.</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
           <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar actividades.
               </Alert>
             )}
+            <Box sx={{ p: { xs: 2, sm: 2.25 }, border: '1px solid', borderColor: 'divider', borderRadius: '12px', bgcolor: 'background.paper' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 750, mb: 0.5 }}>Datos de la actividad</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>El activo es opcional; selecciona una sede para asociarlo.</Typography>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 4 }}>
                 <TextField
@@ -455,7 +448,7 @@ const Activities = () => {
                     onChange={(e) => setFormData({ ...formData, siteId: e.target.value, assetId: '' })}
                   >
                     <MenuItem value="">Seleccione...</MenuItem>
-                    {sites.map((s) => (
+                    {sortedSites.map((s) => (
                       <MenuItem key={s.id} value={s.id}>
                         {s.name}
                       </MenuItem>
@@ -501,9 +494,10 @@ const Activities = () => {
                 />
               </Grid>
             </Grid>
+            </Box>
 
             <Divider sx={{ my: 2 }} />
-            <DialogActions sx={{ px: 0 }}>
+            <DialogActions sx={{ position: 'sticky', bottom: 0, zIndex: 1, px: 1.5, py: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', boxShadow: 2 }}>
               <Button onClick={closeDialog}>Cancelar</Button>
               <Button type="submit" variant="contained" disabled={!canWrite}>
                 {editingId ? 'Actualizar' : 'Guardar'}

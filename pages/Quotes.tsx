@@ -13,6 +13,7 @@ import {
   Divider,
   FormControl,
   Grid,
+  IconButton,
   InputLabel,
   LinearProgress,
   MenuItem,
@@ -25,18 +26,23 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import DescriptionOutlinedIcon from '@mui/icons-material/DescriptionOutlined';
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import RequestQuoteOutlinedIcon from '@mui/icons-material/RequestQuoteOutlined';
 import { addQuote, deleteQuote, getQuotes, getSites, getSuppliers, updateQuote } from '../services/api';
 import { uploadFileToStorage } from '../services/storageUpload';
 import { deleteStoragePath } from '../services/storageFiles';
 import { useAuth } from '../auth/AuthContext';
 import type { Quote, QuoteStatus, Site, Supplier } from '../types';
+import { compareSiteNames } from '../utils/sortSites';
 
 const statusLabel: Record<QuoteStatus, string> = {
   pending: 'En espera',
@@ -58,6 +64,7 @@ const statusColor = (status: QuoteStatus) => {
 
 const Quotes = () => {
   const { role, user, profile } = useAuth();
+  const theme = useTheme();
   const canWrite = role === 'admin' || role === 'tech';
   const canDelete = role === 'admin';
 
@@ -110,7 +117,7 @@ const Quotes = () => {
   );
 
   const sortedSites = useMemo(
-    () => sites.slice().sort((a, b) => a.name.localeCompare(b.name, 'es', { sensitivity: 'base' })),
+    () => sites.slice().sort(compareSiteNames),
     [sites]
   );
 
@@ -263,11 +270,31 @@ const Quotes = () => {
     }
   };
 
+  const renderQuotePdf = (quote: Quote) => (
+    <Button size="small" variant="text" startIcon={<OpenInNewOutlinedIcon />} disabled={!quote.pdfUrl} onClick={() => quote.pdfUrl && window.open(quote.pdfUrl, '_blank', 'noopener,noreferrer')}>Abrir PDF</Button>
+  );
+
+  const renderQuoteActions = (quote: Quote, mobile = false) => mobile ? (
+    <Stack direction="row" useFlexGap flexWrap="wrap" spacing={0.5}>
+      {canWrite && <Button size="small" startIcon={<EditOutlinedIcon />} onClick={() => openEdit(quote)}>Editar</Button>}
+      {canDelete && <Button size="small" color="error" startIcon={<DeleteOutlineOutlinedIcon />} onClick={() => openDelete(quote)}>Eliminar</Button>}
+    </Stack>
+  ) : (
+    <Stack direction="row" justifyContent="flex-end" spacing={0.5}>
+      {canWrite && <Tooltip title="Editar cotización"><IconButton size="small" aria-label="Editar cotización" onClick={() => openEdit(quote)}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip>}
+      {canDelete && <Tooltip title="Eliminar cotización"><IconButton size="small" aria-label="Eliminar cotización" color="error" onClick={() => openDelete(quote)}><DeleteOutlineOutlinedIcon fontSize="small" /></IconButton></Tooltip>}
+    </Stack>
+  );
+
   return (
-    <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'center' }} justifyContent="space-between">
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiStack-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} alignItems={{ sm: 'flex-end' }} justifyContent="space-between" sx={{ pt: { xs: 0.5, md: 1 }, pb: 0.5 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+            <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Gestión de activos TI</Typography>
+          </Stack>
+          <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>
             Cotizaciones
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -288,24 +315,38 @@ const Quotes = () => {
 
       <Card>
         <CardContent>
-          <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} alignItems={{ md: 'flex-end' }}>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtros de consulta</Typography>
+              <Typography variant="caption" color="text.secondary">Filtra por fecha, sede, proveedor o estado</Typography>
+            </Box>
+          </Stack>
+          <Grid container spacing={2} alignItems="center">
+            <Grid size={{ xs: 12, sm: 6, lg: 2.25 }}>
             <TextField
               label="Desde"
+              size="small"
               type="date"
               value={startDate}
               onChange={(e) => setStartDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
-              sx={{ width: { xs: '100%', sm: 220 } }}
+              fullWidth
             />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 2.25 }}>
             <TextField
               label="Hasta"
+              size="small"
               type="date"
               value={endDate}
               onChange={(e) => setEndDate(e.target.value)}
               InputLabelProps={{ shrink: true }}
-              sx={{ width: { xs: '100%', sm: 220 } }}
+              fullWidth
             />
-            <FormControl sx={{ width: { xs: '100%', sm: 240 } }}>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 2.75 }}>
+            <FormControl fullWidth size="small">
               <InputLabel id="filter-site-label">Sede</InputLabel>
               <Select
                 labelId="filter-site-label"
@@ -321,7 +362,9 @@ const Quotes = () => {
                 ))}
               </Select>
             </FormControl>
-            <FormControl sx={{ width: { xs: '100%', sm: 240 } }}>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 2.75 }}>
+            <FormControl fullWidth size="small">
               <InputLabel id="filter-supplier-label">Proveedor</InputLabel>
               <Select
                 labelId="filter-supplier-label"
@@ -337,7 +380,9 @@ const Quotes = () => {
                 ))}
               </Select>
             </FormControl>
-            <FormControl sx={{ width: { xs: '100%', sm: 200 } }}>
+            </Grid>
+            <Grid size={{ xs: 12, sm: 6, lg: 2 }}>
+            <FormControl fullWidth size="small">
               <InputLabel id="filter-status-label">Estado</InputLabel>
               <Select
                 labelId="filter-status-label"
@@ -351,25 +396,35 @@ const Quotes = () => {
                 <MenuItem value="rejected">Rechazada</MenuItem>
               </Select>
             </FormControl>
+            </Grid>
+          </Grid>
 
             {(startDate || endDate || selectedSiteFilter || selectedSupplierFilter || selectedStatusFilter) && (
-              <Button variant="text" color="error" onClick={clearFilters} sx={{ ml: 'auto' }}>
+              <Box sx={{ mt: 1.25, display: 'flex', justifyContent: 'flex-end' }}><Button size="small" variant="text" onClick={clearFilters}>
                 Limpiar
-              </Button>
+              </Button></Box>
             )}
-          </Stack>
         </CardContent>
       </Card>
 
       <Card>
         <CardContent sx={{ p: 0 }}>
-          <Table size="small">
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ px: 2.5, py: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><RequestQuoteOutlinedIcon fontSize="small" /></Box>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 750, letterSpacing: '-0.015em' }}>Registro de cotizaciones</Typography>
+              <Typography variant="caption" color="text.secondary">{filteredQuotes.length.toLocaleString('es-CO')} {filteredQuotes.length === 1 ? 'cotización coincide' : 'cotizaciones coinciden'} con los filtros actuales</Typography>
+            </Box>
+          </Stack>
+          <Box sx={{ display: { xs: 'none', lg: 'block' }, overflowX: 'auto' }}>
+          <Table size="small" sx={{ minWidth: 850, tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25, py: 1.25 }, '& .MuiTableCell-head': { fontWeight: 700, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
+            <colgroup><col style={{ width: '12%' }} /><col style={{ width: '20%' }} /><col style={{ width: '19%' }} /><col style={{ width: '14%' }} /><col style={{ width: '20%' }} /><col style={{ width: 90 }} /></colgroup>
             <TableHead>
               <TableRow>
                 <TableCell sx={{ fontWeight: 800 }}>Fecha</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>Proveedor</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>Sede</TableCell>
-                <TableCell sx={{ fontWeight: 800 }}>Estado</TableCell>
+                <TableCell sx={{ fontWeight: 800 }}>Estado / PDF</TableCell>
                 <TableCell sx={{ fontWeight: 800 }}>Observación</TableCell>
                 <TableCell sx={{ fontWeight: 800 }} align="right">
                   Acciones
@@ -382,36 +437,15 @@ const Quotes = () => {
                 const siteName = sites.find((s) => s.id === quote.siteId)?.name || 'Sede N/A';
                 return (
                   <TableRow key={quote.id} hover>
-                    <TableCell>{quote.date}</TableCell>
-                    <TableCell>{supplierName}</TableCell>
-                    <TableCell>{siteName}</TableCell>
+                    <TableCell sx={{ overflowWrap: 'anywhere' }}>{quote.date}</TableCell>
+                    <TableCell><Typography variant="body2" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{supplierName}</Typography></TableCell>
+                    <TableCell sx={{ overflowWrap: 'anywhere' }}>{siteName}</TableCell>
                     <TableCell>
-                      <Chip label={statusLabel[quote.status]} color={statusColor(quote.status) as any} size="small" />
+                      <Chip label={statusLabel[quote.status]} color={statusColor(quote.status) as any} size="small" sx={{ fontWeight: 700, maxWidth: '100%' }} />
+                      {renderQuotePdf(quote)}
                     </TableCell>
-                    <TableCell>{quote.notes || '—'}</TableCell>
-                    <TableCell align="right">
-                      <Stack direction="row" spacing={1} justifyContent="flex-end">
-                        <Button
-                          size="small"
-                          variant="text"
-                          startIcon={<OpenInNewOutlinedIcon />}
-                          disabled={!quote.pdfUrl}
-                          onClick={() => quote.pdfUrl && window.open(quote.pdfUrl, '_blank', 'noopener,noreferrer')}
-                        >
-                          PDF
-                        </Button>
-                        {canWrite && (
-                          <Button size="small" variant="outlined" startIcon={<EditOutlinedIcon />} onClick={() => openEdit(quote)}>
-                            Editar
-                          </Button>
-                        )}
-                        {canDelete && (
-                          <Button size="small" color="error" startIcon={<DeleteOutlineOutlinedIcon />} onClick={() => openDelete(quote)}>
-                            Eliminar
-                          </Button>
-                        )}
-                      </Stack>
-                    </TableCell>
+                    <TableCell sx={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{quote.notes || '—'}</TableCell>
+                    <TableCell align="right">{renderQuoteActions(quote)}</TableCell>
                   </TableRow>
                 );
               })}
@@ -427,12 +461,40 @@ const Quotes = () => {
               )}
             </TableBody>
           </Table>
+          </Box>
+          <Box sx={{ display: { xs: 'block', lg: 'none' }, px: 2 }}>
+            {filteredQuotes.map((quote) => {
+              const supplierName = suppliers.find((supplier) => supplier.id === quote.supplierId)?.name || 'N/A';
+              const siteName = sites.find((site) => site.id === quote.siteId)?.name || 'Sede N/A';
+              return (
+                <Box component="article" key={quote.id} sx={{ py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                  <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                    <Box sx={{ minWidth: 0 }}>
+                      <Typography variant="subtitle2" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{supplierName}</Typography>
+                      <Typography variant="caption" color="text.secondary">{quote.date}</Typography>
+                    </Box>
+                    <Chip label={statusLabel[quote.status]} color={statusColor(quote.status) as any} size="small" sx={{ fontWeight: 700 }} />
+                  </Stack>
+                  <Typography variant="body2" sx={{ mt: 1, overflowWrap: 'anywhere' }}>{siteName}</Typography>
+                  <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{quote.notes || '—'}</Typography>
+                  <Stack alignItems="flex-start" spacing={0.5} sx={{ mt: 0.75 }}>
+                    {renderQuotePdf(quote)}
+                    {renderQuoteActions(quote, true)}
+                  </Stack>
+                </Box>
+              );
+            })}
+            {filteredQuotes.length === 0 && <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6 }}>No hay cotizaciones con los filtros seleccionados.</Typography>}
+          </Box>
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md">
-        <DialogTitle sx={{ fontWeight: 900 }}>{editingId ? 'Editar cotización' : 'Nueva cotización'}</DialogTitle>
-        <DialogContent>
+      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="md" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>{editingId ? 'Editar cotización' : 'Nueva cotización'}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Información de la sede, el proveedor y el documento.</Typography>
+        </DialogTitle>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
           <Box component="form" onSubmit={handleSave} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
@@ -455,6 +517,9 @@ const Quotes = () => {
               </Alert>
             )}
 
+            <Box sx={{ p: { xs: 2, sm: 2.25 }, border: '1px solid', borderColor: 'divider', borderRadius: '12px', bgcolor: 'background.paper' }}>
+            <Typography variant="subtitle2" sx={{ fontWeight: 750, mb: 0.5 }}>Datos de la cotización</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>Selecciona la sede, el proveedor y adjunta el PDF correspondiente.</Typography>
             <Grid container spacing={2}>
               <Grid size={{ xs: 12, sm: 4 }}>
                 <TextField
@@ -554,9 +619,10 @@ const Quotes = () => {
                 />
               </Grid>
             </Grid>
+            </Box>
 
             <Divider sx={{ my: 2 }} />
-            <DialogActions sx={{ px: 0 }}>
+            <DialogActions sx={{ position: 'sticky', bottom: 0, zIndex: 1, flexWrap: 'wrap', px: 1.5, py: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', boxShadow: 2 }}>
               {formData.pdfUrl && (
                 <Button
                   startIcon={<OpenInNewOutlinedIcon />}

@@ -4,7 +4,6 @@ import {
   AppBar,
   Avatar,
   Box,
-  Divider,
   Drawer,
   IconButton,
   List,
@@ -29,11 +28,10 @@ import LocationCityOutlinedIcon from '@mui/icons-material/LocationCityOutlined';
 import LogoutOutlinedIcon from '@mui/icons-material/LogoutOutlined';
 import ManageAccountsOutlinedIcon from '@mui/icons-material/ManageAccountsOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
-import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
-import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
+import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
 import { auth } from '../firebaseAuth';
 import { useAuth } from '../auth/AuthContext';
 import type { Role } from '../types';
@@ -43,7 +41,7 @@ interface LayoutProps {
   children: React.ReactNode;
 }
 
-const drawerWidth = 280;
+const drawerWidth = 264;
 
 const roleLabel: Record<Role, string> = {
   admin: 'Administrador',
@@ -82,7 +80,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
     || role === 'auditor'
     || (role === 'tech' && profile?.accessScope !== 'sites');
   const userEmail = auth.currentUser?.email ?? '';
-  const userInitial = (userEmail.trim()[0] || '?').toUpperCase();
+  const userInitial = (profile?.name?.trim()[0] || userEmail.trim()[0] || '?').toUpperCase();
 
   const handleLogout = async () => {
     await auth.signOut();
@@ -115,8 +113,6 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             title: 'Administración',
             items: [
               { path: '/admin/users', label: 'Usuarios', icon: <ManageAccountsOutlinedIcon /> },
-              { path: '/act-templates', label: 'Empresas para actas', icon: <SettingsOutlinedIcon /> },
-              { path: '/act-legacy', label: 'Actas antiguas', icon: <FactCheckOutlinedIcon /> },
             ],
           },
         ]
@@ -126,44 +122,18 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const meta = routeMeta[location.pathname] ?? { title: 'IT Manager', subtitle: 'Gestión de activos TI' };
 
   const drawer = (
-    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Box sx={{ px: 2, py: 2 }}>
-        <Typography variant="h6" sx={{ fontWeight: 800, letterSpacing: 0.2 }}>
-          IT Manager
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
-          Gestión de activos TI
-        </Typography>
-
-        <Box
-          sx={{
-            mt: 1.75,
-            p: 1.25,
-            borderRadius: 4,
-            bgcolor: theme.palette.background.default,
-            border: `1px solid ${theme.palette.divider}`,
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1.25,
-          }}
-        >
-          <Avatar sx={{ bgcolor: 'primary.main', color: 'primary.contrastText', width: 36, height: 36 }}>{userInitial}</Avatar>
-          <Box sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle2" sx={{ fontWeight: 900, lineHeight: 1.15 }} noWrap>
-              {profile?.name || userEmail || 'Usuario'}
-            </Typography>
-            {role && (
-              <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }} noWrap>
-                {roleLabel[role]}
-              </Typography>
-            )}
-          </Box>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%', color: '#E8F0F5', bgcolor: isDarkMode ? '#101D28' : '#142C3D' }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, px: 2.5, py: 2.5, borderBottom: '1px solid rgba(218,235,244,0.10)' }}>
+        <Box sx={{ width: 42, height: 42, borderRadius: '13px', display: 'grid', placeItems: 'center', color: '#A2E2DA', bgcolor: 'rgba(107,204,195,0.13)', border: '1px solid rgba(147,222,214,0.23)' }}>
+          <HubOutlinedIcon fontSize="small" />
+        </Box>
+        <Box sx={{ minWidth: 0 }}>
+          <Typography variant="inherit" sx={{ fontSize: '1rem', fontWeight: 800, lineHeight: 1.2, letterSpacing: '-0.02em' }}>IT Manager</Typography>
+          <Typography variant="inherit" sx={{ color: '#AABDC9', fontSize: '0.72rem', mt: 0.35, letterSpacing: '0.02em' }}>Gestión de activos TI</Typography>
         </Box>
       </Box>
 
-      <Divider />
-
-      <Box sx={{ px: 1, py: 1, flex: 1 }}>
+      <Box sx={{ px: 1.5, py: 1.5, flex: 1, overflowY: 'auto', minHeight: 0 }}>
         {menuGroups.map((group) => (
           <List
             key={group.title}
@@ -173,11 +143,11 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 component="div"
                 sx={{
                   bgcolor: 'transparent',
-                  color: 'text.secondary',
-                  fontWeight: 900,
-                  letterSpacing: 0.6,
+                  color: '#AABDC9',
+                  fontWeight: 700,
+                  letterSpacing: '0.09em',
                   textTransform: 'uppercase',
-                  fontSize: 11,
+                  fontSize: 10,
                   lineHeight: 1,
                   px: 1.5,
                   py: 1,
@@ -186,36 +156,42 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
                 {group.title}
               </ListSubheader>
             }
-            sx={{ mb: 1.25 }}
+            sx={{ mb: 1.25, py: 0 }}
           >
             {group.items.map((item) => {
-              const isActive = location.pathname === item.path;
+              const isActive = location.pathname === item.path || (item.path === '/acts' && ['/act-templates', '/act-legacy'].includes(location.pathname));
               return (
                 <ListItemButton
                   key={item.path}
                   component={Link}
                   to={item.path}
                   selected={isActive}
+                  aria-current={isActive ? 'page' : undefined}
                   onClick={() => setMobileOpen(false)}
                   sx={{
-                    borderRadius: 3,
-                    mb: 0.5,
-                    px: 1.5,
-                    py: 1.1,
-                    '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.06) },
+                    position: 'relative',
+                    borderRadius: '9px',
+                    mb: 0.25,
+                    px: 1.4,
+                    py: 0.7,
+                    minHeight: 42,
+                    color: '#CDDAE2',
+                    transition: 'background-color 160ms ease, color 160ms ease',
+                    '@media (prefers-reduced-motion: reduce)': { transition: 'none' },
+                    '&:hover': { bgcolor: 'rgba(255,255,255,0.07)', color: '#FFFFFF' },
                     '&.Mui-selected': {
-                      bgcolor: alpha(theme.palette.primary.main, 0.1),
-                      color: 'primary.dark',
-                      border: `1px solid ${alpha(theme.palette.primary.main, 0.16)}`,
-                      '&:hover': { bgcolor: alpha(theme.palette.primary.main, 0.14) },
-                      '& .MuiListItemIcon-root': { color: 'primary.main' },
+                      bgcolor: 'rgba(99,195,188,0.16)',
+                      color: '#FFFFFF',
+                      '&::before': { content: '""', position: 'absolute', left: 0, top: 9, bottom: 9, width: 3, borderRadius: 4, bgcolor: '#7ED8CD' },
+                      '&:hover': { bgcolor: 'rgba(99,195,188,0.22)' },
+                      '& .MuiListItemIcon-root': { color: '#9DE1D8' },
                     },
                   }}
                 >
-                  <ListItemIcon sx={{ minWidth: 40, color: isActive ? 'inherit' : 'text.secondary' }}>
+                  <ListItemIcon sx={{ minWidth: 36, color: isActive ? 'inherit' : '#AABDC9', '& svg': { fontSize: 20 } }}>
                     {item.icon}
                   </ListItemIcon>
-                  <ListItemText primary={item.label} primaryTypographyProps={{ fontWeight: 800 }} />
+                  <ListItemText primary={item.label} primaryTypographyProps={{ fontSize: '0.86rem', fontWeight: isActive ? 700 : 500 }} />
                 </ListItemButton>
               );
             })}
@@ -223,18 +199,19 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         ))}
       </Box>
 
-      <Divider />
-
-      <Box sx={{ p: 1 }}>
-        <ListItemButton
-          onClick={handleLogout}
-          sx={{ borderRadius: 3 }}
-        >
-          <ListItemIcon sx={{ minWidth: 40 }}>
-            <LogoutOutlinedIcon />
-          </ListItemIcon>
-          <ListItemText primary="Cerrar sesión" primaryTypographyProps={{ fontWeight: 700 }} />
-        </ListItemButton>
+      <Box sx={{ p: 1.5, borderTop: '1px solid rgba(218,235,244,0.10)' }}>
+        <Box sx={{ display: 'flex', gap: 1.25, alignItems: 'center', px: 1, py: 1 }}>
+          <Avatar sx={{ bgcolor: '#31576B', color: '#F3FBFF', width: 36, height: 36, fontSize: '0.9rem', fontWeight: 700 }}>{userInitial}</Avatar>
+          <Box sx={{ minWidth: 0, flex: 1 }}>
+            <Typography variant="inherit" sx={{ fontSize: '0.81rem', fontWeight: 700, lineHeight: 1.3 }} noWrap>{profile?.name || userEmail || 'Usuario'}</Typography>
+            {role && <Typography variant="inherit" sx={{ color: '#AABDC9', fontSize: '0.72rem' }} noWrap>{roleLabel[role]}</Typography>}
+          </Box>
+          <Tooltip title="Cerrar sesión">
+            <IconButton aria-label="Cerrar sesión" onClick={handleLogout} sx={{ color: '#C5D5DF', '&:hover': { color: '#fff', bgcolor: 'rgba(255,255,255,0.08)' } }}>
+              <LogoutOutlinedIcon fontSize="small" />
+            </IconButton>
+          </Tooltip>
+        </Box>
       </Box>
     </Box>
   );
@@ -246,13 +223,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         color="transparent"
         sx={{
           backdropFilter: 'blur(10px)',
-          bgcolor: alpha(theme.palette.background.paper, 0.92),
+          bgcolor: alpha(theme.palette.background.paper, 0.96),
           borderBottom: `1px solid ${theme.palette.divider}`,
+          boxShadow: 'none',
           ml: { md: `${drawerWidth}px` },
           width: { md: `calc(100% - ${drawerWidth}px)` },
         }}
       >
-        <Toolbar sx={{ gap: 1, minHeight: 72 }}>
+        <Toolbar sx={{ gap: 1.5, minHeight: { xs: 64, sm: 68 }, px: { xs: 2, md: 3 } }}>
           {!isMdUp && (
             <IconButton onClick={() => setMobileOpen(true)} aria-label="Abrir menú" edge="start">
               <MenuIcon />
@@ -260,10 +238,10 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
           )}
 
           <Box sx={{ minWidth: 0 }}>
-            <Typography variant="subtitle1" sx={{ fontWeight: 900, lineHeight: 1.15 }}>
+            <Typography variant="subtitle1" sx={{ fontWeight: 750, lineHeight: 1.15, letterSpacing: '-0.015em' }}>
               {meta.title}
             </Typography>
-            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.25 }}>
+            <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'none', sm: 'block' }, mt: 0.25 }}>
               {meta.subtitle}
             </Typography>
           </Box>
@@ -274,6 +252,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
             <IconButton
               onClick={toggleColorMode}
               color="primary"
+              sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: '11px', width: 40, height: 40 }}
               aria-label={isDarkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}
             >
               {isDarkMode ? <LightModeOutlinedIcon /> : <DarkModeOutlinedIcon />}
@@ -301,7 +280,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
               width: drawerWidth,
               boxSizing: 'border-box',
               borderRight: `1px solid ${theme.palette.divider}`,
-              bgcolor: theme.palette.background.paper,
+              bgcolor: isDarkMode ? '#101D28' : '#142C3D',
             },
           }}
         >
@@ -314,7 +293,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
         sx={{
           flex: 1,
           p: { xs: 2, md: 3 },
-          mt: 9,
+          mt: { xs: '64px', sm: '68px' },
           minWidth: 0,
         }}
       >

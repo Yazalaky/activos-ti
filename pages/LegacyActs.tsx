@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { Link as RouterLink } from 'react-router-dom';
 import {
   Alert,
   Box,
@@ -27,10 +28,12 @@ import {
 import OpenInNewOutlinedIcon from '@mui/icons-material/OpenInNewOutlined';
 import FactCheckOutlinedIcon from '@mui/icons-material/FactCheckOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+import ArrowBackOutlinedIcon from '@mui/icons-material/ArrowBackOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { getActs, getSites, updateAct } from '../services/api';
 import { getLegacyPdfFile, isLegacyActPending } from '../services/actLegacy';
 import type { Act, ActLegacyClassification, Site } from '../types';
+import { compareSiteNames } from '../utils/sortSites';
 
 const classificationLabel: Record<ActLegacyClassification, string> = {
   pending: 'Mantener pendiente',
@@ -162,15 +165,19 @@ const LegacyActs = () => {
   }
 
   return (
-    <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ md: 'center' }}>
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& .MuiButton-root': { borderRadius: '10px' } }}>
+      <Stack direction={{ xs: 'column', md: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ md: 'flex-end' }} sx={{ pt: { xs: 0.5, md: 1 }, pb: 0.5 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>Revisión de actas antiguas</Typography>
+          <Typography variant="overline" color="text.secondary" sx={{ fontWeight: 750, letterSpacing: '0.12em' }}>Gestión de actas</Typography>
+          <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>Revisión de actas antiguas</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             Clasifica los PDFs cargados antes del nuevo flujo de firma sin volver a subirlos.
           </Typography>
         </Box>
-        <Chip icon={<FactCheckOutlinedIcon />} label={`${pendingActs.length} pendientes`} color={pendingActs.length ? 'warning' : 'success'} />
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} alignItems={{ sm: 'center' }}>
+          <Chip icon={<FactCheckOutlinedIcon />} label={`${pendingActs.length} pendientes`} color={pendingActs.length ? 'warning' : 'success'} />
+          <Button component={RouterLink} to="/acts" variant="outlined" startIcon={<ArrowBackOutlinedIcon />}>Volver a actas</Button>
+        </Stack>
       </Stack>
 
       <Alert severity="info">
@@ -194,7 +201,7 @@ const LegacyActs = () => {
                 <MenuItem value="">Todas</MenuItem>
                 {sites
                   .slice()
-                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .sort(compareSiteNames)
                   .map((site) => <MenuItem key={site.id} value={site.id}>{site.name}</MenuItem>)}
               </Select>
             </FormControl>
@@ -202,8 +209,12 @@ const LegacyActs = () => {
         </CardContent>
       </Card>
 
+      <Typography variant="caption" color="text.secondary" sx={{ display: { xs: 'block', md: 'none' } }}>
+        Desliza la tabla horizontalmente para ver todas las opciones.
+      </Typography>
+
       <Card>
-        <CardContent sx={{ p: 0 }}>
+        <CardContent sx={{ p: 0, overflowX: 'auto' }}>
           {loading ? (
             <Box sx={{ p: 3 }}><Typography color="text.secondary">Cargando actas pendientes…</Typography></Box>
           ) : (

@@ -33,10 +33,10 @@ import {
   Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import BlockOutlinedIcon from '@mui/icons-material/BlockOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
-import FilterAltOutlinedIcon from '@mui/icons-material/FilterAltOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import VisibilityOutlinedIcon from '@mui/icons-material/VisibilityOutlined';
 import PersonAddAltOutlinedIcon from '@mui/icons-material/PersonAddAltOutlined';
@@ -48,6 +48,8 @@ import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import DeleteOutlineOutlinedIcon from '@mui/icons-material/DeleteOutlineOutlined';
 import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
 import { addAsset, bulkDecommissionAssetsForSite, decommissionAsset, getAssets, getSites, moveAssetToSite, updateAsset, updateAssetAssignment, getMaintenances } from '../services/api';
 import { previewSiteInventoryReset, resetSiteInventory, type PreviewSiteInventoryResetOutput } from '../services/adminApi';
 import type { Asset, AssetType, Assignment, Site, Status, Maintenance } from '../types';
@@ -56,6 +58,7 @@ import { useAuth } from '../auth/AuthContext';
 import { deleteStoragePath } from '../services/storageFiles';
 import { exportToCsv } from '../utils/exportCsv';
 import { printReport } from '../utils/printReport';
+import { compareSiteNames } from '../utils/sortSites';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
 const statusLabel: Record<Status, string> = {
@@ -63,6 +66,11 @@ const statusLabel: Record<Status, string> = {
   asignado: 'Asignado',
   mantenimiento: 'Mantenimiento',
   baja: 'De baja',
+};
+
+const assetTypeLabel: Record<AssetType, string> = {
+  laptop: 'Portátil', desktop: 'Equipo de escritorio', monitor: 'Monitor', keyboard: 'Teclado',
+  mouse: 'Mouse', printer: 'Impresora', scanner: 'Escáner', network: 'Red', other: 'Otro',
 };
 
 const MAX_ASSET_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -117,6 +125,53 @@ type AssetTableProps = {
   onDecommission: (asset: Asset) => void;
 };
 
+const AssetActions = ({ asset, canWrite, onView, onEdit, onAssign, onReturn, onDecommission }: Omit<AssetTableProps, 'assets' | 'sites'> & { asset: Asset }) => (
+  <Stack direction="row" useFlexGap spacing={0.5} alignItems="center" justifyContent="flex-end" flexWrap="nowrap">
+    <Tooltip title="Ver detalle">
+      <IconButton onClick={() => onView(asset)} aria-label={`Ver detalle de ${asset.fixedAssetId || 'activo'}`} size="small"><VisibilityOutlinedIcon fontSize="small" /></IconButton>
+    </Tooltip>
+    {canWrite && asset.status !== 'baja' && (
+      <>
+        <Tooltip title="Editar">
+          <IconButton onClick={() => onEdit(asset)} aria-label={`Editar ${asset.fixedAssetId || 'activo'}`} size="small"><EditOutlinedIcon fontSize="small" /></IconButton>
+        </Tooltip>
+        {asset.status === 'bodega' && (
+          <Tooltip title="Asignar">
+            <IconButton onClick={() => onAssign(asset)} aria-label={`Asignar ${asset.fixedAssetId || 'activo'}`} size="small"><PersonAddAltOutlinedIcon fontSize="small" /></IconButton>
+          </Tooltip>
+        )}
+        {asset.status === 'asignado' && (
+          <Tooltip title="Retornar a bodega">
+            <IconButton onClick={() => onReturn(asset)} aria-label={`Retornar ${asset.fixedAssetId || 'activo'} a bodega`} size="small"><KeyboardReturnOutlinedIcon fontSize="small" /></IconButton>
+          </Tooltip>
+        )}
+        <Button onClick={() => onDecommission(asset)} aria-label={`Dar de baja ${asset.fixedAssetId || 'activo'}`} size="small" variant="outlined" color="error" startIcon={<BlockOutlinedIcon />} sx={{ minWidth: 0, whiteSpace: 'nowrap' }}>Baja</Button>
+      </>
+    )}
+  </Stack>
+);
+
+const assetHardware = (asset: Asset) => asset.type === 'laptop' || asset.type === 'desktop'
+  ? [asset.processor && `CPU: ${asset.processor}`, asset.ram && `RAM: ${asset.ram}`, asset.storage && `DISCO: ${asset.storage}`].filter(Boolean).join(' · ') || '—'
+  : '—';
+
+const assetSectionSx = {
+  p: { xs: 2, sm: 2.25 },
+  border: '1px solid',
+  borderColor: 'divider',
+  borderRadius: '12px',
+  bgcolor: 'background.paper',
+  height: '100%',
+};
+
+const AssetStatus = ({ asset }: { asset: Asset }) => (
+  <Stack spacing={0.5} alignItems="flex-start" sx={{ minWidth: 0 }}>
+    <Chip size="small" label={statusLabel[asset.status]} color={statusColor(asset.status) as any} sx={{ fontWeight: 700, fontSize: '0.72rem', maxWidth: '100%' }} />
+    {asset.currentAssignment && <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>Asignado a: {asset.currentAssignment.assignedToName}</Typography>}
+    {asset.status === 'baja' && asset.decommissionReason && <Typography variant="caption" color="error.main" sx={{ maxWidth: 240, overflowWrap: 'anywhere' }}>{asset.decommissionReason}</Typography>}
+  </Stack>
+);
+
 const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onView, onEdit, onAssign, onReturn, onDecommission }: AssetTableProps) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
@@ -128,10 +183,19 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
 
   return (
     <>
-    <Table size="small">
+    <Box sx={{ display: { xs: 'none', lg: 'block' }, overflowX: 'auto' }}>
+    <Table size="small" sx={{ minWidth: 850, tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25, py: 1.25 }, '& .MuiTableCell-head': { fontWeight: 700, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
+      <colgroup>
+        <col style={{ width: '10%' }} />
+        <col style={{ width: '21%' }} />
+        <col style={{ width: '17%' }} />
+        <col style={{ width: '15%' }} />
+        <col style={{ width: '15%' }} />
+        <col style={{ width: 165 }} />
+      </colgroup>
       <TableHead>
         <TableRow>
-          <TableCell sx={{ fontWeight: 800 }}>Activo fijo / Tipo</TableCell>
+          <TableCell sx={{ fontWeight: 800 }}>Activo / tipo</TableCell>
           <TableCell sx={{ fontWeight: 800 }}>Equipo</TableCell>
           <TableCell sx={{ fontWeight: 800 }}>Ubicación</TableCell>
           <TableCell sx={{ fontWeight: 800 }}>Hardware</TableCell>
@@ -144,94 +208,39 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
       <TableBody>
         {visibleAssets.map((asset) => {
           const siteName = sites.find((s) => s.id === asset.siteId)?.name || 'Sin sede';
-          const hardware =
-            asset.type === 'laptop' || asset.type === 'desktop'
-              ? [asset.processor && `CPU: ${asset.processor}`, asset.ram && `RAM: ${asset.ram}`, asset.storage && `DISCO: ${asset.storage}`]
-                  .filter(Boolean)
-                  .join(' · ')
-              : '—';
+          const hardware = assetHardware(asset);
 
           return (
             <TableRow key={asset.id} hover>
               <TableCell>
-                <Typography variant="subtitle2" sx={{ fontWeight: 900, color: 'primary.main' }}>
+                <Typography variant="subtitle2" sx={{ fontWeight: 750, color: 'primary.main', overflowWrap: 'anywhere' }}>
                   {asset.fixedAssetId || 'PEND'}
                 </Typography>
-                <Typography variant="caption" color="text.secondary" sx={{ textTransform: 'uppercase' }}>
-                  {asset.type}
+                <Typography variant="caption" color="text.secondary">
+                  {assetTypeLabel[asset.type] || asset.type}
                 </Typography>
               </TableCell>
               <TableCell>
-                <Typography variant="body2" sx={{ fontWeight: 800 }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>
                   {asset.brand} {asset.model}
                 </Typography>
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                   S/N: {asset.serial}
                 </Typography>
               </TableCell>
               <TableCell>
-                <Typography variant="body2">{siteName}</Typography>
+                <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{siteName}</Typography>
               </TableCell>
               <TableCell>
-                <Typography variant="caption" color="text.secondary">
+                <Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>
                   {hardware || '—'}
                 </Typography>
               </TableCell>
               <TableCell>
-                <Stack spacing={0.5}>
-                  <Chip label={statusLabel[asset.status]} color={statusColor(asset.status) as any} sx={{ fontWeight: 800, width: 'fit-content' }} />
-                  {asset.currentAssignment && (
-                    <Chip size="small" variant="outlined" label={asset.currentAssignment.assignedToName} sx={{ width: 'fit-content' }} />
-                  )}
-                  {asset.status === 'baja' && asset.decommissionReason && (
-                    <Typography variant="caption" color="error.main" sx={{ maxWidth: 220 }}>
-                      {asset.decommissionReason}
-                    </Typography>
-                  )}
-                </Stack>
+                <AssetStatus asset={asset} />
               </TableCell>
               <TableCell align="right">
-                <Stack direction="row" spacing={1} justifyContent="flex-end">
-                  <Tooltip title="Ver detalle">
-                    <IconButton onClick={() => onView(asset)} aria-label="Ver" size="small">
-                      <VisibilityOutlinedIcon />
-                    </IconButton>
-                  </Tooltip>
-                      {canWrite && asset.status !== 'baja' && (
-                        <>
-                      <Tooltip title="Editar">
-                        <IconButton onClick={() => onEdit(asset)} aria-label="Editar" size="small">
-                          <EditOutlinedIcon />
-                        </IconButton>
-                      </Tooltip>
-                      {asset.status === 'bodega' && (
-                        <Tooltip title="Asignar">
-                          <IconButton onClick={() => onAssign(asset)} aria-label="Asignar" size="small">
-                            <PersonAddAltOutlinedIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      {asset.status === 'asignado' && (
-                        <Tooltip title="Retornar a bodega">
-                          <IconButton onClick={() => onReturn(asset)} aria-label="Retornar" size="small">
-                            <KeyboardReturnOutlinedIcon />
-                          </IconButton>
-                        </Tooltip>
-                      )}
-                      <Button
-                        onClick={() => onDecommission(asset)}
-                        aria-label="Dar de baja"
-                        size="small"
-                        variant="outlined"
-                        color="error"
-                        startIcon={<BlockOutlinedIcon />}
-                        sx={{ minWidth: 0 }}
-                      >
-                        Baja
-                      </Button>
-                    </>
-                  )}
-                </Stack>
+                <AssetActions asset={asset} canWrite={canWrite} onView={onView} onEdit={onEdit} onAssign={onAssign} onReturn={onReturn} onDecommission={onDecommission} />
               </TableCell>
             </TableRow>
           );
@@ -248,6 +257,29 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
         )}
       </TableBody>
     </Table>
+    </Box>
+    <Box sx={{ display: { xs: 'block', lg: 'none' }, px: 2 }}>
+      {visibleAssets.map((asset) => {
+        const siteName = sites.find((site) => site.id === asset.siteId)?.name || 'Sin sede';
+        return (
+          <Box key={asset.id} sx={{ py: 2, borderBottom: 1, borderColor: 'divider' }}>
+            <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+              <Box sx={{ minWidth: 0 }}>
+                <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{asset.fixedAssetId || 'PEND'}</Typography>
+                <Typography variant="caption" color="text.secondary">{assetTypeLabel[asset.type] || asset.type}</Typography>
+              </Box>
+              <AssetStatus asset={asset} />
+            </Stack>
+            <Typography variant="body2" sx={{ fontWeight: 700, mt: 1.25, overflowWrap: 'anywhere' }}>{asset.brand} {asset.model}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>S/N: {asset.serial}</Typography>
+            <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.75, overflowWrap: 'anywhere' }}>Sede: {siteName}</Typography>
+            {assetHardware(asset) !== '—' && <Typography variant="caption" color="text.secondary" sx={{ display: 'block', overflowWrap: 'anywhere' }}>{assetHardware(asset)}</Typography>}
+            <Box sx={{ mt: 1 }}><AssetActions asset={asset} canWrite={canWrite} onView={onView} onEdit={onEdit} onAssign={onAssign} onReturn={onReturn} onDecommission={onDecommission} /></Box>
+          </Box>
+        );
+      })}
+      {assets.length === 0 && <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6 }}>No se encontraron activos.</Typography>}
+    </Box>
     <TablePagination
       component="div"
       count={assets.length}
@@ -255,6 +287,8 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
       rowsPerPage={rowsPerPage}
       rowsPerPageOptions={[25, 50, 100]}
       labelRowsPerPage="Filas por página"
+      labelDisplayedRows={({ from, to, count }) => `${from}–${to} de ${count}`}
+      sx={{ '& .MuiTablePagination-toolbar': { flexWrap: 'wrap', justifyContent: 'flex-end', minHeight: 56 }, '& .MuiTablePagination-spacer': { display: { xs: 'none', sm: 'block' } } }}
       onPageChange={(_event, nextPage) => setPage(nextPage)}
       onRowsPerPageChange={(event) => {
         setRowsPerPage(Number(event.target.value));
@@ -267,6 +301,7 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
 
 const Assets = () => {
   const { role, profile } = useAuth();
+  const theme = useTheme();
   const canWrite = role === 'admin' || role === 'tech';
   const isAdmin = role === 'admin';
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -359,6 +394,7 @@ const Assets = () => {
     () => sites.find((site) => site.id === selectedSiteFilter) || null,
     [sites, selectedSiteFilter]
   );
+  const sortedFilterSites = useMemo(() => sites.slice().sort(compareSiteNames), [sites]);
 
   const bodegaAssetsForSite = useMemo(
     () => assets.filter((asset) => asset.siteId === selectedSiteFilter && asset.status === 'bodega'),
@@ -979,10 +1015,14 @@ const Assets = () => {
   };
 
   return (
-    <Stack spacing={2.5}>
-      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ sm: 'center' }}>
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiStack-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
+      <Stack direction={{ xs: 'column', sm: 'row' }} spacing={2} justifyContent="space-between" alignItems={{ sm: 'flex-end' }} sx={{ pt: { xs: 0.5, md: 1 }, pb: 0.5 }}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>
+          <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 0.8 }}>
+            <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: 'secondary.main' }} />
+            <Typography variant="inherit" sx={{ fontSize: '0.69rem', color: 'text.secondary', fontWeight: 750, letterSpacing: '0.12em', textTransform: 'uppercase' }}>Gestión de activos TI</Typography>
+          </Stack>
+          <Typography component="h1" variant="inherit" sx={{ fontWeight: 750, fontSize: { xs: '1.6rem', md: '1.95rem' }, letterSpacing: '-0.035em', lineHeight: 1.15 }}>
             Inventario de activos
           </Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
@@ -999,10 +1039,18 @@ const Assets = () => {
 
       <Card>
         <CardContent>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+            <Box>
+              <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtros de consulta</Typography>
+              <Typography variant="caption" color="text.secondary">Encuentra equipos por código, serial, modelo o asignación</Typography>
+            </Box>
+          </Stack>
           <Grid container spacing={2} alignItems="center">
-            <Grid size={{ xs: 12, md: 6 }}>
+            <Grid size={{ xs: 12, sm: 6, lg: 4.5 }}>
               <TextField
                 label="Buscar"
+                size="small"
                 value={filterText}
                 onChange={(e) => setFilterText(e.target.value)}
                 placeholder="Serial, activo fijo, modelo..."
@@ -1016,22 +1064,17 @@ const Assets = () => {
                 }}
               />
             </Grid>
-            <Grid size={{ xs: 12, md: 2 }}>
-              <FormControl fullWidth>
+            <Grid size={{ xs: 12, sm: 6, lg: 3 }}>
+              <FormControl fullWidth size="small">
                 <InputLabel id="filter-site">Sede</InputLabel>
                 <Select
                   labelId="filter-site"
                   label="Sede"
                   value={selectedSiteFilter}
                   onChange={(e) => setSelectedSiteFilter(String(e.target.value))}
-                  startAdornment={
-                    <InputAdornment position="start">
-                      <FilterAltOutlinedIcon />
-                    </InputAdornment>
-                  }
                 >
                   <MenuItem value="">Todas</MenuItem>
-                  {sites.map((site) => (
+                  {sortedFilterSites.map((site) => (
                     <MenuItem key={site.id} value={site.id}>
                       {site.name}
                     </MenuItem>
@@ -1039,19 +1082,14 @@ const Assets = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, md: 2 }}>
-              <FormControl fullWidth>
+            <Grid size={{ xs: 12, sm: 6, lg: 2 }}>
+              <FormControl fullWidth size="small">
                 <InputLabel id="filter-type">Tipo</InputLabel>
                 <Select
                   labelId="filter-type"
                   label="Tipo"
                   value={selectedTypeFilter}
                   onChange={(e) => setSelectedTypeFilter(e.target.value as AssetType | '')}
-                  startAdornment={
-                    <InputAdornment position="start">
-                      <FilterAltOutlinedIcon />
-                    </InputAdornment>
-                  }
                 >
                   <MenuItem value="">Todos</MenuItem>
                   <MenuItem value="laptop">Laptop</MenuItem>
@@ -1066,19 +1104,14 @@ const Assets = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, md: 2 }}>
-              <FormControl fullWidth>
+            <Grid size={{ xs: 12, sm: 6, lg: 2.5 }}>
+              <FormControl fullWidth size="small">
                 <InputLabel id="filter-view">Vista</InputLabel>
                 <Select
                   labelId="filter-view"
                   label="Vista"
                   value={assetViewFilter}
                   onChange={(e) => setAssetViewFilter(e.target.value as 'active' | 'baja' | 'all')}
-                  startAdornment={
-                    <InputAdornment position="start">
-                      <FilterAltOutlinedIcon />
-                    </InputAdornment>
-                  }
                 >
                   <MenuItem value="active">En inventario</MenuItem>
                   <MenuItem value="baja">Equipos de baja</MenuItem>
@@ -1086,8 +1119,49 @@ const Assets = () => {
                 </Select>
               </FormControl>
             </Grid>
-            <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end', gap: 1 }}>
+          </Grid>
+          {(filterText || selectedSiteFilter || selectedTypeFilter || assetViewFilter !== 'active') && (
+            <Box sx={{ mt: 1.25, display: 'flex', justifyContent: 'flex-end' }}>
+              <Button size="small" variant="text" onClick={clearFilters}>Restablecer filtros</Button>
+            </Box>
+          )}
+        </CardContent>
+      </Card>
+
+      {(canWrite && selectedSiteFilter && (assetViewFilter !== 'baja' || isAdmin)) && (
+        <Card sx={{ borderColor: alpha(theme.palette.error.main, 0.28) }}>
+          <CardContent sx={{ py: 1.5, '&:last-child': { pb: 1.5 } }}>
+            <Stack direction={{ xs: 'column', lg: 'row' }} spacing={1.5} alignItems={{ lg: 'center' }} justifyContent="space-between">
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Administración de sede</Typography>
+                <Typography variant="caption" color="text.secondary">Operaciones para {selectedSite?.name || 'la sede seleccionada'}; requieren confirmación.</Typography>
+              </Box>
+              <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
+                {assetViewFilter !== 'baja' && (
+                  <Button size="small" variant="outlined" color="error" startIcon={<BlockOutlinedIcon />} onClick={openBulkDelete} disabled={bodegaAssetsForSite.length === 0}>Dar de baja equipos en bodega</Button>
+                )}
+                {isAdmin && (
+                  <Button size="small" variant="outlined" color="error" startIcon={<DeleteSweepOutlinedIcon />} onClick={openResetInventory} disabled={resettingInventory || (siteAssetsForReset.length === 0 && (selectedSite?.assetSeq ?? 0) === 0)}>Eliminar y reiniciar inventario de sede</Button>
+                )}
+              </Stack>
+            </Stack>
+          </CardContent>
+        </Card>
+      )}
+
+      <Card>
+        <CardContent sx={{ p: 0 }}>
+          <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems={{ sm: 'center' }} justifyContent="space-between" sx={{ px: 2.5, py: 2 }}>
+            <Stack direction="row" spacing={1.25} alignItems="center">
+              <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><Inventory2OutlinedIcon fontSize="small" /></Box>
+              <Box>
+                <Typography variant="subtitle1" sx={{ fontWeight: 750, letterSpacing: '-0.015em' }}>Listado de activos</Typography>
+                <Typography variant="caption" color="text.secondary">{filteredAssets.length.toLocaleString('es-CO')} {filteredAssets.length === 1 ? 'activo coincide' : 'activos coinciden'} con los filtros actuales</Typography>
+              </Box>
+            </Stack>
+            <Stack direction="row" useFlexGap flexWrap="wrap" spacing={1}>
               <Button
+                size="small"
                 variant="outlined"
                 startIcon={<DownloadOutlinedIcon />}
                 disabled={!inventoryReportRows.length}
@@ -1096,6 +1170,7 @@ const Assets = () => {
                 CSV
               </Button>
               <Button
+                size="small"
                 variant="outlined"
                 startIcon={<PrintOutlinedIcon />}
                 disabled={!inventoryReportRows.length}
@@ -1103,49 +1178,8 @@ const Assets = () => {
               >
                 PDF / Imprimir
               </Button>
-              {(filterText || selectedSiteFilter || selectedTypeFilter || assetViewFilter !== 'active') && (
-                <Button
-                  variant="text"
-                  color="error"
-                  startIcon={<DeleteOutlineOutlinedIcon />}
-                  onClick={clearFilters}
-                >
-                  Limpiar
-                </Button>
-              )}
-            </Grid>
-            {canWrite && selectedSiteFilter && assetViewFilter !== 'baja' && (
-              <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  startIcon={<BlockOutlinedIcon />}
-                  onClick={openBulkDelete}
-                  disabled={bodegaAssetsForSite.length === 0}
-                >
-                  Dar de baja equipos en bodega
-                </Button>
-              </Grid>
-            )}
-            {isAdmin && selectedSiteFilter && (
-              <Grid size={{ xs: 12, md: 12 }} sx={{ display: 'flex', justifyContent: 'flex-end' }}>
-                <Button
-                  variant="outlined"
-                  color="error"
-                  startIcon={<DeleteSweepOutlinedIcon />}
-                  onClick={openResetInventory}
-                  disabled={resettingInventory || (siteAssetsForReset.length === 0 && (selectedSite?.assetSeq ?? 0) === 0)}
-                >
-                  Eliminar y reiniciar inventario de sede
-                </Button>
-              </Grid>
-            )}
-          </Grid>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardContent sx={{ p: 0 }}>
+            </Stack>
+          </Stack>
           <AssetTable
             assets={filteredAssets}
             sites={sites}
@@ -1159,20 +1193,23 @@ const Assets = () => {
         </CardContent>
       </Card>
 
-      <Dialog open={editorOpen} onClose={closeEditor} fullWidth maxWidth="lg">
-        <DialogTitle sx={{ fontWeight: 900 }}>
-          {isViewMode ? 'Detalle del activo' : editingId ? 'Editar activo' : 'Registrar nuevo activo'}
+      <Dialog open={editorOpen} onClose={closeEditor} fullWidth maxWidth="lg" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
+            <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>
+              {isViewMode ? 'Detalle del activo' : editingId ? 'Editar activo' : 'Registrar nuevo activo'}
+            </Typography>
+            {isViewMode && <Chip size="small" label="Solo lectura" variant="outlined" />}
+          </Stack>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
+            {isViewMode ? 'Consulta la información y el historial reciente del equipo.' : editingId ? 'Actualiza la información del equipo por secciones.' : 'Completa la información para incorporar un equipo al inventario.'}
+          </Typography>
         </DialogTitle>
-        <DialogContent>
+        <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
           <Box component="form" onSubmit={handleSaveAsset} sx={{ mt: 1 }}>
             {!canWrite && (
               <Alert severity="info" sx={{ mb: 2 }}>
                 Modo solo lectura (Gerencia/Auditoría). No puedes crear o editar activos.
-              </Alert>
-            )}
-            {isViewMode && canWrite && (
-              <Alert severity="info" sx={{ mb: 2 }}>
-                Vista rápida (solo lectura). Para modificar, usa el botón Editar en la tabla.
               </Alert>
             )}
             {formData.status === 'baja' && (
@@ -1187,11 +1224,13 @@ const Assets = () => {
               </Alert>
             )}
 
-            <Grid container spacing={2}>
-              <Grid size={{ xs: 12, md: 4 }}>
+            <Grid container spacing={2} sx={readOnly ? { '& .MuiInputBase-input.Mui-disabled': { WebkitTextFillColor: theme.palette.text.primary }, '& .MuiSelect-select.Mui-disabled': { WebkitTextFillColor: theme.palette.text.primary } } : undefined}>
+              <Grid size={{ xs: 12, md: 6, lg: 4 }}>
+                <Box sx={assetSectionSx}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>
                   Información general
                 </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>Ubicación, estado e identificación del equipo.</Typography>
 
                 <FormControl fullWidth required sx={{ mb: 2 }}>
                   <InputLabel id="asset-site-label">Sede</InputLabel>
@@ -1203,7 +1242,7 @@ const Assets = () => {
                     disabled={readOnly || !!editingId}
                   >
                     <MenuItem value="">Seleccione...</MenuItem>
-                    {sites.map((s) => (
+                    {sortedFilterSites.map((s) => (
                       <MenuItem key={s.id} value={s.id}>
                         {s.name} ({s.prefix})
                       </MenuItem>
@@ -1340,12 +1379,15 @@ const Assets = () => {
                   disabled={readOnly}
                   sx={{ mb: 2 }}
                 />
+                </Box>
               </Grid>
 
-              <Grid size={{ xs: 12, md: 4 }}>
+              <Grid size={{ xs: 12, md: 6, lg: 4 }}>
+                <Box sx={assetSectionSx}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>
                   Compra y costos
                 </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>Datos de adquisición y especificaciones técnicas.</Typography>
                 <TextField
                   label="Fecha compra"
                   type="date"
@@ -1409,7 +1451,7 @@ const Assets = () => {
                   Monitor (solo desktop)
                 </Typography>
                 <Grid container spacing={2}>
-                  <Grid size={{ xs: 12, sm: 4 }}>
+                  <Grid size={12}>
                     <TextField
                       label="Marca monitor"
                       value={formData.monitorBrand || ''}
@@ -1418,7 +1460,7 @@ const Assets = () => {
                       disabled={readOnly || !isDesktop}
                     />
                   </Grid>
-                  <Grid size={{ xs: 12, sm: 4 }}>
+                  <Grid size={12}>
                     <TextField
                       label="Tamaño"
                       value={formData.monitorSize || ''}
@@ -1427,7 +1469,7 @@ const Assets = () => {
                       disabled={readOnly || !isDesktop}
                     />
                   </Grid>
-                  <Grid size={{ xs: 12, sm: 4 }}>
+                  <Grid size={12}>
                     <TextField
                       label="Serial monitor"
                       value={formData.monitorSerial || ''}
@@ -1437,12 +1479,15 @@ const Assets = () => {
                     />
                   </Grid>
                 </Grid>
+                </Box>
               </Grid>
 
-              <Grid size={{ xs: 12, md: 4 }}>
+              <Grid size={{ xs: 12, md: 12, lg: 4 }}>
+                <Box sx={assetSectionSx}>
                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>
                   Evidencia y notas
                 </Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mb: 2 }}>Fotografía y observaciones del activo.</Typography>
 
                 {(saving && imageFile) && (
                   <Box sx={{ mb: 2 }}>
@@ -1547,11 +1592,12 @@ const Assets = () => {
                     )}
                   </>
                 )}
+                </Box>
               </Grid>
             </Grid>
 
             <Divider sx={{ my: 2 }} />
-            <DialogActions sx={{ px: 0 }}>
+            <DialogActions sx={{ position: 'sticky', bottom: 0, zIndex: 1, px: 1.5, py: 1, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider', borderRadius: '12px', boxShadow: 2 }}>
               <Button onClick={closeEditor}>{readOnly ? 'Cerrar' : 'Cancelar'}</Button>
               {!readOnly && (
                 <Button type="submit" variant="contained" startIcon={<SaveOutlinedIcon />} disabled={saving}>
@@ -1882,7 +1928,7 @@ const Assets = () => {
               onChange={(e) => setMoveSiteId(String(e.target.value))}
               disabled={movingSite}
             >
-              {sites.map((s) => (
+              {sortedFilterSites.map((s) => (
                 <MenuItem key={s.id} value={s.id}>
                   {s.name} ({s.prefix})
                 </MenuItem>

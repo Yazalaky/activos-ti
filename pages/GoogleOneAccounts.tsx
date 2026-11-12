@@ -13,6 +13,7 @@ import {
   FormControl,
   FormControlLabel,
   Grid,
+  IconButton,
   InputAdornment,
   InputLabel,
   LinearProgress,
@@ -27,12 +28,16 @@ import {
   TableHead,
   TableRow,
   TextField,
+  Tooltip,
   Typography,
 } from '@mui/material';
+import { alpha, useTheme } from '@mui/material/styles';
 import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import CreditCardOutlinedIcon from '@mui/icons-material/CreditCardOutlined';
 import EditOutlinedIcon from '@mui/icons-material/EditOutlined';
 import SearchOutlinedIcon from '@mui/icons-material/SearchOutlined';
+import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
+import CloudOutlinedIcon from '@mui/icons-material/CloudOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { addGoogleOneAccount, getGoogleOneAccounts, updateGoogleOneAccount } from '../services/api';
 import type { GoogleOneAccount } from '../types';
@@ -71,6 +76,7 @@ const formatCop = (value?: number) => typeof value === 'number' && Number.isFini
 
 const GoogleOneAccounts = () => {
   const { role, profile } = useAuth();
+  const theme = useTheme();
   const canRead = role === 'admin'
     || role === 'management'
     || role === 'auditor'
@@ -223,10 +229,10 @@ const GoogleOneAccounts = () => {
   if (!canRead) return <Alert severity="error">No tienes permisos para consultar este registro financiero.</Alert>;
 
   return (
-    <Stack spacing={2.5}>
+    <Stack spacing={2.25} sx={{ '& > .MuiCard-root': { borderRadius: '16px' }, '& > .MuiStack-root .MuiButton-root, & > .MuiCard-root .MuiButton-root': { borderRadius: '10px' } }}>
       <Stack direction={{ xs: 'column', sm: 'row' }} justifyContent="space-between" alignItems={{ sm: 'center' }} spacing={1.5}>
         <Box>
-          <Typography variant="h5" sx={{ fontWeight: 900 }}>Cuentas Google One</Typography>
+          <Typography variant="h6" sx={{ fontWeight: 750 }}>Cuentas Google One</Typography>
           <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>
             Registro de cuentas, plan, valor mensual, tarjeta corporativa y día de cobro.
           </Typography>
@@ -240,16 +246,21 @@ const GoogleOneAccounts = () => {
 
       <Card>
         <CardContent>
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ mb: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'primary.main', bgcolor: alpha(theme.palette.primary.main, 0.09) }}><TuneOutlinedIcon fontSize="small" /></Box>
+            <Box><Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Filtros de consulta</Typography><Typography variant="caption" color="text.secondary">Busca por cuenta, plan, almacenamiento o tarjeta</Typography></Box>
+          </Stack>
           <Stack direction={{ xs: 'column', md: 'row' }} spacing={1.5}>
             <TextField
               label="Buscar cuenta"
+              size="small"
               value={search}
               onChange={(event) => setSearch(event.target.value)}
               fullWidth
               placeholder="Correo, plan, almacenamiento o tarjeta..."
               InputProps={{ startAdornment: <InputAdornment position="start"><SearchOutlinedIcon /></InputAdornment> }}
             />
-            <FormControl sx={{ minWidth: { xs: '100%', md: 210 } }}>
+            <FormControl size="small" sx={{ minWidth: { xs: '100%', md: 210 } }}>
               <InputLabel id="google-one-status-label">Estado</InputLabel>
               <Select
                 labelId="google-one-status-label"
@@ -269,43 +280,46 @@ const GoogleOneAccounts = () => {
       <Card>
         {loading && <LinearProgress />}
         <CardContent sx={{ p: 0, '&:last-child': { pb: 0 } }}>
-          <Box sx={{ overflowX: 'auto' }}>
-            <Table size="medium">
+          <Stack direction="row" spacing={1.25} alignItems="center" sx={{ px: 2.5, py: 2 }}>
+            <Box sx={{ display: 'grid', placeItems: 'center', width: 38, height: 38, borderRadius: '10px', color: 'secondary.main', bgcolor: alpha(theme.palette.secondary.main, 0.1) }}><CloudOutlinedIcon fontSize="small" /></Box>
+            <Box><Typography variant="subtitle1" sx={{ fontWeight: 750 }}>Registro de cuentas</Typography><Typography variant="caption" color="text.secondary">{loading ? 'Consultando cuentas…' : `${visibleAccounts.length.toLocaleString('es-CO')} ${visibleAccounts.length === 1 ? 'cuenta coincide' : 'cuentas coinciden'} con los filtros actuales`}</Typography></Box>
+          </Stack>
+          <Box sx={{ display: { xs: 'none', lg: 'block' }, overflowX: 'auto' }}>
+            <Table size="small" sx={{ minWidth: 850, tableLayout: 'fixed', '& .MuiTableCell-root': { px: 1.25, py: 1.25 }, '& .MuiTableCell-head': { fontWeight: 700, fontSize: '0.75rem', whiteSpace: 'nowrap' } }}>
+              <colgroup><col style={{ width: '26%' }} /><col style={{ width: '18%' }} /><col style={{ width: '19%' }} /><col style={{ width: '19%' }} /><col style={{ width: 80 }} /></colgroup>
               <TableHead>
                 <TableRow>
                   <TableCell sx={{ fontWeight: 900 }}>Cuenta Google</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Tarjeta corporativa</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Plan</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Almacenamiento</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Valor mensual</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Cobro mensual</TableCell>
-                  <TableCell sx={{ fontWeight: 900 }}>Estado</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Plan / capacidad</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Tarjeta / Cobro</TableCell>
+                  <TableCell sx={{ fontWeight: 900 }}>Valor / Estado</TableCell>
                   <TableCell align="right" sx={{ fontWeight: 900 }}>Acciones</TableCell>
                 </TableRow>
               </TableHead>
               <TableBody>
                 {visibleAccounts.map((account) => (
                   <TableRow key={account.id} hover>
-                    <TableCell><Typography variant="body2" sx={{ fontWeight: 700 }}>{account.accountEmail}</Typography></TableCell>
+                    <TableCell><Typography variant="body2" sx={{ fontWeight: 700, overflowWrap: 'anywhere' }}>{account.accountEmail}</Typography></TableCell>
+                    <TableCell><Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{account.plan}</Typography><Typography variant="caption" color="text.secondary" sx={{ overflowWrap: 'anywhere' }}>{account.storage}</Typography></TableCell>
                     <TableCell>
                       <Stack direction="row" spacing={0.75} alignItems="center">
                         <CreditCardOutlinedIcon fontSize="small" color="action" />
                         <Typography variant="body2">•••• {account.cardLastFour}</Typography>
                       </Stack>
+                      <Typography variant="caption" color="text.secondary">Día {account.billingDay} de cada mes</Typography>
                     </TableCell>
-                    <TableCell>{account.plan}</TableCell>
-                    <TableCell>{account.storage}</TableCell>
-                    <TableCell>{formatCop(account.monthlyPrice)}</TableCell>
-                    <TableCell>Día {account.billingDay} de cada mes</TableCell>
-                    <TableCell><Chip size="small" color={account.active ? 'success' : 'default'} label={account.active ? 'Activa' : 'Inactiva'} /></TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ overflowWrap: 'anywhere' }}>{formatCop(account.monthlyPrice)}</Typography>
+                      <Chip size="small" color={account.active ? 'success' : 'default'} label={account.active ? 'Activa' : 'Inactiva'} sx={{ mt: 0.5, fontWeight: 700 }} />
+                    </TableCell>
                     <TableCell align="right">
-                      {canManage && <Button size="small" startIcon={<EditOutlinedIcon />} onClick={() => openEdit(account)}>Editar</Button>}
+                      {canManage && <Tooltip title="Editar cuenta"><IconButton size="small" aria-label="Editar cuenta" onClick={() => openEdit(account)}><EditOutlinedIcon fontSize="small" /></IconButton></Tooltip>}
                     </TableCell>
                   </TableRow>
                 ))}
                 {!loading && visibleAccounts.length === 0 && (
                   <TableRow>
-                    <TableCell colSpan={8} align="center" sx={{ py: 6 }}>
+                    <TableCell colSpan={5} align="center" sx={{ py: 6 }}>
                       <Typography color="text.secondary">
                         {accounts.length ? 'No hay cuentas que coincidan con los filtros.' : 'Aún no hay cuentas de Google One registradas.'}
                       </Typography>
@@ -315,16 +329,34 @@ const GoogleOneAccounts = () => {
               </TableBody>
             </Table>
           </Box>
+          <Box sx={{ display: { xs: 'block', lg: 'none' }, px: 2 }}>
+            {visibleAccounts.map((account) => (
+              <Box component="article" key={account.id} sx={{ py: 2, borderTop: '1px solid', borderColor: 'divider' }}>
+                <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
+                  <Typography variant="subtitle2" sx={{ fontWeight: 750, overflowWrap: 'anywhere', minWidth: 0 }}>{account.accountEmail}</Typography>
+                  <Chip size="small" color={account.active ? 'success' : 'default'} label={account.active ? 'Activa' : 'Inactiva'} sx={{ fontWeight: 700 }} />
+                </Stack>
+                <Typography variant="body2" sx={{ mt: 1, overflowWrap: 'anywhere' }}>{account.plan} · {account.storage}</Typography>
+                <Typography variant="body2" sx={{ mt: 0.5, overflowWrap: 'anywhere' }}>{formatCop(account.monthlyPrice)} / mes</Typography>
+                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>Tarjeta: •••• {account.cardLastFour} · Cobro mensual: día {account.billingDay}</Typography>
+                {canManage && <Button size="small" startIcon={<EditOutlinedIcon />} onClick={() => openEdit(account)} sx={{ mt: 0.75 }}>Editar</Button>}
+              </Box>
+            ))}
+            {!loading && visibleAccounts.length === 0 && <Typography variant="body2" color="text.secondary" align="center" sx={{ py: 6 }}>{accounts.length ? 'No hay cuentas que coincidan con los filtros.' : 'Aún no hay cuentas de Google One registradas.'}</Typography>}
+          </Box>
         </CardContent>
       </Card>
 
-      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="sm">
-        <DialogTitle sx={{ fontWeight: 900 }}>{editingAccount ? 'Editar cuenta Google One' : 'Registrar cuenta Google One'}</DialogTitle>
-        <Box component="form" onSubmit={handleSave}>
-          <DialogContent>
-            <Stack spacing={2} sx={{ pt: 1 }}>
+      <Dialog open={dialogOpen} onClose={closeDialog} fullWidth maxWidth="sm" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
+        <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
+          <Typography component="h2" variant="h6" sx={{ fontWeight: 900 }}>{editingAccount ? 'Editar cuenta Google One' : 'Registrar cuenta Google One'}</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: 0.5 }}>Datos del plan y del cobro mensual.</Typography>
+        </DialogTitle>
+        <Box component="form" onSubmit={handleSave} sx={{ display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+          <DialogContent sx={{ px: { xs: 2, sm: 3 }, bgcolor: 'action.hover' }}>
+            <Stack spacing={2} sx={{ p: { xs: 2, sm: 2.25 }, mt: 1, mb: 1, border: '1px solid', borderColor: 'divider', borderRadius: '12px', bgcolor: 'background.paper' }}>
               <TextField
-                label="Correo de la cuenta Google"
+                label="Correo de Google"
                 type="email"
                 required
                 fullWidth
@@ -335,14 +367,14 @@ const GoogleOneAccounts = () => {
                 helperText={editingAccount ? 'El correo identifica el registro y no se puede cambiar.' : 'Admite Gmail y cuentas Google Workspace.'}
               />
               <TextField
-                label="Últimos 4 dígitos de la tarjeta corporativa"
+                label="Últimos 4 dígitos"
                 required
                 fullWidth
                 value={form.cardLastFour}
                 onChange={(event) => setForm((current) => ({ ...current, cardLastFour: event.target.value.replace(/\D/g, '').slice(0, 4) }))}
                 inputProps={{ inputMode: 'numeric', maxLength: 4 }}
                 InputProps={{ startAdornment: <InputAdornment position="start">••••</InputAdornment> }}
-                helperText="No ingreses el número completo ni el CVV."
+                helperText="De la tarjeta corporativa. No ingreses el número completo ni el CVV."
                 disabled={saving}
               />
               <Grid container spacing={2}>
@@ -379,7 +411,7 @@ const GoogleOneAccounts = () => {
             </Stack>
           </DialogContent>
           {saving && <LinearProgress />}
-          <DialogActions sx={{ px: 3, pb: 2 }}>
+          <DialogActions sx={{ px: { xs: 2, sm: 3 }, py: 1.5, flexWrap: 'wrap' }}>
             <Button onClick={closeDialog} disabled={saving}>Cancelar</Button>
             {canManage && <Button type="submit" variant="contained" disabled={saving}>{saving ? 'Guardando…' : editingAccount ? 'Guardar cambios' : 'Registrar cuenta'}</Button>}
           </DialogActions>
