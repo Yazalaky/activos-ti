@@ -38,7 +38,18 @@ import LocationCityOutlinedIcon from '@mui/icons-material/LocationCityOutlined';
 import { useAuth } from '../auth/AuthContext';
 import { addSite, deleteSite, getSites, updateSite } from '../services/api';
 import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
-import type { Site } from '../types';
+import type { Site, SiteDirector } from '../types';
+
+const directorFields: Array<{ key: keyof SiteDirector; label: string; maxLength: number; type?: string }> = [
+  { key: 'fullName', label: 'Nombre completo', maxLength: 200 },
+  { key: 'position', label: 'Cargo', maxLength: 150 },
+  { key: 'documentNumber', label: 'Documento de identidad', maxLength: 80 },
+  { key: 'email', label: 'Correo', maxLength: 254, type: 'email' },
+  { key: 'area', label: 'Área', maxLength: 150 },
+  { key: 'phone', label: 'Teléfono', maxLength: 80 },
+  { key: 'extension', label: 'Extensión', maxLength: 30 },
+  { key: 'networkUser', label: 'Usuario de red', maxLength: 150 },
+];
 
 const STOP_WORDS = new Set(['DE', 'DEL', 'LA', 'LAS', 'LOS', 'Y', 'E', 'EN', 'EL', 'AL']);
 
@@ -184,6 +195,7 @@ const Sites = () => {
       prefix: site.prefix,
       assetSeq: site.assetSeq,
       companyId: site.companyId || '',
+      director: { ...site.director },
     });
     setEditorOpen(true);
   };
@@ -241,6 +253,7 @@ const Sites = () => {
         address: String(form.address).trim(),
         prefix: computedPrefix.prefix,
         companyId: String(form.companyId || '').trim(),
+        director: Object.fromEntries(directorFields.map(({ key }) => [key, String(form.director?.[key] || '').trim()])),
       };
 
       if (editingId) {
@@ -493,6 +506,22 @@ const Sites = () => {
               />
               <Divider />
               {!editingId && computedPrefix.note && <Alert severity="info">{computedPrefix.note}</Alert>}
+              <Box>
+                <Typography variant="subtitle2" sx={{ fontWeight: 750 }}>Datos del director de la sede</Typography>
+                <Typography variant="caption" color="text.secondary">Opcionales. Se utilizarán para completar los datos de quien recibe en las nuevas actas de esta sede.</Typography>
+              </Box>
+              {directorFields.map(({ key, label, maxLength, type }) => (
+                <TextField
+                  key={key}
+                  label={`${label} (opcional)`}
+                  type={type}
+                  value={form.director?.[key] || ''}
+                  onChange={(event) => setForm((current) => ({ ...current, director: { ...current.director, [key]: event.target.value } }))}
+                  inputProps={{ maxLength }}
+                  fullWidth
+                  disabled={!canWrite || saving}
+                />
+              ))}
             </Stack>
             </Box>
 

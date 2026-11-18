@@ -25,6 +25,17 @@ export interface UserProfile {
   siteIds?: string[];
 }
 
+export interface SiteDirector {
+  fullName?: string;
+  position?: string;
+  documentNumber?: string;
+  email?: string;
+  area?: string;
+  phone?: string;
+  extension?: string;
+  networkUser?: string;
+}
+
 export interface Site extends AuditFields {
   id: string;
   name: string;
@@ -34,6 +45,7 @@ export interface Site extends AuditFields {
   assetSeq?: number; // Secuencia para generar fixedAssetId
   releasedAssetSeqs?: number[]; // Secuencias liberadas para reutilizar códigos
   companyId?: string; // Para seleccionar plantilla/logo del acta
+  director?: SiteDirector;
 }
 
 export interface Assignment {
@@ -295,6 +307,7 @@ export interface ActDocumentDetails {
   discountAmountWords?: string;
   discountAmountValue?: string;
   discountSignatureCount?: number;
+  blankDiscountSigners?: boolean;
 }
 
 export interface Act extends AuditFields {
