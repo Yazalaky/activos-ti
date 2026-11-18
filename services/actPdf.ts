@@ -17,12 +17,20 @@ const generateSharedActPdfCallable = httpsCallable<{ actId: string }, GenerateAc
   'generateSharedActPdf',
   { timeout: 180_000 },
 );
+const generateBlankSignerActPdfCallable = httpsCallable<{ actId: string }, GenerateActPdfResponse>(
+  functions,
+  'generateBlankSignerActPdf',
+  { timeout: 180_000 },
+);
 
-export const generateActPdf = async (actId: string, signatureCount = 1) => {
+export const generateActPdf = async (actId: string, signatureCount = 1, blankSigners = false) => {
   let data: GenerateActPdfResponse;
   try {
-    ({ data } = await (signatureCount > 1 ? generateSharedActPdfCallable : generateActPdfCallable)({ actId }));
+    ({ data } = await (blankSigners ? generateBlankSignerActPdfCallable : signatureCount > 1 ? generateSharedActPdfCallable : generateActPdfCallable)({ actId }));
   } catch (error) {
+    if (blankSigners && error && typeof error === 'object' && 'code' in error && (error.code === 'functions/not-found' || error.code === 'functions/unimplemented')) {
+      throw new Error('El servicio de impresión todavía no admite firmas en blanco. El acta no se emitió; contacta al administrador.');
+    }
     if (signatureCount > 1 && error && typeof error === 'object' && 'code' in error && (error.code === 'functions/not-found' || error.code === 'functions/unimplemented')) {
       throw new Error('El servicio de impresión todavía no admite varias firmas. El acta no se emitió; contacta al administrador.');
     }

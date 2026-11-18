@@ -59,7 +59,8 @@ class RendererHandler(BaseHTTPRequestHandler):
                 str(payload.get("issueDate") or "") or None,
             )
             signature_count = (payload.get("act", {}).get("documentDetails") or {}).get("discountSignatureCount", 1)
-            self._json(200, {"fileName": filename, "pdfBase64": base64.b64encode(pdf_bytes).decode("ascii"), "discountSignatureCount": signature_count})
+            blank_signers = (payload.get("act", {}).get("documentDetails") or {}).get("blankDiscountSigners") is True
+            self._json(200, {"fileName": filename, "pdfBase64": base64.b64encode(pdf_bytes).decode("ascii"), "discountSignatureCount": signature_count, "blankDiscountSigners": blank_signers})
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
             self._json(400, {"error": str(error)[:240]})
         except ActDocumentError as error:

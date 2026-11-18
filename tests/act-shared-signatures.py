@@ -38,7 +38,7 @@ def signature_alignment(pdf):
     positions = {}
     for page in PdfReader(BytesIO(pdf)).pages[1:]:
         def collect(text, cm, tm, _font, _size):
-            for label in ("En constancia firman:", "Firmante 1"):
+            for label in ("En constancia firman:", "En constancia firma:", "Firmante 1"):
                 if text.startswith(label):
                     positions[label] = cm[0] * tm[4] + cm[2] * tm[5] + cm[4]
         page.extract_text(visitor_text=collect)
@@ -46,6 +46,49 @@ def signature_alignment(pdf):
 
 
 class SharedSignatureTests(unittest.TestCase):
+    def test_blank_single_signer_keeps_recipient_on_first_page_only(self):
+        for company, filename in TEMPLATE_FILES.items():
+            with self.subTest(company=company):
+                new_act = act(company, 1)
+                new_act['documentDetails']['blankDiscountSigners'] = True
+                document = Document(BytesIO(fill_act_docx(TEMPLATES / filename, new_act, TEMPLATE, 'Entrega Ficticia', '11/11/2026')))
+                self.assertIn('Receptora Ficticia', document.tables[3].cell(4, 0).text)
+                authorization = next(p.text for p in document.paragraphs if p.text.startswith('En tal virtud'))
+                self.assertNotIn('Receptora Ficticia', authorization)
+                self.assertNotIn('12345678', authorization)
+                self.assertIn('Yo,', authorization)
+                self.assertEqual(len(document.tables), 5)
+                block = document.tables[4].cell(0, 0).text
+                for label in ('Nombre:', 'Identificación:', 'Cargo:', 'Firma:'):
+                    self.assertIn(label, block)
+                self.assertNotIn('Receptora Ficticia', block)
+
+    def test_invalid_blank_signer_flag_is_rejected(self):
+        for invalid in ('true', 1, None):
+            bad = act()
+            bad['documentDetails']['blankDiscountSigners'] = invalid
+            with self.subTest(invalid=invalid), self.assertRaises(ActDocumentError):
+                fill_act_docx(TEMPLATES / TEMPLATE_FILES['redinsalud'], bad, TEMPLATE, '')
+
+    def test_blank_single_signer_actual_pdf(self):
+        for company in TEMPLATE_FILES:
+            with self.subTest(company=company):
+                new_act = act(company, count=1)
+                new_act['documentDetails']['blankDiscountSigners'] = True
+                pdf, _ = generate_act_pdf(TEMPLATES, new_act, TEMPLATE, 'Entrega Ficticia', '11/11/2026')
+                pages = [page.extract_text() for page in PdfReader(BytesIO(pdf)).pages]
+                self.assertEqual(len(pages), 2)
+                self.assertIn('Receptora Ficticia', pages[0])
+                self.assertIn('AUTORIZACION DE DESCUENTO', pages[1])
+                self.assertNotIn('Receptora Ficticia', ' '.join(pages[1:]))
+                self.assertNotIn('12345678', ' '.join(pages[1:]))
+                for label in ('Firmante 1', 'Nombre:', 'Identificación:', 'Cargo:', 'Firma:'):
+                    self.assertIn(label, ' '.join(pages[1:]))
+                positions = signature_alignment(pdf)
+                self.assertIn('En constancia firma:', positions)
+                self.assertIn('Firmante 1', positions)
+                self.assertAlmostEqual(positions['Firmante 1'], positions['En constancia firma:'], delta=1)
+
     def test_original_and_shared_docx_for_every_company(self):
         for company, filename in TEMPLATE_FILES.items():
             for count in (None, 1, 2, 3, 4, 5):

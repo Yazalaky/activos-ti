@@ -71,7 +71,7 @@ async function main() {
     adminDb.doc('users/auditor').set({ role: 'auditor', active: true, accessScope: 'global' }),
     adminDb.doc('users/inactive').set({ role: 'admin', active: false, accessScope: 'global' }),
     adminDb.doc('sites/origin').set(site('RWIL', 5)),
-    adminDb.doc('sites/dest').set(site('RPWI', 12)),
+    adminDb.doc('sites/dest').set({ ...site('RPWI', 12), director: { fullName: 'Directora Ficticia', position: 'Directora', documentNumber: '123456', email: 'directora@example.invalid', area: 'Dirección', phone: '3000000000', extension: '1', networkUser: 'usuario' } }),
     adminDb.doc('sites/hundred').set(site('R100', 99)),
     adminDb.doc('assets/legacy-assignment').set(legacy),
     ...['normal', 'tech', 'denied', 'wrong-code', 'no-sequence', 'tampered', 'no-history', 'decom', 'invalid-decom', 'edit', 'hundred', 'assignment', 'photo', 'tech-edit']
@@ -95,6 +95,7 @@ async function main() {
   assert.equal(moved.movedFromSiteId, 'origin');
   assert.equal(moved.serial, 'SERIE-PRUEBA');
   assert.equal((await adminDb.doc('sites/dest').get()).data().assetSeq, 13);
+  assert.equal((await adminDb.doc('sites/dest').get()).data().director.fullName, 'Directora Ficticia');
   assert.equal((await adminDb.doc('sites/origin').get()).data().assetSeq, 5);
 
   await move(tech, 'tech-test', 'tech', 'dest');

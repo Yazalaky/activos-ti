@@ -56,6 +56,8 @@ def _signature_count(details: dict[str, Any]) -> int:
 def _details_for(act: dict[str, Any]) -> dict[str, Any]:
     asset = act.get("assetSnapshot") or {}
     raw = act.get("documentDetails") or {}
+    if "blankDiscountSigners" in raw and type(raw["blankDiscountSigners"]) is not bool:
+        raise ActDocumentError("La configuración de firmas en blanco no es válida.")
     asset_type = _text(asset.get("type")).lower()
     device_defaults = {
         "desktop": asset_type == "desktop",
@@ -207,6 +209,7 @@ def _fill_legal_text(document: Any, act: dict[str, Any], template: dict[str, Any
     recipient = act.get("recipient") or {}
     full_name = _text(recipient.get("fullName"))
     document_number = _text(recipient.get("documentNumber"))
+    blank_signers = details.get("blankDiscountSigners") is True
     company_name = _text(template.get("companyName")) or _text(act.get("companyId"))
     nit = _text(act.get("companyNitSnapshot")) or _text(template.get("nit"))
 
@@ -225,12 +228,13 @@ def _fill_legal_text(document: Any, act: dict[str, Any], template: dict[str, Any
     if authorization is None:
         raise ActDocumentError("No se encontró el párrafo de autorización en la plantilla.")
 
-    _replace_paragraph_pattern(
-        authorization,
-        r"(?<=Yo,\s)_{5,}",
-        full_name,
-        label="nombre del colaborador",
-    )
+    if not blank_signers:
+        _replace_paragraph_pattern(
+            authorization,
+            r"(?<=Yo,\s)_{5,}",
+            full_name,
+            label="nombre del colaborador",
+        )
     _replace_paragraph_pattern(
         authorization,
         r"(?P<prefix>AUTORIZO\s+a\s+)_{5,}",
@@ -238,7 +242,7 @@ def _fill_legal_text(document: Any, act: dict[str, Any], template: dict[str, Any
         label="empresa en la autorización",
         flags=re.IGNORECASE,
     )
-    if document_number:
+    if document_number and not blank_signers:
         _replace_paragraph_pattern(
             authorization,
             r"N°\s*_{3,}",
@@ -289,7 +293,7 @@ def _fill_legal_text(document: Any, act: dict[str, Any], template: dict[str, Any
         )
 
     signature_count = _signature_count(details)
-    if signature_count == 1:
+    if signature_count == 1 and not blank_signers:
         for paragraph in document.paragraphs:
             if paragraph.text.startswith("Nombre:"):
                 _replace_paragraph_pattern(
@@ -300,14 +304,16 @@ def _fill_legal_text(document: Any, act: dict[str, Any], template: dict[str, Any
                     paragraph, r"(?<=C\.C\. N°)_+", f" {document_number}", label="documento en el espacio de firma",
                 )
     else:
-        for pattern, replacement, label in (
-            (r"^En tal virtud:.*?AUTORIZO", "En tal virtud, las personas firmantes identificadas a continuación AUTORIZAN", "identificación de firmantes"),
-            (r"\bmis honorarios", "sus honorarios", "honorarios de firmantes"),
-            (r"\bme adeude", "les adeude", "obligaciones de firmantes"),
-            (r"\bme están siendo entregados", "les están siendo entregados", "entrega a firmantes"),
-            (r"\bse encuentra bajo mi responsabilidad", "se encuentran bajo su responsabilidad", "responsabilidad de firmantes"),
-        ):
-            _replace_paragraph_pattern(authorization, pattern, replacement, label=label)
+        if signature_count > 1:
+            # El texto plural se usa únicamente cuando firma más de una persona.
+            for pattern, replacement, label in (
+                (r"^En tal virtud:.*?AUTORIZO", "En tal virtud, las personas firmantes identificadas a continuación AUTORIZAN", "identificación de firmantes"),
+                (r"\bmis honorarios", "sus honorarios", "honorarios de firmantes"),
+                (r"\bme adeude", "les adeude", "obligaciones de firmantes"),
+                (r"\bme están siendo entregados", "les están siendo entregados", "entrega a firmantes"),
+                (r"\bse encuentra bajo mi responsabilidad", "se encuentran bajo su responsabilidad", "responsabilidad de firmantes"),
+            ):
+                _replace_paragraph_pattern(authorization, pattern, replacement, label=label)
         _add_shared_signature_spaces(document, signature_count)
 
     observations = _text(act.get("observations"))
@@ -336,7 +342,7 @@ def _add_shared_signature_spaces(document: Any, count: int) -> None:
         paragraph._element.getparent().remove(paragraph._element)
     for run in anchor.runs:
         run.text = ""
-    anchor.add_run("En constancia firman:")
+    anchor.add_run("En constancia firma:" if count == 1 else "En constancia firman:")
     anchor.paragraph_format.keep_with_next = True
 
     table = document.add_table(rows=(count + 1) // 2, cols=2)

@@ -176,6 +176,7 @@ const Acts = () => {
   const [recipientNetworkUser, setRecipientNetworkUser] = useState('');
   const [observations, setObservations] = useState('');
   const [documentDetails, setDocumentDetails] = useState<ActDocumentDetails>(createEmptyDocumentDetails);
+  const blankDiscountSigners = !editingAct || editingAct.documentDetails?.blankDiscountSigners === true;
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -484,6 +485,7 @@ const Acts = () => {
         observations: observations.trim() || undefined,
         documentDetails: {
           ...documentDetails,
+          blankDiscountSigners: true,
           deliveredByName: profile?.name || '',
         },
         status: 'draft',
@@ -555,7 +557,7 @@ const Acts = () => {
     if (printWindow) printWindow.opener = null;
     try {
       setGeneratingActId(act.id);
-      const { file } = await generateActPdf(act.id, act.documentDetails?.discountSignatureCount ?? 1);
+      const { file } = await generateActPdf(act.id, act.documentDetails?.discountSignatureCount ?? 1, act.documentDetails?.blankDiscountSigners === true);
       const objectUrl = URL.createObjectURL(file);
       let openedInTab = false;
       if (printWindow && !printWindow.closed) {
@@ -983,16 +985,17 @@ const Acts = () => {
                   disabled={!canWrite || creating || !createCompanyId || Boolean(editingAct)}
                   onChange={(e) => {
                     const siteId = String(e.target.value);
+                    const director = sites.find((site) => site.id === siteId)?.director;
                     setCreateSiteId(siteId);
                     setAssetId('');
-                    setRecipientName('');
-                    setRecipientPosition('');
-                    setRecipientEmail('');
-                    setRecipientDocument('');
-                    setRecipientArea('');
-                    setRecipientPhone('');
-                    setRecipientExtension('');
-                    setRecipientNetworkUser('');
+                    setRecipientName(director?.fullName || '');
+                    setRecipientPosition(director?.position || '');
+                    setRecipientEmail(director?.email || '');
+                    setRecipientDocument(director?.documentNumber || '');
+                    setRecipientArea(director?.area || '');
+                    setRecipientPhone(director?.phone || '');
+                    setRecipientExtension(director?.extension || '');
+                    setRecipientNetworkUser(director?.networkUser || '');
                     setObservations('');
                     setDocumentDetails(createEmptyDocumentDetails());
                   }}
@@ -1019,8 +1022,6 @@ const Acts = () => {
                     const id = String(e.target.value);
                     setAssetId(id);
                     const asset = assets.find((a) => a.id === id);
-                    if (asset?.currentAssignment?.assignedToName) setRecipientName(asset.currentAssignment.assignedToName);
-                    if (asset?.currentAssignment?.assignedToPosition) setRecipientPosition(asset.currentAssignment.assignedToPosition);
                     if (asset) {
                       setDocumentDetails((current) => ({
                         ...current,
@@ -1064,7 +1065,14 @@ const Acts = () => {
                 </Alert>
               )}
 
-              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Datos del colaborador</Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Datos de quien recibe el equipo</Typography>
+              {!editingAct && createSiteId && (
+                <Alert severity={selectedSite?.director?.fullName ? 'info' : 'warning'}>
+                  {selectedSite?.director?.fullName
+                    ? 'Datos del director de la sede cargados. Puedes ajustarlos para esta acta sin modificar la sede.'
+                    : 'Esta sede no tiene el nombre del director registrado. Completa los datos manualmente o configúralos en Sedes.'}
+                </Alert>
+              )}
               <TextField
                 label="Nombre completo"
                 value={recipientName}
@@ -1204,14 +1212,14 @@ const Acts = () => {
                     return count === 1 ? remaining : { ...remaining, discountSignatureCount: count };
                   })}
                 >
-                  <MenuItem value={1}>Una firma: la persona que recibe</MenuItem>
+                  <MenuItem value={1}>{blankDiscountSigners ? 'Un espacio en blanco' : 'Una firma: la persona que recibe'}</MenuItem>
                   {[2, 3, 4, 5].map((count) => <MenuItem key={count} value={count}>{count} espacios en blanco</MenuItem>)}
                 </Select>
               </FormControl>
               <Typography variant="body2" color="text.secondary">
-                {(documentDetails.discountSignatureCount ?? 1) === 1
+                {!blankDiscountSigners && (documentDetails.discountSignatureCount ?? 1) === 1
                   ? 'La autorización incluirá los datos de la persona que recibe el activo.'
-                  : 'La entrega conserva al receptor. En la autorización se imprimirán espacios en blanco para nombre, identificación, cargo y firma.'}
+                  : 'La entrega conserva al director que recibe. En la autorización se imprimirán espacios en blanco para nombre, identificación, cargo y firma.'}
               </Typography>
               <Divider />
               <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Observaciones</Typography>

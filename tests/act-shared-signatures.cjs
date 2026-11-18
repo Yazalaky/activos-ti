@@ -68,16 +68,37 @@ async function main() {
   const adminClient = client('admin-test');
   const tech = client('tech-test');
   const denied = client('tech-denied');
+  const validSite = { name: 'Sede ficticia', city: 'Ciudad', address: 'Dirección', prefix: 'TEST', companyId: 'redinsalud', createdAt: 100, createdByUid: 'admin-test' };
+  await setDoc(doc(adminClient, 'sites', 'new-site'), { ...validSite, director: { fullName: 'Directora Ficticia', position: 'Directora', documentNumber: '123456', email: 'directora@example.invalid', area: 'Dirección', phone: '3000000000', extension: '1', networkUser: 'usuario' } });
+  await setDoc(doc(adminClient, 'sites', 'legacy-site'), validSite);
+  await updateDoc(doc(tech, 'sites', 'site'), { name: 'Sede ficticia', city: 'Ciudad', address: 'Dirección', prefix: 'TEST', director: { fullName: 'Directora Ficticia' }, updatedAt: Date.now(), updatedByUid: 'tech-test' });
+  await assert.rejects(() => updateDoc(doc(denied, 'sites', 'site'), { director: { fullName: 'Otro' }, updatedAt: Date.now(), updatedByUid: 'tech-denied' }), (error) => error.code === 'permission-denied');
+  for (const [index, director] of [{ fullName: 42 }, { fullName: 'X'.repeat(201) }, { unexpected: 'valor' }, 'texto'].entries()) {
+    await assert.rejects(() => setDoc(doc(adminClient, 'sites', `invalid-site-${index}`), { ...validSite, director }), (error) => error.code === 'permission-denied');
+  }
+  console.log('CHECK: directores opcionales, límites y acceso a sedes');
   await setDoc(doc(adminClient, 'acts', 'legacy'), draft('admin-test'));
   console.log('CHECK: creación compatible con actas anteriores');
   for (let count = 1; count <= 5; count++) {
     await setDoc(doc(tech, 'acts', `valid-${count}`), draft('tech-test', count));
+    const blankDraft = draft('tech-test', count);
+    blankDraft.documentDetails.blankDiscountSigners = true;
+    await setDoc(doc(tech, 'acts', `blank-${count}`), blankDraft);
   }
+  const invalidBlankDraft = draft('admin-test', 1);
+  invalidBlankDraft.documentDetails.blankDiscountSigners = 'true';
+  await assert.rejects(() => setDoc(doc(adminClient, 'acts', 'invalid-blank'), invalidBlankDraft), (error) => error.code === 'permission-denied');
   for (const [index, count] of [0, 6, -1, 1.5, true, '5', null].entries()) {
     await assert.rejects(() => setDoc(doc(adminClient, 'acts', `invalid-${index}`), draft('admin-test', count)), (error) => error.code === 'permission-denied');
   }
   await assert.rejects(() => setDoc(doc(denied, 'acts', 'denied'), draft('tech-denied', 5)), (error) => error.code === 'permission-denied');
   console.log('CHECK: límites de firmas y acceso');
+  const blankBefore = draft('tech-test', 1);
+  blankBefore.documentDetails.blankDiscountSigners = true;
+  await edit(tech, 'tech-test', 'blank-1', blankBefore, 2);
+  const blankEdited = (await admin.doc('acts/blank-1').get()).data();
+  assert.equal(blankEdited.documentDetails.blankDiscountSigners, true);
+  assert.equal(blankEdited.documentDetails.discountSignatureCount, 2);
   const before = draft('admin-test');
   await edit(adminClient, 'admin-test', 'legacy', before, 5);
   assert.equal((await admin.doc('acts/legacy').get()).data().documentDetails.discountSignatureCount, 5);
