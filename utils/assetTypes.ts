@@ -26,6 +26,9 @@ export const mergeAssetTypes = (records: readonly AssetTypeOption[]): AssetTypeO
 export const assetTypeName = (id: string, types: readonly AssetTypeOption[]): string =>
   types.find((type) => type.id === id)?.name || id || 'Sin tipo';
 
+export const supportsAssetHardware = (id: string | undefined): boolean =>
+  id === 'laptop' || id === 'desktop' || id === 'cellphone' || id === 'tablet';
+
 export const actDeviceType = (id: string, types: readonly AssetTypeOption[]) => {
   const known = ['desktop', 'laptop', 'printer', 'tablet', 'cellphone'];
   const other = !known.includes(id);

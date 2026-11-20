@@ -62,7 +62,7 @@ import { printReport } from '../utils/printReport';
 import { compareSiteNames } from '../utils/sortSites';
 import { compareAssetCodes } from '../utils/sortAssets';
 import { useAssetTypes } from '../hooks/useAssetTypes';
-import { assetTypeName, type AssetTypeOption } from '../utils/assetTypes';
+import { assetTypeName, supportsAssetHardware, type AssetTypeOption } from '../utils/assetTypes';
 import AssetTypesDialog from '../components/AssetTypesDialog';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
@@ -152,7 +152,7 @@ const AssetActions = ({ asset, canWrite, onView, onEdit, onAssign, onReturn, onD
   </Stack>
 );
 
-const assetHardware = (asset: Asset) => asset.type === 'laptop' || asset.type === 'desktop'
+const assetHardware = (asset: Asset) => supportsAssetHardware(asset.type)
   ? [asset.processor && `CPU: ${asset.processor}`, asset.ram && `RAM: ${asset.ram}`, asset.storage && `DISCO: ${asset.storage}`].filter(Boolean).join(' · ') || '—'
   : '—';
 
@@ -486,7 +486,7 @@ const Assets = () => {
     return `${site.prefix}-${String(nextSeq).padStart(3, '0')}`;
   }, [formData.siteId, sites]);
 
-  const isComputer = formData.type === 'laptop' || formData.type === 'desktop';
+  const hasHardware = supportsAssetHardware(formData.type);
   const isDesktop = formData.type === 'desktop';
   const isViewMode = editorMode === 'view';
   const readOnly = !canWrite || isViewMode;
@@ -691,7 +691,7 @@ const Assets = () => {
       delete dataToSave.monitorSize;
       delete dataToSave.monitorSerial;
     }
-    if (dataToSave.type !== 'laptop' && dataToSave.type !== 'desktop') {
+    if (!supportsAssetHardware(dataToSave.type)) {
       delete dataToSave.processor;
       delete dataToSave.ram;
       delete dataToSave.storage;
@@ -1416,14 +1416,14 @@ const Assets = () => {
                 <Divider sx={{ my: 2 }} />
 
                 <Typography variant="subtitle2" sx={{ fontWeight: 900, mb: 1 }}>
-                  Hardware (computadores)
+                  Hardware
                 </Typography>
                 <TextField
                   label="Procesador"
                   value={formData.processor || ''}
                   onChange={(e) => setFormData({ ...formData, processor: e.target.value })}
                   fullWidth
-                  disabled={readOnly || !isComputer}
+                  disabled={readOnly || !hasHardware}
                   sx={{ mb: 2 }}
                 />
                 <TextField
@@ -1431,7 +1431,7 @@ const Assets = () => {
                   value={formData.ram || ''}
                   onChange={(e) => setFormData({ ...formData, ram: e.target.value })}
                   fullWidth
-                  disabled={readOnly || !isComputer}
+                  disabled={readOnly || !hasHardware}
                   sx={{ mb: 2 }}
                 />
                 <TextField
@@ -1439,7 +1439,7 @@ const Assets = () => {
                   value={formData.storage || ''}
                   onChange={(e) => setFormData({ ...formData, storage: e.target.value })}
                   fullWidth
-                  disabled={readOnly || !isComputer}
+                  disabled={readOnly || !hasHardware}
                   sx={{ mb: 2 }}
                 />
                 <TextField
@@ -1447,7 +1447,7 @@ const Assets = () => {
                   value={formData.os || ''}
                   onChange={(e) => setFormData({ ...formData, os: e.target.value })}
                   fullWidth
-                  disabled={readOnly || !isComputer}
+                  disabled={readOnly || !hasHardware}
                 />
 
                 <Divider sx={{ my: 2 }} />

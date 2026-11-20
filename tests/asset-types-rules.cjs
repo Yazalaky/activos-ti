@@ -11,7 +11,7 @@ const appRequire = createRequire(path.join(root, 'package.json'));
 const { initializeApp: initializeAdminApp } = adminRequire('firebase-admin/app');
 const { getFirestore: getAdminFirestore } = adminRequire('firebase-admin/firestore');
 const { initializeApp, deleteApp } = appRequire('firebase/app');
-const { getFirestore, connectFirestoreEmulator, collection, doc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, terminate } = appRequire('firebase/firestore');
+const { getFirestore, connectFirestoreEmulator, collection, doc, getDoc, getDocs, setDoc, updateDoc, deleteDoc, runTransaction, terminate } = appRequire('firebase/firestore');
 initializeAdminApp({ projectId: 'demo-asset-types' });
 const adminDb = getAdminFirestore();
 const [host, port] = process.env.FIRESTORE_EMULATOR_HOST.split(':');
@@ -38,6 +38,15 @@ async function main() {
   await getDocs(collection(tech, 'assetTypes'));
   await assert.rejects(() => getDocs(collection(anon, 'assetTypes')), (error) => error.code === 'permission-denied');
   for (const type of ['laptop', 'tablet', 'cellphone']) await setDoc(doc(tech, 'assets', `asset-${type}`), asset(type, 'tech'));
+  for (const type of ['tablet', 'cellphone']) {
+    const ref = doc(tech, 'assets', `hardware-${type}`);
+    const hardware = { processor: 'Procesador ficticio', ram: '8 GB', storage: '128 GB', os: 'Sistema ficticio' };
+    await setDoc(ref, { ...asset(type, 'tech'), ...hardware });
+    const saved = (await getDoc(ref)).data();
+    assert.deepEqual(Object.fromEntries(Object.keys(hardware).map((key) => [key, saved[key]])), hardware);
+    await updateDoc(ref, { os: 'Sistema actualizado', updatedAt: 102, updatedByUid: 'tech' });
+    assert.equal((await getDoc(ref)).data().os, 'Sistema actualizado');
+  }
   await assert.rejects(() => setDoc(doc(tech, 'assets', 'unknown'), asset(custom, 'tech')), (error) => error.code === 'permission-denied');
   await assert.rejects(() => setDoc(doc(tech, 'assetTypes', custom), typeData('Proyector', true, 'tech')), (error) => error.code === 'permission-denied');
   await assert.rejects(() => setDoc(doc(auditor, 'assetTypes', custom), typeData('Proyector', true, 'auditor')), (error) => error.code === 'permission-denied');
