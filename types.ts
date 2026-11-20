@@ -3,7 +3,8 @@ export type AccessScope = 'global' | 'sites';
 
 export type Status = 'bodega' | 'asignado' | 'mantenimiento' | 'baja';
 
-export type AssetType = 'laptop' | 'desktop' | 'monitor' | 'keyboard' | 'mouse' | 'printer' | 'scanner' | 'network' | 'other';
+// Los identificadores son estables; el catálogo permite tipos adicionales.
+export type AssetType = string;
 
 export interface AuditFields {
   createdAt?: number;

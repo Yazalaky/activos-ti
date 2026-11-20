@@ -50,6 +50,7 @@ import DeleteSweepOutlinedIcon from '@mui/icons-material/DeleteSweepOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import TuneOutlinedIcon from '@mui/icons-material/TuneOutlined';
 import Inventory2OutlinedIcon from '@mui/icons-material/Inventory2Outlined';
+import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import { addAsset, bulkDecommissionAssetsForSite, decommissionAsset, getAssets, getSites, moveAssetToSite, updateAsset, updateAssetAssignment, getMaintenances } from '../services/api';
 import { previewSiteInventoryReset, resetSiteInventory, type PreviewSiteInventoryResetOutput } from '../services/adminApi';
 import type { Asset, AssetType, Assignment, Site, Status, Maintenance } from '../types';
@@ -60,6 +61,9 @@ import { exportToCsv } from '../utils/exportCsv';
 import { printReport } from '../utils/printReport';
 import { compareSiteNames } from '../utils/sortSites';
 import { compareAssetCodes } from '../utils/sortAssets';
+import { useAssetTypes } from '../hooks/useAssetTypes';
+import { assetTypeName, type AssetTypeOption } from '../utils/assetTypes';
+import AssetTypesDialog from '../components/AssetTypesDialog';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
 const statusLabel: Record<Status, string> = {
@@ -67,11 +71,6 @@ const statusLabel: Record<Status, string> = {
   asignado: 'Asignado',
   mantenimiento: 'Mantenimiento',
   baja: 'De baja',
-};
-
-const assetTypeLabel: Record<AssetType, string> = {
-  laptop: 'Portátil', desktop: 'Equipo de escritorio', monitor: 'Monitor', keyboard: 'Teclado',
-  mouse: 'Mouse', printer: 'Impresora', scanner: 'Escáner', network: 'Red', other: 'Otro',
 };
 
 const MAX_ASSET_IMAGE_SIZE = 5 * 1024 * 1024;
@@ -118,6 +117,7 @@ const assetReportColumns = [
 type AssetTableProps = {
   assets: Asset[];
   sites: Site[];
+  types: AssetTypeOption[];
   canWrite: boolean;
   onView: (asset: Asset) => void;
   onEdit: (asset: Asset) => void;
@@ -126,7 +126,7 @@ type AssetTableProps = {
   onDecommission: (asset: Asset) => void;
 };
 
-const AssetActions = ({ asset, canWrite, onView, onEdit, onAssign, onReturn, onDecommission }: Omit<AssetTableProps, 'assets' | 'sites'> & { asset: Asset }) => (
+const AssetActions = ({ asset, canWrite, onView, onEdit, onAssign, onReturn, onDecommission }: Omit<AssetTableProps, 'assets' | 'sites' | 'types'> & { asset: Asset }) => (
   <Stack direction="row" useFlexGap spacing={0.5} alignItems="center" justifyContent="flex-end" flexWrap="nowrap">
     <Tooltip title="Ver detalle">
       <IconButton onClick={() => onView(asset)} aria-label={`Ver detalle de ${asset.fixedAssetId || 'activo'}`} size="small"><VisibilityOutlinedIcon fontSize="small" /></IconButton>
@@ -173,7 +173,7 @@ const AssetStatus = ({ asset }: { asset: Asset }) => (
   </Stack>
 );
 
-const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onView, onEdit, onAssign, onReturn, onDecommission }: AssetTableProps) {
+const AssetTable = React.memo(function AssetTable({ assets, sites, types, canWrite, onView, onEdit, onAssign, onReturn, onDecommission }: AssetTableProps) {
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(25);
   const visibleAssets = assets.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
@@ -218,7 +218,7 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
                   {asset.fixedAssetId || 'PEND'}
                 </Typography>
                 <Typography variant="caption" color="text.secondary">
-                  {assetTypeLabel[asset.type] || asset.type}
+                  {assetTypeName(asset.type, types)}
                 </Typography>
               </TableCell>
               <TableCell>
@@ -267,7 +267,7 @@ const AssetTable = React.memo(function AssetTable({ assets, sites, canWrite, onV
             <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
               <Box sx={{ minWidth: 0 }}>
                 <Typography variant="subtitle2" color="primary.main" sx={{ fontWeight: 750, overflowWrap: 'anywhere' }}>{asset.fixedAssetId || 'PEND'}</Typography>
-                <Typography variant="caption" color="text.secondary">{assetTypeLabel[asset.type] || asset.type}</Typography>
+                <Typography variant="caption" color="text.secondary">{assetTypeName(asset.type, types)}</Typography>
               </Box>
               <AssetStatus asset={asset} />
             </Stack>
@@ -305,6 +305,8 @@ const Assets = () => {
   const theme = useTheme();
   const canWrite = role === 'admin' || role === 'tech';
   const isAdmin = role === 'admin';
+  const { types: assetTypes, ready: assetTypesReady, error: assetTypesError } = useAssetTypes();
+  const [typesOpen, setTypesOpen] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [filterText, setFilterText] = useState('');
@@ -396,6 +398,12 @@ const Assets = () => {
     [sites, selectedSiteFilter]
   );
   const sortedFilterSites = useMemo(() => sites.slice().sort(compareSiteNames), [sites]);
+  const filterAssetTypes = useMemo(() => {
+    const known = new Set(assetTypes.map((type) => type.id));
+    const historical = [...new Set(assets.map((asset) => asset.type).filter((id) => id && !known.has(id)))];
+    return [...assetTypes.filter((type) => type.active || assets.some((asset) => asset.type === type.id)),
+      ...historical.map((id) => ({ id, name: id, active: false }))];
+  }, [assetTypes, assets]);
 
   const bodegaAssetsForSite = useMemo(
     () => assets.filter((asset) => asset.siteId === selectedSiteFilter && asset.status === 'bodega'),
@@ -452,7 +460,7 @@ const Assets = () => {
       const site = sites.find((siteItem) => siteItem.id === asset.siteId);
       return {
         ActivoFijo: asset.fixedAssetId,
-        Tipo: asset.type,
+        Tipo: assetTypeName(asset.type, assetTypes),
         Marca: asset.brand,
         Modelo: asset.model,
         Serial: asset.serial,
@@ -465,7 +473,7 @@ const Assets = () => {
         FechaBaja: asset.decommissionedAt ? new Date(asset.decommissionedAt).toLocaleString('es-CO') : '',
       };
     }),
-    [filteredAssets, sites],
+    [filteredAssets, sites, assetTypes],
   );
 
   const inventoryReportName = assetViewFilter === 'baja' ? 'Activos_De_Baja' : 'Activos';
@@ -487,7 +495,7 @@ const Assets = () => {
     setEditingId(null);
     setEditorMode('create');
     originalAssetRef.current = null;
-    setFormData(initialFormState);
+    setFormData({ ...initialFormState, type: assetTypes.find((type) => type.active)?.id || '' });
     setInlineAssignment({ name: '', position: '', responsible: '' });
     setPreviewImage(null);
     setImageFile(null);
@@ -652,6 +660,11 @@ const Assets = () => {
 
     if (!formData.siteId) {
       setSnackbar({ open: true, message: 'Seleccione una sede.', severity: 'warning' });
+      return;
+    }
+    const typeChanged = !editingId || originalAssetRef.current?.type !== formData.type;
+    if (typeChanged && (!assetTypesReady || !assetTypes.some((type) => type.id === formData.type && type.active))) {
+      setSnackbar({ open: true, message: 'Selecciona un tipo de equipo activo y verifica la conexión al catálogo.', severity: 'warning' });
       return;
     }
     if (!formData.brand || !formData.model || !formData.serial) {
@@ -1032,12 +1045,13 @@ const Assets = () => {
           </Typography>
         </Box>
 
-        {canWrite && (
-          <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate}>
-            Nuevo activo
-          </Button>
-        )}
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          {isAdmin && <Button variant="outlined" startIcon={<SettingsOutlinedIcon />} onClick={() => setTypesOpen(true)}>Administrar tipos</Button>}
+          {canWrite && <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate} disabled={!assetTypesReady || !assetTypes.some((type) => type.active)}>Nuevo activo</Button>}
+        </Stack>
       </Stack>
+
+      {assetTypesError && <Alert severity="error">No se pudo consultar el catálogo de tipos. Revisa la conexión antes de crear o cambiar el tipo de un equipo.</Alert>}
 
       <Card>
         <CardContent>
@@ -1094,15 +1108,7 @@ const Assets = () => {
                   onChange={(e) => setSelectedTypeFilter(e.target.value as AssetType | '')}
                 >
                   <MenuItem value="">Todos</MenuItem>
-                  <MenuItem value="laptop">Laptop</MenuItem>
-                  <MenuItem value="desktop">Desktop</MenuItem>
-                  <MenuItem value="monitor">Monitor</MenuItem>
-                  <MenuItem value="keyboard">Teclado</MenuItem>
-                  <MenuItem value="mouse">Mouse</MenuItem>
-                  <MenuItem value="printer">Impresora</MenuItem>
-                  <MenuItem value="scanner">Scanner</MenuItem>
-                  <MenuItem value="network">Red</MenuItem>
-                  <MenuItem value="other">Otro</MenuItem>
+                  {filterAssetTypes.map((type) => <MenuItem key={type.id} value={type.id}>{type.name}{!type.active ? ' (inactivo)' : ''}</MenuItem>)}
                 </Select>
               </FormControl>
             </Grid>
@@ -1185,6 +1191,7 @@ const Assets = () => {
           <AssetTable
             assets={filteredAssets}
             sites={sites}
+            types={assetTypes}
             canWrite={canWrite}
             onView={openView}
             onEdit={openEdit}
@@ -1195,6 +1202,7 @@ const Assets = () => {
         </CardContent>
       </Card>
 
+      <AssetTypesDialog open={typesOpen} onClose={() => setTypesOpen(false)} types={assetTypes} ready={assetTypesReady} />
       <Dialog open={editorOpen} onClose={closeEditor} fullWidth maxWidth="lg" PaperProps={{ sx: { borderRadius: { xs: '12px', sm: '18px' }, maxHeight: { xs: 'calc(100% - 24px)', sm: 'calc(100% - 64px)' }, m: { xs: 1.5, sm: 4 } } }}>
         <DialogTitle component="div" sx={{ px: { xs: 2, sm: 3 }, pt: { xs: 2, sm: 2.5 }, pb: 1 }}>
           <Stack direction="row" alignItems="center" justifyContent="space-between" spacing={1}>
@@ -1269,19 +1277,14 @@ const Assets = () => {
                   <Select
                     labelId="asset-type-label"
                     label="Tipo"
-                    value={formData.type || 'laptop'}
+                    value={formData.type || ''}
                     onChange={(e) => setFormData({ ...formData, type: e.target.value as AssetType })}
-                    disabled={readOnly}
+                    disabled={readOnly || !assetTypesReady}
                   >
-                    <MenuItem value="laptop">Laptop</MenuItem>
-                    <MenuItem value="desktop">Desktop</MenuItem>
-                    <MenuItem value="monitor">Monitor</MenuItem>
-                    <MenuItem value="keyboard">Teclado</MenuItem>
-                    <MenuItem value="mouse">Mouse</MenuItem>
-                    <MenuItem value="printer">Impresora</MenuItem>
-                    <MenuItem value="scanner">Scanner</MenuItem>
-                    <MenuItem value="network">Red</MenuItem>
-                    <MenuItem value="other">Otro</MenuItem>
+                    {assetTypes.filter((type) => type.active || (editingId && type.id === formData.type)).map((type) =>
+                      <MenuItem key={type.id} value={type.id} disabled={!type.active}>{type.name}{!type.active ? ' (inactivo)' : ''}</MenuItem>)}
+                    {editingId && formData.type && !assetTypes.some((type) => type.id === formData.type) &&
+                      <MenuItem value={formData.type} disabled>{formData.type} (tipo anterior)</MenuItem>}
                   </Select>
                 </FormControl>
 
@@ -1783,7 +1786,7 @@ const Assets = () => {
                     <Typography variant="body1" sx={{ fontWeight: 700 }}>
                       {decommissionTarget.brand} {decommissionTarget.model}
                     </Typography>
-                    <Typography variant="body2">Tipo: {decommissionTarget.type}</Typography>
+                    <Typography variant="body2">Tipo: {assetTypeName(decommissionTarget.type, assetTypes)}</Typography>
                     <Typography variant="body2">Serial: {decommissionTarget.serial || '—'}</Typography>
                     <Typography variant="body2">
                       Sede: {sites.find((site) => site.id === decommissionTarget.siteId)?.name || 'Sin sede'}

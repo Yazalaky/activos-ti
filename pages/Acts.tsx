@@ -58,6 +58,8 @@ import { compareSiteNames } from '../utils/sortSites';
 import { actAssetAmount } from '../utils/actAssetAmount';
 import { actAssetLicense } from '../utils/actAssetLicense';
 import { assetAvailableForAct, assetIdsWithActiveActs, assetsForActSite } from '../utils/actAvailability';
+import { useAssetTypes } from '../hooks/useAssetTypes';
+import { actDeviceType } from '../utils/assetTypes';
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -151,6 +153,7 @@ const Acts = () => {
   const { role, profile } = useAuth();
   const theme = useTheme();
   const canWrite = role === 'admin' || role === 'tech';
+  const { types: assetTypes, ready: assetTypesReady, error: assetTypesError } = useAssetTypes();
 
   const [acts, setActs] = useState<Act[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
@@ -755,13 +758,14 @@ const Acts = () => {
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap flexWrap="wrap" justifyContent={{ sm: 'flex-end' }}>
           {role === 'admin' && <Button component={RouterLink} to="/act-legacy" variant="outlined" startIcon={<FactCheckOutlinedIcon />}>Revisar actas antiguas</Button>}
           {role === 'admin' && <Button component={RouterLink} to="/act-templates" variant="outlined" startIcon={<SettingsOutlinedIcon />}>Configurar empresas</Button>}
-          {canWrite && <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate} disabled={loading || checkingAvailability}>{checkingAvailability ? 'Verificando…' : 'Nueva acta'}</Button>}
+          {canWrite && <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate} disabled={loading || checkingAvailability || !assetTypesReady}>{checkingAvailability ? 'Verificando…' : 'Nueva acta'}</Button>}
         </Stack>
       </Stack>
 
       {!canWrite && (
         <Alert severity="info">Modo solo lectura (Gerencia/Auditoría). Puedes ver y descargar actas, pero no crear o modificar.</Alert>
       )}
+      {assetTypesError && <Alert severity="error">No se pudo consultar el catálogo de tipos de equipo. Revisa la conexión antes de crear un acta.</Alert>}
 
       <Card>
         <CardContent>
@@ -1063,17 +1067,7 @@ const Acts = () => {
                     if (asset) {
                       setDocumentDetails((current) => ({
                         ...current,
-                        deviceTypes: {
-                          desktop: asset.type === 'desktop',
-                          laptop: asset.type === 'laptop',
-                          printer: asset.type === 'printer',
-                          tablet: false,
-                          cellphone: false,
-                          other: !['desktop', 'laptop', 'printer'].includes(asset.type),
-                        },
-                        otherDeviceType: !['desktop', 'laptop', 'printer'].includes(asset.type)
-                          ? (({ monitor: 'Monitor', keyboard: 'Teclado', mouse: 'Mouse', scanner: 'Escáner', network: 'Red', other: 'Otro' } as Record<string, string>)[asset.type] || 'Otro')
-                          : '',
+                        ...actDeviceType(asset.type, assetTypes),
                       }));
                     }
                   }}
