@@ -6,6 +6,7 @@ import {
   doc,
   getDoc,
   getDocs,
+  getDocsFromServer,
   orderBy,
   query,
   runTransaction,
@@ -575,21 +576,25 @@ export const upsertActTemplate = async (id: string, data: Partial<ActTemplate>, 
   await setDoc(reference, payload, { merge: true });
 };
 
-export const getActs = async () => {
+export const getActs = async (options: { requireServer?: boolean } = {}) => {
   try {
     const access = await getAccessContext();
-    if (!access.active || (!access.global && access.siteIds.length === 0)) return [];
+    if (!access.active || (!access.global && access.siteIds.length === 0)) {
+      if (options.requireServer) throw new Error('No se pudo verificar el acceso a las actas.');
+      return [];
+    }
     const constraints = access.global
-      ? [orderBy('createdAt', 'desc')]
+      ? (options.requireServer ? [] : [orderBy('createdAt', 'desc')])
       : [where('siteId', 'in', access.siteIds)];
     const q = query(collection(db, 'acts'), ...constraints);
-    const snap = await getDocs(q);
+    const snap = options.requireServer ? await getDocsFromServer(q) : await getDocs(q);
     return snap.docs
       .map((d) => ({ id: d.id, ...d.data() } as Act))
       .filter(x => !x.isDeleted)
       .sort((a, b) => (b.createdAt ?? 0) - (a.createdAt ?? 0));
   } catch (error) {
     console.error('Error fetching acts:', error);
+    if (options.requireServer) throw error;
     return [];
   }
 };
