@@ -57,6 +57,7 @@ import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site } fro
 import { compareSiteNames } from '../utils/sortSites';
 import { actAssetAmount } from '../utils/actAssetAmount';
 import { actAssetLicense } from '../utils/actAssetLicense';
+import { assetAvailableForAct, assetIdsWithActiveActs, assetsForActSite } from '../utils/actAvailability';
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -162,6 +163,7 @@ const Acts = () => {
   const [filterSiteId, setFilterSiteId] = useState('');
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [checkingAvailability, setCheckingAvailability] = useState(false);
   const [creating, setCreating] = useState(false);
   const [editingAct, setEditingAct] = useState<Act | null>(null);
   const [editReason, setEditReason] = useState('');
@@ -223,13 +225,11 @@ const Acts = () => {
     () => ACT_COMPANIES.filter((company) => sites.some((site) => site.companyId === company.id)),
     [sites]
   );
+  const occupiedAssetIds = useMemo(() => assetIdsWithActiveActs(acts), [acts]);
   const assetsForCreateSite = useMemo(
-    () => assets
-      .filter((asset) => !createSiteId || asset.siteId === createSiteId)
-      .filter((asset) => asset.id === editingAct?.assetId || (asset.status === 'asignado' && Boolean(asset.currentAssignment?.assignedToName && asset.currentAssignment?.assignedToPosition && asset.currentAssignment?.assignedToResponsible)))
-      .slice()
+    () => assetsForActSite(assets, occupiedAssetIds, createSiteId, editingAct?.assetId)
       .sort((a, b) => String(a.fixedAssetId).localeCompare(String(b.fixedAssetId))),
-    [assets, createSiteId, editingAct?.assetId]
+    [assets, createSiteId, editingAct?.assetId, occupiedAssetIds]
   );
 
   const filteredActs = useMemo(() => {
@@ -244,7 +244,16 @@ const Acts = () => {
     });
   }, [acts, filterText, filterStatus, filterSiteId]);
 
-  const openCreate = () => {
+  const openCreate = async () => {
+    setCheckingAvailability(true);
+    try {
+      setActs(await getActs({ requireServer: true }));
+    } catch {
+      setSnackbar({ open: true, message: 'No se pudieron verificar las actas existentes. Revisa tu conexión e inténtalo de nuevo.', severity: 'error' });
+      return;
+    } finally {
+      setCheckingAvailability(false);
+    }
     setEditingAct(null);
     setEditReason('');
     setCreateCompanyId('');
@@ -465,6 +474,20 @@ const Acts = () => {
 
     try {
       setCreating(true);
+      let currentActs: Act[];
+      try {
+        currentActs = await getActs({ requireServer: true });
+      } catch {
+        setSnackbar({ open: true, message: 'No se pudieron verificar las actas existentes. No se guardó el acta; revisa tu conexión e inténtalo de nuevo.', severity: 'error' });
+        return;
+      }
+      if (assetIdsWithActiveActs(currentActs).has(asset.id)) {
+        setActs(currentActs);
+        setAssetId('');
+        setDocumentDetails((current) => ({ ...current, license: '', discountAmountWords: '', discountAmountValue: '' }));
+        setSnackbar({ open: true, message: 'Este activo ya tiene un acta vigente. La lista se actualizó; seleccione otro activo.', severity: 'warning' });
+        return;
+      }
       const payload = stripUndefinedDeep({
         assetId: asset.id,
         siteId: asset.siteId,
@@ -726,7 +749,7 @@ const Acts = () => {
         <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1} useFlexGap flexWrap="wrap" justifyContent={{ sm: 'flex-end' }}>
           {role === 'admin' && <Button component={RouterLink} to="/act-legacy" variant="outlined" startIcon={<FactCheckOutlinedIcon />}>Revisar actas antiguas</Button>}
           {role === 'admin' && <Button component={RouterLink} to="/act-templates" variant="outlined" startIcon={<SettingsOutlinedIcon />}>Configurar empresas</Button>}
-          {canWrite && <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate}>Nueva acta</Button>}
+          {canWrite && <Button variant="contained" startIcon={<AddOutlinedIcon />} onClick={openCreate} disabled={loading || checkingAvailability}>{checkingAvailability ? 'Verificando…' : 'Nueva acta'}</Button>}
         </Stack>
       </Stack>
 
@@ -1004,10 +1027,10 @@ const Acts = () => {
                 >
                   <MenuItem value="">{createCompanyId ? 'Seleccione una sede...' : 'Seleccione primero una empresa'}</MenuItem>
                   {sitesForCreateCompany.map((site) => {
-                      const siteAssetCount = assets.filter((asset) => asset.siteId === site.id && asset.status === 'asignado' && Boolean(asset.currentAssignment?.assignedToName && asset.currentAssignment?.assignedToPosition && asset.currentAssignment?.assignedToResponsible)).length;
+                      const siteAssetCount = assets.filter((asset) => asset.siteId === site.id && assetAvailableForAct(asset, occupiedAssetIds)).length;
                       return (
                         <MenuItem key={site.id} value={site.id}>
-                          {site.name} · {siteAssetCount} activo{siteAssetCount === 1 ? '' : 's'}
+                          {site.name} · {siteAssetCount} activo{siteAssetCount === 1 ? '' : 's'} disponible{siteAssetCount === 1 ? '' : 's'}
                         </MenuItem>
                       );
                     })}
@@ -1053,7 +1076,7 @@ const Acts = () => {
                     {!createSiteId
                       ? 'Seleccione primero una sede'
                       : assetsForCreateSite.length === 0
-                        ? 'No hay activos en esta sede'
+                        ? 'No hay activos disponibles para una nueva acta'
                         : 'Seleccione un activo...'}
                   </MenuItem>
                   {assetsForCreateSite.map((a) => (
