@@ -56,6 +56,7 @@ import { isLegacyActPending } from '../services/actLegacy';
 import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site } from '../types';
 import { compareSiteNames } from '../utils/sortSites';
 import { actAssetAmount } from '../utils/actAssetAmount';
+import { actAssetLicense } from '../utils/actAssetLicense';
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -1026,6 +1027,7 @@ const Acts = () => {
                     const amount = actAssetAmount(asset?.cost);
                     setDocumentDetails((current) => ({
                       ...current,
+                      license: actAssetLicense(asset?.os),
                       discountAmountWords: amount?.discountAmountWords || '',
                       discountAmountValue: amount?.discountAmountValue || '',
                     }));
@@ -1155,7 +1157,7 @@ const Acts = () => {
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Cargador" value={documentDetails.charger || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, charger: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Mouse" value={documentDetails.mouse || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, mouse: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Monitor" value={documentDetails.monitor || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, monitor: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
-                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Licencia" value={documentDetails.license || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, license: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Licencia" value={documentDetails.license || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, license: e.target.value }))} helperText="En actas nuevas se completa con el sistema operativo; puedes editarlo." fullWidth disabled={!canWrite || creating} /></Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Teclado" value={documentDetails.keyboard || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, keyboard: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="Teléfono serial" value={documentDetails.phoneSerial || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, phoneSerial: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
                 <Grid size={{ xs: 12, sm: 6, md: 4 }}><TextField label="IMEI teléfono" value={documentDetails.phoneImei || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, phoneImei: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
