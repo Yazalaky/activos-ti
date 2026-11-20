@@ -3,9 +3,11 @@
 from __future__ import annotations
 
 from datetime import datetime
+import base64
 from io import BytesIO
 from pathlib import Path
 import re
+import struct
 import subprocess
 import tempfile
 from typing import Any
@@ -44,6 +46,21 @@ class ActDocumentError(ValueError):
 
 def _text(value: Any) -> str:
     return str(value or "").strip()
+
+
+def _signature_image(value: str) -> tuple[bytes, int, int]:
+    if not isinstance(value, str) or len(value) > 333_336:
+        raise ActDocumentError("La imagen de la firma no es válida.")
+    try:
+        data = base64.b64decode(value, validate=True)
+        if len(data) < 33 or len(data) > 250_000 or data[:8] != b'\x89PNG\r\n\x1a\n' or data[12:16] != b'IHDR':
+            raise ValueError("png")
+        width, height = struct.unpack('>II', data[16:24])
+        if not (0 < width <= 1200 and 0 < height <= 500):
+            raise ValueError("dimensions")
+        return data, width, height
+    except (ValueError, TypeError, struct.error) as exc:
+        raise ActDocumentError("La imagen de la firma no es válida.") from exc
 
 
 def _signature_count(details: dict[str, Any]) -> int:
@@ -473,6 +490,7 @@ def fill_act_docx(
     template: dict[str, Any],
     deliverer_name: str,
     issue_date: str | None = None,
+    deliverer_signature: str | None = None,
 ) -> bytes:
     document = Document(str(template_path))
     if len(document.tables) != 4:
@@ -533,6 +551,16 @@ def fill_act_docx(
 
     issue_date = issue_date or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
     signatures = tables[3]
+    if deliverer_signature is not None:
+        image, width, height = _signature_image(deliverer_signature)
+        paragraph = signatures.cell(5, 1).paragraphs[0]
+        paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(0.92), WD_TAB_ALIGNMENT.LEFT)
+        scale = min(1.5 / width, 0.30 / height)
+        run = paragraph.add_run('\t')
+        try:
+            run.add_picture(BytesIO(image), width=Inches(width * scale), height=Inches(height * scale))
+        except Exception as exc:
+            raise ActDocumentError("No se pudo insertar la imagen de la firma.") from exc
     for cell, value in ((signatures.cell(4, 0), _text(recipient.get("fullName"))), (signatures.cell(4, 1), _text(deliverer_name))):
         paragraph = cell.paragraphs[0]
         paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(0.92), WD_TAB_ALIGNMENT.LEFT)
@@ -560,6 +588,7 @@ def generate_act_pdf(
     deliverer_name: str = "",
     issue_date: str | None = None,
     libreoffice: str = "soffice",
+    deliverer_signature: str | None = None,
 ) -> tuple[bytes, str]:
     company_id = _text(act.get("companyId"))
     filename = TEMPLATE_FILES.get(company_id)
@@ -569,7 +598,7 @@ def generate_act_pdf(
     if not template_path.is_file():
         raise ActDocumentError(f"No se encontró el documento original de {company_id}.")
 
-    docx_bytes = fill_act_docx(template_path, act, template, deliverer_name, issue_date)
+    docx_bytes = fill_act_docx(template_path, act, template, deliverer_name, issue_date, deliverer_signature)
     with tempfile.TemporaryDirectory(prefix="act-render-") as temporary_dir:
         temp = Path(temporary_dir)
         docx_path = temp / "acta.docx"

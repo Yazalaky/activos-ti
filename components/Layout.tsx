@@ -32,10 +32,12 @@ import FolderOutlinedIcon from '@mui/icons-material/FolderOutlined';
 import DarkModeOutlinedIcon from '@mui/icons-material/DarkModeOutlined';
 import LightModeOutlinedIcon from '@mui/icons-material/LightModeOutlined';
 import HubOutlinedIcon from '@mui/icons-material/HubOutlined';
+import DrawOutlinedIcon from '@mui/icons-material/DrawOutlined';
 import { auth } from '../firebaseAuth';
 import { useAuth } from '../auth/AuthContext';
 import type { Role } from '../types';
 import { ColorModeContext } from '../theme';
+import SignatureDialog from './SignatureDialog';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -73,6 +75,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const isDarkMode = theme.palette.mode === 'dark';
   const isMdUp = useMediaQuery(theme.breakpoints.up('md'));
   const [mobileOpen, setMobileOpen] = React.useState(false);
+  const [signatureOpen, setSignatureOpen] = React.useState(false);
 
   const { profile, role } = useAuth();
   const canReadContracts = role === 'admin'
@@ -248,6 +251,15 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
 
           <Box sx={{ flex: 1 }} />
 
+          {(role === 'admin' || role === 'tech') && (
+            <Tooltip title="Mi firma para actas">
+              <IconButton color="primary" aria-label="Mi firma para actas" onClick={() => setSignatureOpen(true)}
+                sx={{ border: `1px solid ${theme.palette.divider}`, borderRadius: '11px', width: 40, height: 40 }}>
+                <DrawOutlinedIcon />
+              </IconButton>
+            </Tooltip>
+          )}
+
           <Tooltip title={isDarkMode ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro'}>
             <IconButton
               onClick={toggleColorMode}
@@ -299,6 +311,7 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
       >
         {children}
       </Box>
+      {(role === 'admin' || role === 'tech') && <SignatureDialog key={profile?.uid} open={signatureOpen} onClose={() => setSignatureOpen(false)} />}
     </Box>
   );
 };

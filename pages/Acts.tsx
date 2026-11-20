@@ -582,7 +582,7 @@ const Acts = () => {
     if (printWindow) printWindow.opener = null;
     try {
       setGeneratingActId(act.id);
-      const { file } = await generateActPdf(act.id, act.documentDetails?.discountSignatureCount ?? 1, act.documentDetails?.blankDiscountSigners === true);
+      const { file, signatureStatus } = await generateActPdf(act.id, act.documentDetails?.discountSignatureCount ?? 1, act.documentDetails?.blankDiscountSigners === true);
       const objectUrl = URL.createObjectURL(file);
       let openedInTab = false;
       if (printWindow && !printWindow.closed) {
@@ -600,10 +600,16 @@ const Acts = () => {
 
       setSnackbar({
         open: true,
-        message: openedInTab
-          ? 'PDF generado y abierto para imprimir. Cuando esté firmado, carga el PDF en el acta.'
-          : 'PDF generado y descargado. Cuando esté firmado, carga el PDF en el acta.',
-        severity: 'success',
+        message: signatureStatus === 'not-configured'
+          ? 'PDF generado sin firma de entrega: el creador no tiene una firma configurada.'
+          : signatureStatus === 'creator-unverified'
+            ? 'PDF generado sin firma de entrega: no se pudo verificar el creador o su nombre.'
+            : signatureStatus === 'included'
+              ? 'PDF generado con la firma del creador. Cuando esté firmado por el receptor, carga el PDF en el acta.'
+            : openedInTab
+              ? 'PDF generado y abierto para imprimir. Cuando esté firmado, carga el PDF en el acta.'
+              : 'PDF generado y descargado. Cuando esté firmado, carga el PDF en el acta.',
+        severity: signatureStatus === 'not-configured' || signatureStatus === 'creator-unverified' ? 'warning' : 'success',
       });
       await load();
     } catch (error) {

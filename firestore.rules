@@ -1399,6 +1399,24 @@ service cloud.firestore {
       ) && profileActive();
 
       allow delete: if isAdmin();
+
+      // La imagen y la autorización pertenecen al usuario, no a los administradores.
+      // El servicio de actas usa credenciales del servidor, no estas reglas de cliente.
+      match /private/{documentId} {
+        allow get: if documentId == 'actSignature' && canWrite() && request.auth.uid == uid;
+        allow list: if false;
+        allow create, update: if documentId == 'actSignature' && canWrite() && request.auth.uid == uid
+          && request.resource.data.keys().hasAll(['image', 'contentType', 'authorized', 'updatedAt', 'updatedByUid'])
+          && request.resource.data.keys().hasOnly(['image', 'contentType', 'authorized', 'updatedAt', 'updatedByUid'])
+          && request.resource.data.image is bytes
+          && request.resource.data.image.size() > 0
+          && request.resource.data.image.size() <= 250000
+          && request.resource.data.contentType == 'image/png'
+          && request.resource.data.authorized == true
+          && request.resource.data.updatedByUid == request.auth.uid
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if documentId == 'actSignature' && canWrite() && request.auth.uid == uid;
+      }
     }
 
     // SITES
