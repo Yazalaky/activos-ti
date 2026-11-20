@@ -1,6 +1,6 @@
 // Ejecutar con: node --experimental-strip-types tests/asset-types.mjs
 import assert from 'node:assert/strict';
-import { DEFAULT_ASSET_TYPES, mergeAssetTypes, assetTypeName, actDeviceType } from '../utils/assetTypes.ts';
+import { DEFAULT_ASSET_TYPES, mergeAssetTypes, assetTypeName, actDeviceType, supportsAssetHardware } from '../utils/assetTypes.ts';
 
 const input = [
   { id: 'laptop', name: 'Portátil', active: false },
@@ -20,4 +20,6 @@ assert.equal(actDeviceType('cellphone', types).deviceTypes.cellphone, true);
 assert.equal(actDeviceType('custom_abc', types).deviceTypes.other, true);
 assert.equal(actDeviceType('custom_abc', types).otherDeviceType, 'Video beam');
 assert.equal(actDeviceType('printer', types).otherDeviceType, '');
+for (const id of ['laptop', 'desktop', 'cellphone', 'tablet']) assert.equal(supportsAssetHardware(id), true);
+for (const id of ['printer', 'monitor', 'other', 'custom_abc', '', undefined]) assert.equal(supportsAssetHardware(id), false);
 console.log('PASS: tipos predeterminados, personalizados, inactivos y casillas del acta');
