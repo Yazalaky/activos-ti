@@ -59,6 +59,7 @@ import { deleteStoragePath } from '../services/storageFiles';
 import { exportToCsv } from '../utils/exportCsv';
 import { printReport } from '../utils/printReport';
 import { compareSiteNames } from '../utils/sortSites';
+import { compareAssetCodes } from '../utils/sortAssets';
 import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 
 const statusLabel: Record<Status, string> = {
@@ -428,7 +429,7 @@ const Assets = () => {
 
   const filteredAssets = useMemo(() => {
     const search = deferredFilterText.trim().toLowerCase();
-    return assets.filter((a) => {
+    const matchingAssets = assets.filter((a) => {
       const assignedTo = a.currentAssignment?.assignedToName?.toLowerCase?.() || '';
       const matchesText =
         !search ||
@@ -443,6 +444,7 @@ const Assets = () => {
         (assetViewFilter === 'baja' ? a.status === 'baja' : a.status !== 'baja');
       return matchesText && matchesSite && matchesType && matchesView;
     });
+    return selectedSiteFilter ? matchingAssets.sort(compareAssetCodes) : matchingAssets;
   }, [assets, deferredFilterText, selectedSiteFilter, selectedTypeFilter, assetViewFilter]);
 
   const inventoryReportRows = useMemo(

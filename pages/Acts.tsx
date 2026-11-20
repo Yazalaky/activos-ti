@@ -55,6 +55,7 @@ import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
 import { isLegacyActPending } from '../services/actLegacy';
 import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site } from '../types';
 import { compareSiteNames } from '../utils/sortSites';
+import { actAssetAmount } from '../utils/actAssetAmount';
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -1022,6 +1023,12 @@ const Acts = () => {
                     const id = String(e.target.value);
                     setAssetId(id);
                     const asset = assets.find((a) => a.id === id);
+                    const amount = actAssetAmount(asset?.cost);
+                    setDocumentDetails((current) => ({
+                      ...current,
+                      discountAmountWords: amount?.discountAmountWords || '',
+                      discountAmountValue: amount?.discountAmountValue || '',
+                    }));
                     if (asset) {
                       setDocumentDetails((current) => ({
                         ...current,
@@ -1179,6 +1186,11 @@ const Acts = () => {
               />
               <Divider />
               <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Autorización del formato</Typography>
+              {!editingAct && selectedAsset && !actAssetAmount(selectedAsset.cost) && (
+                <Alert severity="warning">
+                  No se pudo autocompletar el costo del activo. Revisa en Inventario que sea mayor que cero y tenga hasta dos decimales, o escribe los valores manualmente.
+                </Alert>
+              )}
               <FormControl fullWidth disabled={!canWrite || creating}>
                 <InputLabel id="act-party-type-label">Tipo de vinculación</InputLabel>
                 <Select
@@ -1200,6 +1212,9 @@ const Acts = () => {
                 <Grid size={{ xs: 12, sm: 7 }}><TextField label="Valor en letras (opcional)" value={documentDetails.discountAmountWords || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, discountAmountWords: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
                 <Grid size={{ xs: 12, sm: 5 }}><TextField label="Valor numérico (opcional)" value={documentDetails.discountAmountValue || ''} onChange={(e) => setDocumentDetails((current) => ({ ...current, discountAmountValue: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
               </Grid>
+              <Typography variant="caption" color="text.secondary">
+                Los valores se completan con el costo del activo al seleccionarlo y pueden editarse. Si cambias uno, verifica que ambos coincidan.
+              </Typography>
               <FormControl fullWidth disabled={!canWrite || creating}>
                 <InputLabel id="act-discount-signatures-label">Firmas para la autorización</InputLabel>
                 <Select
