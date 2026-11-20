@@ -5,6 +5,7 @@ interface GenerateActPdfResponse {
   fileName: string;
   pdfBase64: string;
   issuedAt: number;
+  signatureStatus?: 'included' | 'not-configured' | 'creator-unverified';
 }
 
 const generateActPdfCallable = httpsCallable<{ actId: string }, GenerateActPdfResponse>(
@@ -46,5 +47,5 @@ export const generateActPdf = async (actId: string, signatureCount = 1, blankSig
     bytes[index] = binary.charCodeAt(index);
   }
   const file = new File([bytes], data.fileName, { type: 'application/pdf' });
-  return { file, issuedAt: data.issuedAt };
+  return { file, issuedAt: data.issuedAt, signatureStatus: data.signatureStatus };
 };

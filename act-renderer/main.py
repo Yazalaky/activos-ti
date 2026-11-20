@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
@@ -51,16 +52,22 @@ class RendererHandler(BaseHTTPRequestHandler):
             payload = json.loads(self.rfile.read(content_length))
             if not isinstance(payload, dict):
                 raise ValueError("El cuerpo debe ser un objeto JSON.")
+            signature = payload.get("delivererSignature")
+            if signature is not None and (not isinstance(signature, str) or not signature):
+                raise ValueError("La firma no tiene un formato válido.")
             pdf_bytes, filename = generate_act_pdf(
                 TEMPLATES_DIR,
                 payload.get("act") or {},
                 payload.get("template") or {},
                 str(payload.get("delivererName") or ""),
                 str(payload.get("issueDate") or "") or None,
+                deliverer_signature=signature,
             )
             signature_count = (payload.get("act", {}).get("documentDetails") or {}).get("discountSignatureCount", 1)
             blank_signers = (payload.get("act", {}).get("documentDetails") or {}).get("blankDiscountSigners") is True
-            self._json(200, {"fileName": filename, "pdfBase64": base64.b64encode(pdf_bytes).decode("ascii"), "discountSignatureCount": signature_count, "blankDiscountSigners": blank_signers})
+            self._json(200, {"fileName": filename, "pdfBase64": base64.b64encode(pdf_bytes).decode("ascii"), "discountSignatureCount": signature_count, "blankDiscountSigners": blank_signers,
+                "delivererSignatureApplied": signature is not None,
+                "delivererSignatureSha256": hashlib.sha256(base64.b64decode(signature)).hexdigest() if signature else None})
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
             self._json(400, {"error": str(error)[:240]})
         except ActDocumentError as error:

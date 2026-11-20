@@ -5,6 +5,7 @@ const { getStorage } = require('firebase-admin/storage');
 const { onCall, HttpsError } = require('firebase-functions/v2/https');
 const { defineString } = require('firebase-functions/params');
 const { randomUUID } = require('crypto');
+const { creatorCanSign, signatureBytes, signatureDigest, validCreatorUid } = require('./actSignature');
 
 admin.initializeApp();
 const auth = getAuth();
@@ -676,6 +677,29 @@ exports.generateActPdf = onCall({
     observations: act.observations || '',
   };
 
+  // Solo se usa la firma privada del creador identificable; nunca la del impresor
+  // ni una imagen o UID proporcionados por el cliente.
+  let creatorRef = null;
+  let creatorSignatureRef = null;
+  let creatorSignature = null;
+  let signatureStatus = 'creator-unverified';
+  const creatorUid = act.createdByUid;
+  if (validCreatorUid(creatorUid)) {
+    creatorRef = db.doc(`users/${creatorUid}`);
+    creatorSignatureRef = creatorRef.collection('private').doc('actSignature');
+    const [creatorSnapshot, signatureSnapshot] = await Promise.all([creatorRef.get(), creatorSignatureRef.get()]);
+    const creator = creatorSnapshot.exists ? creatorSnapshot.data() : null;
+    if (creatorCanSign(act, creator)) {
+      signatureStatus = 'not-configured';
+      if (signatureSnapshot.exists) {
+        creatorSignature = signatureBytes(signatureSnapshot.data(), creatorUid);
+        if (!creatorSignature) throw new HttpsError('failed-precondition', 'La firma configurada no es válida. Su propietario debe volver a cargarla.');
+        signatureStatus = 'included';
+      }
+    }
+  }
+  const creatorSignatureHash = creatorSignature ? signatureDigest(creatorSignature) : null;
+
   let renderResponse;
   try {
     const identityToken = await getRendererIdentityToken(rendererBase);
@@ -690,6 +714,7 @@ exports.generateActPdf = onCall({
         template: { companyName: template.companyName || act.companyId, nit },
         delivererName: act.documentDetails?.deliveredByName || caller.name || '',
         issueDate,
+        ...(creatorSignature ? { delivererSignature: creatorSignature.toString('base64') } : {}),
       }),
       signal: AbortSignal.timeout(130000),
     });
@@ -714,6 +739,10 @@ exports.generateActPdf = onCall({
   if (act.documentDetails?.blankDiscountSigners === true && renderResponse.blankDiscountSigners !== true) {
     throw new HttpsError('failed-precondition', 'El servicio de impresión todavía no admite firmas en blanco. El acta no se emitió.');
   }
+  if (creatorSignature && (renderResponse.delivererSignatureApplied !== true
+      || renderResponse.delivererSignatureSha256 !== creatorSignatureHash)) {
+    throw new HttpsError('failed-precondition', 'El servicio de impresión no confirmó la firma del creador. El acta no se emitió.');
+  }
   if (typeof renderResponse.pdfBase64 !== 'string' || renderResponse.pdfBase64.length > 8 * 1024 * 1024) {
     throw new HttpsError('internal', 'El servicio de impresión devolvió un archivo no válido.');
   }
@@ -725,10 +754,12 @@ exports.generateActPdf = onCall({
   let issuedAt;
   try {
     issuedAt = await db.runTransaction(async (transaction) => {
-      const [currentSnapshot, currentCallerSnapshot, currentSiteSnapshot] = await Promise.all([
+      const [currentSnapshot, currentCallerSnapshot, currentSiteSnapshot, currentCreatorSnapshot, currentSignatureSnapshot] = await Promise.all([
         transaction.get(actRef),
         transaction.get(db.doc(`users/${request.auth.uid}`)),
         transaction.get(db.doc(`sites/${act.siteId}`)),
+        creatorSignature ? transaction.get(creatorRef) : Promise.resolve(null),
+        creatorSignature ? transaction.get(creatorSignatureRef) : Promise.resolve(null),
       ]);
       if (!currentSnapshot.exists) throw new HttpsError('not-found', 'El acta ya no existe.');
       const current = currentSnapshot.data() || {};
@@ -752,8 +783,26 @@ exports.generateActPdf = onCall({
         || current.siteId !== act.siteId
         || current.companyId !== act.companyId
         || current.fixedAssetIdSnapshot !== act.fixedAssetIdSnapshot
+        || current.createdByUid !== act.createdByUid
         || timestampMillis(current.updatedAt) !== timestampMillis(act.updatedAt)) {
         throw new HttpsError('failed-precondition', 'El estado del acta cambió mientras se preparaba el PDF. Vuelve a abrirla e inténtalo de nuevo.');
+      }
+
+      if (creatorSignature) {
+        const currentCreator = currentCreatorSnapshot?.exists ? currentCreatorSnapshot.data() : null;
+        const currentSignature = currentSignatureSnapshot?.exists ? signatureBytes(currentSignatureSnapshot.data(), creatorUid) : null;
+        if (!creatorCanSign(current, currentCreator) || !currentSignature
+            || signatureDigest(currentSignature) !== creatorSignatureHash) {
+          throw new HttpsError('failed-precondition', 'La firma o el perfil del creador cambiaron. Vuelve a generar el PDF.');
+        }
+        transaction.create(actRef.collection('signatureEvents').doc(), {
+          ownerUid: creatorUid,
+          generatedByUid: request.auth.uid,
+          signatureSha256: creatorSignatureHash,
+          generatedAt: Date.now(),
+          actRevision: current.contentRevision ?? 1,
+          event: 'deliverer-signature-in-pdf',
+        });
       }
 
       const stableIssueDate = timestampMillis(current.issuedAt) || generationTime;
@@ -780,6 +829,7 @@ exports.generateActPdf = onCall({
       : expectedName,
     pdfBase64: renderResponse.pdfBase64,
     issuedAt,
+    signatureStatus,
   };
 });
 

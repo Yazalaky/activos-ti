@@ -34,12 +34,14 @@ import AddOutlinedIcon from '@mui/icons-material/AddOutlined';
 import PersonAddAltOutlinedIcon from '@mui/icons-material/PersonAddAltOutlined';
 import SettingsOutlinedIcon from '@mui/icons-material/SettingsOutlined';
 import PeopleOutlineOutlinedIcon from '@mui/icons-material/PeopleOutlineOutlined';
+import DrawOutlinedIcon from '@mui/icons-material/DrawOutlined';
 import type { AccessScope, Role, Site, UserProfile } from '../types';
 import { createUserAccount, setUserStatus } from '../services/adminApi';
 import { getSites } from '../services/api';
 import { listUsers, updateUserAccess, updateUserRole } from '../services/users';
 import { useAuth } from '../auth/AuthContext';
 import { compareSiteNames } from '../utils/sortSites';
+import SignatureDialog from '../components/SignatureDialog';
 
 const roleLabel: Record<Role, string> = {
   admin: 'Administrador',
@@ -55,6 +57,7 @@ const AdminUsers = () => {
   const [users, setUsers] = useState<UserProfile[]>([]);
   const [sites, setSites] = useState<Site[]>([]);
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [signatureOpen, setSignatureOpen] = useState(false);
   const [accessUser, setAccessUser] = useState<UserProfile | null>(null);
   const [accessScope, setAccessScope] = useState<AccessScope>('global');
   const [accessSiteIds, setAccessSiteIds] = useState<string[]>([]);
@@ -231,9 +234,12 @@ const AdminUsers = () => {
             Administre roles, sedes autorizadas y estado de acceso.
           </Typography>
         </Box>
-        <Button variant="contained" startIcon={<PersonAddAltOutlinedIcon />} onClick={() => setDialogOpen(true)}>
-          Crear usuario
-        </Button>
+        <Stack direction="row" spacing={1} useFlexGap flexWrap="wrap">
+          <Button variant="outlined" startIcon={<DrawOutlinedIcon />} onClick={() => setSignatureOpen(true)}>Mi firma</Button>
+          <Button variant="contained" startIcon={<PersonAddAltOutlinedIcon />} onClick={() => setDialogOpen(true)}>
+            Crear usuario
+          </Button>
+        </Stack>
       </Stack>
 
       <Alert severity="info">
@@ -418,6 +424,7 @@ const AdminUsers = () => {
         </DialogActions>
       </Dialog>
 
+      <SignatureDialog key={profile?.uid} open={signatureOpen} onClose={() => setSignatureOpen(false)} />
       <Snackbar open={snackbar.open} autoHideDuration={5000} onClose={() => setSnackbar({ open: false, message: '', severity: 'success' })} anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}>
         <Alert severity={snackbar.severity} onClose={() => setSnackbar({ open: false, message: '', severity: 'success' })}>{snackbar.message}</Alert>
       </Snackbar>

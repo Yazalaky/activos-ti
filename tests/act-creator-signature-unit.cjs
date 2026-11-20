@@ -1,0 +1,24 @@
+const assert = require('node:assert/strict');
+const { creatorCanSign, signatureBytes, signatureDigest } = require('../functions/actSignature');
+
+const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJWsAAAAASUVORK5CYII=', 'base64');
+const act = { createdByUid: 'fabian', documentDetails: { deliveredByName: 'Fabián Méndez' } };
+const creator = { name: 'Fabián Méndez', role: 'admin', active: true };
+const signature = { image: png, contentType: 'image/png', authorized: true, updatedByUid: 'fabian' };
+assert.equal(creatorCanSign(act, creator), true);
+assert.equal(creatorCanSign(act, { ...creator, name: 'William' }), false);
+assert.equal(creatorCanSign({ ...act, createdByUid: undefined }, creator), false);
+assert.equal(creatorCanSign({ ...act, createdByUid: '../other' }, creator), false);
+assert.equal(creatorCanSign({ ...act, createdByUid: '..' }, creator), false);
+assert.equal(creatorCanSign({ ...act, documentDetails: {} }, creator), false);
+assert.equal(creatorCanSign(act, { ...creator, active: false }), false);
+assert.equal(creatorCanSign(act, { ...creator, role: 'auditor' }), false);
+assert.deepEqual(signatureBytes(signature, 'fabian'), png);
+assert.equal(signatureDigest(png).length, 64);
+assert.equal(signatureBytes({ ...signature, authorized: false }, 'fabian'), null);
+assert.equal(signatureBytes({ ...signature, image: Buffer.from('incorrecto') }, 'fabian'), null);
+assert.equal(signatureBytes({ ...signature, contentType: 'image/jpeg' }, 'fabian'), null);
+assert.equal(signatureBytes(signature, 'william'), null);
+const huge = Buffer.from(png); huge.writeUInt32BE(1201, 16);
+assert.equal(signatureBytes({ ...signature, image: huge }, 'fabian'), null);
+console.log('PASS: identidad, consentimiento, formato y límites de la firma');
