@@ -44,6 +44,8 @@ import DownloadOutlinedIcon from '@mui/icons-material/DownloadOutlined';
 import PrintOutlinedIcon from '@mui/icons-material/PrintOutlined';
 import { printReport } from '../utils/printReport';
 import { compareSiteNames } from '../utils/sortSites';
+import { useAssetTypes } from '../hooks/useAssetTypes';
+import { assetTypeName } from '../utils/assetTypes';
 
 const parseLocalDate = (dateStr: string) => {
   const [y, m, d] = dateStr.split('-').map((v) => Number(v));
@@ -143,6 +145,7 @@ const ActivityList = React.memo(function ActivityList({ activities, sites, asset
 
 const Activities = () => {
   const { profile } = useAuth();
+  const { types: assetTypes } = useAssetTypes();
   const theme = useTheme();
   const canWrite = profile?.role === 'admin' || profile?.role === 'tech';
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -469,7 +472,7 @@ const Activities = () => {
                     <MenuItem value="">Ninguno / General</MenuItem>
                     {siteAssets.map((asset) => (
                       <MenuItem key={asset.id} value={asset.id}>
-                        {asset.fixedAssetId} · {asset.type} · {asset.brand}
+                        {asset.fixedAssetId} · {assetTypeName(asset.type, assetTypes)} · {asset.brand}
                       </MenuItem>
                     ))}
                   </Select>

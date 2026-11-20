@@ -296,7 +296,7 @@ service cloud.firestore {
         'processor', 'ram', 'storage', 'os', 'monitorBrand', 'monitorSize',
         'monitorSerial', 'notes', 'updatedAt', 'updatedByUid'
       ];
-      let identityValid = (!data.keys().hasAny(['type']) || data.type in ['laptop', 'desktop', 'monitor', 'keyboard', 'mouse', 'printer', 'scanner', 'network', 'other'])
+      let identityValid = (!data.keys().hasAny(['type']) || isNonEmptyString(data.type, 50))
         && (!data.keys().hasAny(['brand']) || isNonEmptyString(data.brand, 100))
         && (!data.keys().hasAny(['model']) || isNonEmptyString(data.model, 150))
         && (!data.keys().hasAny(['serial']) || isNonEmptyString(data.serial, 150));
@@ -471,7 +471,7 @@ service cloud.firestore {
       let data = request.resource.data;
       let identityValid = data.keys().hasAll(['fixedAssetId', 'type', 'brand', 'model', 'serial', 'status', 'siteId'])
         && isNonEmptyString(data.fixedAssetId, 50)
-        && data.type in ['laptop', 'desktop', 'monitor', 'keyboard', 'mouse', 'printer', 'scanner', 'network', 'other']
+        && isNonEmptyString(data.type, 50)
         && isNonEmptyString(data.brand, 100)
         && isNonEmptyString(data.model, 150)
         && isNonEmptyString(data.serial, 150)
@@ -1433,17 +1433,47 @@ service cloud.firestore {
       allow delete: if false;
     }
 
+    // Los tipos predefinidos funcionan sin migración. Un documento del catálogo
+    // puede cambiar su nombre o desactivarlos; los adicionales deben existir.
+    function builtinAssetType(typeId) {
+      return typeId in ['laptop', 'desktop', 'monitor', 'keyboard', 'mouse', 'printer', 'scanner', 'network', 'other', 'cellphone', 'tablet'];
+    }
+
+    function selectableAssetType(typeId) {
+      let path = /databases/$(database)/documents/assetTypes/$(typeId);
+      return typeId is string && typeId.matches('^[a-z0-9_]{1,50}$')
+        && (exists(path) ? get(path).data.active == true : builtinAssetType(typeId));
+    }
+
+    function assetTypeEntryValid(typeId) {
+      let data = request.resource.data;
+      return (builtinAssetType(typeId) || typeId.matches('^custom_[a-z0-9]{20}$'))
+        && data.keys().hasAll(['name', 'active', 'createdAt', 'createdByUid'])
+        && data.keys().hasOnly(['name', 'active', 'createdAt', 'createdByUid', 'updatedAt', 'updatedByUid'])
+        && isNonEmptyString(data.name, 60) && data.active is bool;
+    }
+
+    match /assetTypes/{typeId} {
+      allow read: if profileActive();
+      allow create: if isAdmin() && assetTypeEntryValid(typeId) && auditCreateValid();
+      allow update: if isAdmin() && assetTypeEntryValid(typeId) && auditUpdateValid();
+      allow delete: if false;
+    }
+
     // ASSETS
     match /assets/{assetId} {
       allow read: if canReadSite(resource.data.siteId);
       allow create: if canWriteSite(request.resource.data.siteId)
         && assetDataValid()
+        && selectableAssetType(request.resource.data.type)
         && siteReferenceValid()
         && assetAttachmentValid(assetId)
         && assetLifecycleValid()
         && auditCreateValid();
       allow update: if hasProfile()
         && canWriteAssetSites(resource.data.siteId, request.resource.data.siteId)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['type'])
+          || selectableAssetType(request.resource.data.type))
         && (
           assetMoveUpdateValid()
           || assetDecommissionUpdateValid()
