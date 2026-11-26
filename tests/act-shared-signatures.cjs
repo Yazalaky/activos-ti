@@ -41,20 +41,22 @@ const draft = (uid, count) => ({
   status: 'draft', contentRevision: 1, createdAt: 100, createdByUid: uid,
 });
 async function edit(db, uid, id, current, count, overrides = {}, directorSnapshot) {
-  const now = Date.now();
-  const before = { recipient: current.recipient, observations: '', documentDetails: current.documentDetails };
+  const now = Math.max(Date.now(), (current.lastEditedAt || 0) + 1);
+  const nextRevision = (current.contentRevision || 1) + 1;
+  const revisionId = `rev-${nextRevision}`;
+  const before = { recipient: current.recipient, observations: current.observations || '', documentDetails: current.documentDetails };
   const after = { ...before, documentDetails: { ...current.documentDetails, discountSignatureCount: count } };
   if (directorSnapshot) after.documentDetails.directorSnapshot = directorSnapshot;
   const reason = 'Modificar espacios de firma';
   const batch = writeBatch(db);
   batch.update(doc(db, 'acts', id), {
-    ...after, contentRevision: 2, lastEditId: 'rev-2', lastEditedAt: now, lastEditedByUid: uid,
+    ...after, contentRevision: nextRevision, lastEditId: revisionId, lastEditedAt: now, lastEditedByUid: uid,
     lastEditReason: reason, updatedAt: now, updatedByUid: uid,
     ...(current.status === 'issued' ? { status: 'draft', issuedAt: deleteField(), generatedPdf: null, pdfUrl: null, pdfPath: null, pdfName: null, pdfContentType: null, pdfSize: null } : {}),
     ...overrides,
   });
-  batch.set(doc(db, 'acts', id, 'revisions', 'rev-2'), {
-    actId: id, revision: 2, reason, fromStatus: current.status, toStatus: 'draft', before, after, createdAt: now, createdByUid: uid,
+  batch.set(doc(db, 'acts', id, 'revisions', revisionId), {
+    actId: id, revision: nextRevision, reason, fromStatus: current.status, toStatus: 'draft', before, after, createdAt: now, createdByUid: uid,
   });
   await batch.commit();
 }
@@ -69,6 +71,19 @@ async function main() {
   const adminClient = client('admin-test');
   const tech = client('tech-test');
   const denied = client('tech-denied');
+  const sameEditor = { ...draft('admin-test'), status: 'issued', issuedAt: 200, updatedAt: 200, updatedByUid: 'admin-test' };
+  await admin.doc('acts/same-editor').set(sameEditor);
+  await edit(adminClient, 'admin-test', 'same-editor', sameEditor, 1, {}, { fullName: 'Director ficticio' });
+  const firstEdit = (await admin.doc('acts/same-editor').get()).data();
+  assert.equal(firstEdit.status, 'draft');
+  assert.equal(firstEdit.updatedByUid, 'admin-test');
+  assert.equal(firstEdit.documentDetails.directorSnapshot.fullName, 'Director ficticio');
+  await edit(adminClient, 'admin-test', 'same-editor', firstEdit, 2);
+  const secondEdit = (await admin.doc('acts/same-editor').get()).data();
+  assert.equal(secondEdit.contentRevision, 3);
+  assert.equal(secondEdit.lastEditReason, firstEdit.lastEditReason);
+  assert.equal((await admin.doc('acts/same-editor/revisions/rev-3').get()).data().createdByUid, 'admin-test');
+  console.log('CHECK: mismo usuario y mismo motivo conservan historial');
   const validSite = { name: 'Sede ficticia', city: 'Ciudad', address: 'Dirección', prefix: 'TEST', companyId: 'redinsalud', createdAt: 100, createdByUid: 'admin-test' };
   await setDoc(doc(adminClient, 'sites', 'new-site'), { ...validSite, director: { fullName: 'Directora Ficticia', position: 'Directora', documentNumber: '123456', email: 'directora@example.invalid', area: 'Dirección', phone: '3000000000', extension: '1', networkUser: 'usuario' } });
   await setDoc(doc(adminClient, 'sites', 'legacy-site'), validSite);
@@ -144,6 +159,9 @@ async function main() {
   const tampered = draft('admin-test');
   await admin.doc('acts/tampered').set(tampered);
   await assert.rejects(() => edit(adminClient, 'admin-test', 'tampered', tampered, 3, { siteId: 'other' }), (error) => error.code === 'permission-denied');
+  await assert.rejects(() => edit(adminClient, 'admin-test', 'tampered', tampered, 3, { updatedByUid: 'tech-test' }), (error) => error.code === 'permission-denied');
+  await assert.rejects(() => edit(adminClient, 'admin-test', 'tampered', tampered, 3, { lastEditedByUid: 'tech-test' }), (error) => error.code === 'permission-denied');
+  await assert.rejects(() => edit(adminClient, 'admin-test', 'tampered', tampered, 3, { updatedAt: 1 }), (error) => error.code === 'permission-denied');
   await assert.rejects(() => edit(denied, 'tech-denied', 'tampered', tampered, 3), (error) => error.code === 'permission-denied');
   await assert.rejects(() => updateDoc(doc(adminClient, 'acts', 'tampered'), { 'documentDetails.discountSignatureCount': 3, updatedAt: Date.now(), updatedByUid: 'admin-test' }), (error) => error.code === 'permission-denied');
   const signed = { ...draft('admin-test'), status: 'signed', signatureMethod: 'uploaded_pdf' };
