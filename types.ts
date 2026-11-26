@@ -266,6 +266,7 @@ export interface ActPdfHistoryEntry extends ActPdfFile {
 
 export interface ActDocumentDetails {
   deliveredByName?: string;
+  directorSnapshot?: { fullName: string };
   deviceTypes: {
     desktop: boolean;
     laptop: boolean;

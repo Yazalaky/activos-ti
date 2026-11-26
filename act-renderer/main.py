@@ -65,7 +65,7 @@ class RendererHandler(BaseHTTPRequestHandler):
             )
             signature_count = (payload.get("act", {}).get("documentDetails") or {}).get("discountSignatureCount", 1)
             blank_signers = (payload.get("act", {}).get("documentDetails") or {}).get("blankDiscountSigners") is True
-            self._json(200, {"fileName": filename, "pdfBase64": base64.b64encode(pdf_bytes).decode("ascii"), "discountSignatureCount": signature_count, "blankDiscountSigners": blank_signers,
+            self._json(200, {"fileName": filename, "pdfBase64": base64.b64encode(pdf_bytes).decode("ascii"), "discountSignatureCount": signature_count, "blankDiscountSigners": blank_signers, "directorSnapshotSupported": True,
                 "delivererSignatureApplied": signature is not None,
                 "delivererSignatureSha256": hashlib.sha256(base64.b64decode(signature)).hexdigest() if signature else None})
         except (json.JSONDecodeError, UnicodeDecodeError, ValueError) as error:
