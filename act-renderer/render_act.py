@@ -500,6 +500,11 @@ def fill_act_docx(
     asset = act.get("assetSnapshot") or {}
     details = _details_for(act)
     tables = document.tables
+    director_snapshot = details.get('directorSnapshot')
+    if director_snapshot is not None and (not isinstance(director_snapshot, dict) or not _text(director_snapshot.get('fullName'))):
+        raise ActDocumentError('El nombre del director de unidad no es válido.')
+    if director_snapshot is not None and _signature_count(details) > 1 and _text(recipient.get('fullName')) != _text(director_snapshot.get('fullName')):
+        raise ActDocumentError('En equipos compartidos el colaborador debe coincidir con el director de unidad.')
 
     collaborator_values = [
         (1, 1, recipient.get("fullName"), 8.8),
@@ -564,7 +569,8 @@ def fill_act_docx(
             run.add_picture(BytesIO(image), width=Inches(width * scale), height=Inches(height * scale))
         except Exception as exc:
             raise ActDocumentError("No se pudo insertar la imagen de la firma.") from exc
-    for cell, value in ((signatures.cell(4, 0), _text(recipient.get("fullName"))), (signatures.cell(4, 1), _text(deliverer_name))):
+    director_name = _text(director_snapshot.get("fullName")) if director_snapshot is not None else _text(recipient.get("fullName"))
+    for cell, value in ((signatures.cell(4, 0), director_name), (signatures.cell(4, 1), _text(deliverer_name))):
         paragraph = cell.paragraphs[0]
         paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(0.92), WD_TAB_ALIGNMENT.LEFT)
         run = paragraph.add_run(f"\t{value}")

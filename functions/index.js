@@ -739,6 +739,9 @@ exports.generateActPdf = onCall({
   if (act.documentDetails?.blankDiscountSigners === true && renderResponse.blankDiscountSigners !== true) {
     throw new HttpsError('failed-precondition', 'El servicio de impresión todavía no admite firmas en blanco. El acta no se emitió.');
   }
+  if (act.documentDetails?.directorSnapshot && renderResponse.directorSnapshotSupported !== true) {
+    throw new HttpsError('failed-precondition', 'El servicio de impresión aún no permite separar al director del colaborador. El acta no se emitió.');
+  }
   if (creatorSignature && (renderResponse.delivererSignatureApplied !== true
       || renderResponse.delivererSignatureSha256 !== creatorSignatureHash)) {
     throw new HttpsError('failed-precondition', 'El servicio de impresión no confirmó la firma del creador. El acta no se emitió.');

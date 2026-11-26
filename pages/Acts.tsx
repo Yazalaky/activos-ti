@@ -53,13 +53,14 @@ import { generateActPdf } from '../services/actPdf';
 import { confirmSignedActPdf } from '../services/actSignedPdf';
 import { ACT_COMPANIES, companyLabel } from '../services/actTemplates';
 import { isLegacyActPending } from '../services/actLegacy';
-import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site } from '../types';
+import type { Act, ActDocumentDetails, ActStatus, ActTemplate, Asset, Site, SiteDirector } from '../types';
 import { compareSiteNames } from '../utils/sortSites';
 import { actAssetAmount } from '../utils/actAssetAmount';
 import { actAssetLicense } from '../utils/actAssetLicense';
 import { assetAvailableForAct, assetIdsWithActiveActs, assetsForActSite } from '../utils/actAvailability';
 import { useAssetTypes } from '../hooks/useAssetTypes';
 import { actDeviceType } from '../utils/assetTypes';
+import { actCollaborator } from '../utils/actPeople';
 
 const stripUndefinedDeep = (value: any): any => {
   if (value === undefined) return undefined;
@@ -181,9 +182,10 @@ const Acts = () => {
   const [recipientPhone, setRecipientPhone] = useState('');
   const [recipientExtension, setRecipientExtension] = useState('');
   const [recipientNetworkUser, setRecipientNetworkUser] = useState('');
+  const [director, setDirector] = useState<SiteDirector>({});
   const [observations, setObservations] = useState('');
   const [documentDetails, setDocumentDetails] = useState<ActDocumentDetails>(createEmptyDocumentDetails);
-  const blankDiscountSigners = !editingAct || editingAct.documentDetails?.blankDiscountSigners === true;
+  const sharedEquipment = (documentDetails.discountSignatureCount ?? 1) > 1;
 
   const [uploadOpen, setUploadOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -270,6 +272,7 @@ const Acts = () => {
     setRecipientPhone('');
     setRecipientExtension('');
     setRecipientNetworkUser('');
+    setDirector({});
     setObservations('');
     setDocumentDetails(createEmptyDocumentDetails());
     setCreateOpen(true);
@@ -279,19 +282,24 @@ const Acts = () => {
     if (!canWrite || isLegacyActPending(act) || !['draft', 'issued'].includes(act.status)) return;
     const defaults = createEmptyDocumentDetails();
     const details = act.documentDetails || defaults;
+    const savedEmployee = (details.discountSignatureCount ?? 1) > 1 ? undefined : act.recipient;
     setEditingAct(act);
     setEditReason('');
     setCreateCompanyId(act.companyId);
     setCreateSiteId(act.siteId);
     setAssetId(act.assetId);
-    setRecipientName(act.recipient?.fullName || '');
-    setRecipientPosition(act.recipient?.position || '');
-    setRecipientEmail(act.recipient?.email || '');
-    setRecipientDocument(act.recipient?.documentNumber || '');
-    setRecipientArea(act.recipient?.area || '');
-    setRecipientPhone(act.recipient?.phone || '');
-    setRecipientExtension(act.recipient?.extension || '');
-    setRecipientNetworkUser(act.recipient?.networkUser || '');
+    setRecipientName(savedEmployee?.fullName || '');
+    setRecipientPosition(savedEmployee?.position || '');
+    setRecipientEmail(savedEmployee?.email || '');
+    setRecipientDocument(savedEmployee?.documentNumber || '');
+    setRecipientArea(savedEmployee?.area || '');
+    setRecipientPhone(savedEmployee?.phone || '');
+    setRecipientExtension(savedEmployee?.extension || '');
+    setRecipientNetworkUser(savedEmployee?.networkUser || '');
+    const savedDirector = act.documentDetails?.directorSnapshot;
+    setDirector((details.discountSignatureCount ?? 1) > 1 && savedDirector?.fullName
+      && savedDirector.fullName === act.recipient?.fullName
+      ? { ...act.recipient, ...savedDirector } : { ...savedDirector });
     setObservations(act.observations || '');
     setDocumentDetails({
       ...defaults,
@@ -315,13 +323,32 @@ const Acts = () => {
       setSnackbar({ open: true, message: 'Seleccione la empresa para el acta.', severity: 'warning' });
       return;
     }
-    if (!recipientName.trim() || !recipientPosition.trim() || !recipientDocument.trim()) {
-      setSnackbar({ open: true, message: 'Complete nombre completo, documento y cargo.', severity: 'warning' });
+    const directorDetails = Object.fromEntries(
+      (['fullName', 'position', 'documentNumber', 'email', 'area', 'phone', 'extension', 'networkUser'] as const)
+        .map((key) => [key, String(director[key] || '').trim()])
+        .filter(([, value]) => value),
+    ) as SiteDirector;
+    const directorSnapshot = { fullName: directorDetails.fullName || '' };
+    const collaborator = actCollaborator(directorDetails, {
+      fullName: recipientName.trim(), position: recipientPosition.trim(), documentNumber: recipientDocument.trim(),
+      email: recipientEmail.trim() || undefined, area: recipientArea.trim() || undefined,
+      phone: recipientPhone.trim() || undefined, extension: recipientExtension.trim() || undefined,
+      networkUser: recipientNetworkUser.trim() || undefined,
+    }, documentDetails.discountSignatureCount ?? 1);
+    if (!directorSnapshot.fullName) {
+      setSnackbar({ open: true, message: 'Complete el nombre del director de unidad para esta acta.', severity: 'warning' });
+      return;
+    }
+    if (!collaborator.fullName || !collaborator.position || !collaborator.documentNumber) {
+      setSnackbar({ open: true, message: sharedEquipment ? 'Para equipos compartidos completa nombre, cargo y documento del director.' : 'Complete nombre, documento y cargo del colaborador responsable.', severity: 'warning' });
       return;
     }
     const overLimit = [
       [recipientName, 200], [recipientPosition, 150], [recipientDocument, 80], [recipientEmail, 254],
       [recipientArea, 150], [recipientPhone, 80], [recipientExtension, 30], [recipientNetworkUser, 150],
+      [directorDetails.fullName || '', 200], [directorDetails.position || '', 150], [directorDetails.documentNumber || '', 80],
+      [directorDetails.email || '', 254], [directorDetails.area || '', 150], [directorDetails.phone || '', 80],
+      [directorDetails.extension || '', 30], [directorDetails.networkUser || '', 150],
       [observations, 4000], [documentDetails.otherDeviceType || '', 100], [documentDetails.charger || '', 100], [documentDetails.mouse || '', 100],
       [documentDetails.monitor || '', 150], [documentDetails.license || '', 150], [documentDetails.keyboard || '', 100],
       [documentDetails.phoneSerial || '', 100], [documentDetails.phoneImei || '', 100],
@@ -346,19 +373,12 @@ const Acts = () => {
       try {
         setCreating(true);
         await updateActContent(editingAct.id, stripUndefinedDeep({
-          recipient: {
-            fullName: recipientName.trim(),
-            position: recipientPosition.trim(),
-            email: recipientEmail.trim() || undefined,
-            documentNumber: recipientDocument.trim(),
-            area: recipientArea.trim() || undefined,
-            phone: recipientPhone.trim() || undefined,
-            extension: recipientExtension.trim() || undefined,
-            networkUser: recipientNetworkUser.trim() || undefined,
-          },
+          recipient: collaborator,
           observations: observations.trim(),
           documentDetails: {
             ...documentDetails,
+            directorSnapshot,
+            blankDiscountSigners: true,
             deliveredByName: editingAct.documentDetails?.deliveredByName || profile?.name || '',
           },
         }), editReason, profile?.uid);
@@ -500,19 +520,11 @@ const Acts = () => {
         companyNitSnapshot: selectedTemplate.nit.trim(),
         fixedAssetIdSnapshot: asset.fixedAssetId,
         assetSnapshot,
-        recipient: {
-          fullName: recipientName.trim(),
-          position: recipientPosition.trim(),
-          email: recipientEmail.trim() || undefined,
-          documentNumber: recipientDocument.trim(),
-          area: recipientArea.trim() || undefined,
-          phone: recipientPhone.trim() || undefined,
-          extension: recipientExtension.trim() || undefined,
-          networkUser: recipientNetworkUser.trim() || undefined,
-        },
+        recipient: collaborator,
         observations: observations.trim() || undefined,
         documentDetails: {
           ...documentDetails,
+          directorSnapshot,
           blankDiscountSigners: true,
           deliveredByName: profile?.name || '',
         },
@@ -1023,14 +1035,15 @@ const Acts = () => {
                     const director = sites.find((site) => site.id === siteId)?.director;
                     setCreateSiteId(siteId);
                     setAssetId('');
-                    setRecipientName(director?.fullName || '');
-                    setRecipientPosition(director?.position || '');
-                    setRecipientEmail(director?.email || '');
-                    setRecipientDocument(director?.documentNumber || '');
-                    setRecipientArea(director?.area || '');
-                    setRecipientPhone(director?.phone || '');
-                    setRecipientExtension(director?.extension || '');
-                    setRecipientNetworkUser(director?.networkUser || '');
+                    setDirector({ ...director });
+                    setRecipientName('');
+                    setRecipientPosition('');
+                    setRecipientEmail('');
+                    setRecipientDocument('');
+                    setRecipientArea('');
+                    setRecipientPhone('');
+                    setRecipientExtension('');
+                    setRecipientNetworkUser('');
                     setObservations('');
                     setDocumentDetails(createEmptyDocumentDetails());
                   }}
@@ -1097,14 +1110,33 @@ const Acts = () => {
                 </Alert>
               )}
 
-              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Datos de quien recibe el equipo</Typography>
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Director de unidad</Typography>
+              {editingAct && !editingAct.documentDetails?.directorSnapshot && (
+                <Alert severity="warning">Esta acta anterior no identifica al director por separado. Confirma sus datos; no se asignarán automáticamente. Al guardar la corrección, la autorización tendrá espacios en blanco para diligenciar las firmas.</Alert>
+              )}
               {!editingAct && createSiteId && (
                 <Alert severity={selectedSite?.director?.fullName ? 'info' : 'warning'}>
                   {selectedSite?.director?.fullName
-                    ? 'Datos del director de la sede cargados. Puedes ajustarlos para esta acta sin modificar la sede.'
-                    : 'Esta sede no tiene el nombre del director registrado. Completa los datos manualmente o configúralos en Sedes.'}
+                    ? 'Datos del director cargados desde la sede. Puedes ajustarlos para esta acta sin modificar la sede.'
+                    : 'Esta sede no tiene director registrado. Completa los datos para esta acta o configúralos en Sedes.'}
                 </Alert>
               )}
+              <TextField label="Nombre del director" value={director.fullName || ''} onChange={(e) => setDirector((current) => ({ ...current, fullName: e.target.value }))} required fullWidth disabled={!canWrite || creating} />
+              {sharedEquipment && <>
+                <Alert severity="info">Al haber varios responsables, los datos del director aparecerán también en Datos del colaborador. Las firmas del descuento quedarán en blanco.</Alert>
+                <TextField label="Cargo del director" value={director.position || ''} onChange={(e) => setDirector((current) => ({ ...current, position: e.target.value }))} required fullWidth disabled={!canWrite || creating} />
+                <TextField label="Documento del director" value={director.documentNumber || ''} onChange={(e) => setDirector((current) => ({ ...current, documentNumber: e.target.value }))} required fullWidth disabled={!canWrite || creating} />
+                <TextField label="Correo del director (opcional)" value={director.email || ''} onChange={(e) => setDirector((current) => ({ ...current, email: e.target.value }))} fullWidth disabled={!canWrite || creating} />
+                <Grid container spacing={2}>
+                  <Grid size={{ xs: 12, sm: 6 }}><TextField label="Área (opcional)" value={director.area || ''} onChange={(e) => setDirector((current) => ({ ...current, area: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                  <Grid size={{ xs: 8, sm: 4 }}><TextField label="Teléfono (opcional)" value={director.phone || ''} onChange={(e) => setDirector((current) => ({ ...current, phone: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                  <Grid size={{ xs: 4, sm: 2 }}><TextField label="Ext." value={director.extension || ''} onChange={(e) => setDirector((current) => ({ ...current, extension: e.target.value }))} fullWidth disabled={!canWrite || creating} /></Grid>
+                </Grid>
+                <TextField label="Usuario de red (opcional)" value={director.networkUser || ''} onChange={(e) => setDirector((current) => ({ ...current, networkUser: e.target.value }))} fullWidth disabled={!canWrite || creating} />
+              </>}
+              {!sharedEquipment && <>
+              <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Datos del colaborador responsable</Typography>
+              {editingAct && !editingAct.documentDetails?.directorSnapshot && <Alert severity="warning">Verifica que estos datos correspondan al colaborador responsable; el acta anterior usaba una sola persona para ambas secciones.</Alert>}
               <TextField
                 label="Nombre completo"
                 value={recipientName}
@@ -1148,6 +1180,7 @@ const Acts = () => {
                 </Grid>
               </Grid>
               <TextField label="Usuario de red (opcional)" value={recipientNetworkUser} onChange={(e) => setRecipientNetworkUser(e.target.value)} fullWidth disabled={!canWrite || creating} />
+              </>}
               <Divider />
               <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Hardware y accesorios</Typography>
               <Typography variant="body2" color="text.secondary">El tipo se precarga según el activo; puedes ajustar las opciones para que coincidan con lo que se entrega.</Typography>
@@ -1246,20 +1279,24 @@ const Acts = () => {
                   labelId="act-discount-signatures-label"
                   label="Firmas para la autorización"
                   value={documentDetails.discountSignatureCount ?? 1}
-                  onChange={(event) => setDocumentDetails((current) => {
-                    const { discountSignatureCount: _previousCount, ...remaining } = current;
+                  onChange={(event) => {
                     const count = Number(event.target.value);
+                    if (!sharedEquipment && count > 1 && (recipientName.trim() || recipientPosition.trim() || recipientDocument.trim())
+                      && !window.confirm('Para equipos compartidos se mostrarán los datos del director. Los datos del colaborador no se guardarán si mantienes esta opción. ¿Continuar?')) return;
+                    if (sharedEquipment && count === 1
+                      && !window.confirm('Para un solo responsable debes verificar los datos del colaborador que usa el equipo. ¿Continuar?')) return;
+                    setDocumentDetails((current) => {
+                    const { discountSignatureCount: _previousCount, ...remaining } = current;
                     return count === 1 ? remaining : { ...remaining, discountSignatureCount: count };
-                  })}
+                    });
+                  }}
                 >
-                  <MenuItem value={1}>{blankDiscountSigners ? 'Un espacio en blanco' : 'Una firma: la persona que recibe'}</MenuItem>
+                  <MenuItem value={1}>Un espacio en blanco</MenuItem>
                   {[2, 3, 4, 5].map((count) => <MenuItem key={count} value={count}>{count} espacios en blanco</MenuItem>)}
                 </Select>
               </FormControl>
               <Typography variant="body2" color="text.secondary">
-                {!blankDiscountSigners && (documentDetails.discountSignatureCount ?? 1) === 1
-                  ? 'La autorización incluirá los datos de la persona que recibe el activo.'
-                  : 'La entrega conserva al director que recibe. En la autorización se imprimirán espacios en blanco para nombre, identificación, cargo y firma.'}
+                En la autorización se imprimirán espacios en blanco para nombre, identificación, cargo y firma.
               </Typography>
               <Divider />
               <Typography variant="subtitle1" sx={{ fontWeight: 900 }}>Observaciones</Typography>

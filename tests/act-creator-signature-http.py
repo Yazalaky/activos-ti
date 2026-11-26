@@ -40,6 +40,7 @@ class RendererHttpTests(unittest.TestCase):
         with urllib.request.urlopen(request, timeout=90) as response:
             result = json.load(response)
         self.assertTrue(result['delivererSignatureApplied'])
+        self.assertTrue(result['directorSnapshotSupported'])
         self.assertEqual(result['delivererSignatureSha256'], sha256(image).hexdigest())
         self.assertTrue(result['pdfBase64'].startswith('JVBER'))
 

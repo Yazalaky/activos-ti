@@ -40,10 +40,11 @@ const draft = (uid, count) => ({
   documentDetails: { ...details(), ...(count === undefined ? {} : { discountSignatureCount: count }) },
   status: 'draft', contentRevision: 1, createdAt: 100, createdByUid: uid,
 });
-async function edit(db, uid, id, current, count, overrides = {}) {
+async function edit(db, uid, id, current, count, overrides = {}, directorSnapshot) {
   const now = Date.now();
   const before = { recipient: current.recipient, observations: '', documentDetails: current.documentDetails };
   const after = { ...before, documentDetails: { ...current.documentDetails, discountSignatureCount: count } };
+  if (directorSnapshot) after.documentDetails.directorSnapshot = directorSnapshot;
   const reason = 'Modificar espacios de firma';
   const batch = writeBatch(db);
   batch.update(doc(db, 'acts', id), {
@@ -78,6 +79,24 @@ async function main() {
   }
   console.log('CHECK: directores opcionales, límites y acceso a sedes');
   await setDoc(doc(adminClient, 'acts', 'legacy'), draft('admin-test'));
+  console.log('CHECK: acta antigua creada');
+  const splitDraft = draft('admin-test', 1);
+  splitDraft.documentDetails.directorSnapshot = { fullName: 'Director ficticio' };
+  await setDoc(doc(adminClient, 'acts', 'split'), splitDraft);
+  console.log('CHECK: acta nueva con director creado');
+  const sharedSplit = draft('tech-test', 3);
+  sharedSplit.documentDetails.directorSnapshot = { fullName: sharedSplit.recipient.fullName };
+  sharedSplit.documentDetails.blankDiscountSigners = true;
+  await setDoc(doc(tech, 'acts', 'shared-split'), sharedSplit);
+  await edit(tech, 'tech-test', 'shared-split', sharedSplit, 4, {}, { fullName: sharedSplit.recipient.fullName });
+  await edit(adminClient, 'admin-test', 'split', splitDraft, 1, {}, { fullName: 'Directora corregida' });
+  assert.equal((await admin.doc('acts/split').get()).data().documentDetails.directorSnapshot.fullName, 'Directora corregida');
+  assert.equal((await admin.doc('acts/split/revisions/rev-2').get()).data().before.documentDetails.directorSnapshot.fullName, 'Director ficticio');
+  for (const [index, snapshot] of ['', { fullName: '' }, { fullName: 'X'.repeat(201) }, { fullName: 'Director', unexpected: true }].entries()) {
+    const invalidDirector = draft('admin-test'); invalidDirector.documentDetails.directorSnapshot = snapshot;
+    await assert.rejects(() => setDoc(doc(adminClient, 'acts', `invalid-director-${index}`), invalidDirector), (error) => error.code === 'permission-denied');
+  }
+  console.log('CHECK: director separado, historial y validación');
   console.log('CHECK: creación compatible con actas anteriores');
   for (let count = 1; count <= 5; count++) {
     await setDoc(doc(tech, 'acts', `valid-${count}`), draft('tech-test', count));

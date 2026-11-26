@@ -781,7 +781,7 @@ service cloud.firestore {
         && details.keys().hasOnly([
           'deliveredByName', 'deviceTypes', 'otherDeviceType', 'charger', 'mouse', 'monitor', 'license',
           'keyboard', 'phoneSerial', 'phoneImei', 'standardSoftware', 'requestedSoftware',
-          'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue', 'discountSignatureCount', 'blankDiscountSigners'
+          'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue', 'discountSignatureCount', 'blankDiscountSigners', 'directorSnapshot'
         ]);
       let deviceTypesValid = details.deviceTypes is map
         && details.deviceTypes.keys().hasAll(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
@@ -813,7 +813,8 @@ service cloud.firestore {
         && isOptionalString(details.get('discountAmountWords', null), 300)
         && isOptionalString(details.get('discountAmountValue', null), 80)
         && (!details.keys().hasAny(['discountSignatureCount']) || (details.discountSignatureCount is int && details.discountSignatureCount >= 1 && details.discountSignatureCount <= 5))
-        && (!details.keys().hasAny(['blankDiscountSigners']) || details.blankDiscountSigners is bool);
+        && (!details.keys().hasAny(['blankDiscountSigners']) || details.blankDiscountSigners is bool)
+        && (!details.keys().hasAny(['directorSnapshot']) || actDirectorSnapshotValid(details.directorSnapshot));
       return identityValid && deviceTypesValid && standardSoftwareValid && requestedSoftwareValid && discountSourcesValid && textFieldsValid;
     }
 
@@ -827,7 +828,7 @@ service cloud.firestore {
         && details.keys().hasOnly([
           'deliveredByName', 'deviceTypes', 'otherDeviceType', 'charger', 'mouse', 'monitor', 'license',
           'keyboard', 'phoneSerial', 'phoneImei', 'standardSoftware', 'requestedSoftware',
-          'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue', 'discountSignatureCount', 'blankDiscountSigners'
+          'otherSoftware', 'partyType', 'discountSources', 'discountAmountWords', 'discountAmountValue', 'discountSignatureCount', 'blankDiscountSigners', 'directorSnapshot'
         ])
         && details.deviceTypes is map
         && details.deviceTypes.keys().hasAll(['desktop', 'laptop', 'printer', 'tablet', 'cellphone', 'other'])
@@ -842,7 +843,15 @@ service cloud.firestore {
         && details.discountSources.keys().hasAll(['fees', 'salary', 'benefits'])
         && details.discountSources.keys().hasOnly(['fees', 'salary', 'benefits'])
         && (!details.keys().hasAny(['discountSignatureCount']) || (details.discountSignatureCount is int && details.discountSignatureCount >= 1 && details.discountSignatureCount <= 5))
-        && (!details.keys().hasAny(['blankDiscountSigners']) || details.blankDiscountSigners is bool);
+        && (!details.keys().hasAny(['blankDiscountSigners']) || details.blankDiscountSigners is bool)
+        && (!details.keys().hasAny(['directorSnapshot']) || actDirectorSnapshotValid(details.directorSnapshot));
+    }
+
+    function actDirectorSnapshotValid(director) {
+      return director is map
+        && director.keys().hasAll(['fullName'])
+        && director.keys().hasOnly(['fullName'])
+        && isNonEmptyString(director.fullName, 200);
     }
 
     function actDraftCreateDataValid() {

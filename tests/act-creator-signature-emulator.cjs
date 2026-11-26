@@ -35,6 +35,7 @@ const act = (creator, name, status = 'draft') => ({
 });
 let lastBody;
 let incompatible = false;
+let directorSupported = true;
 let revokeDuringRender = false;
 global.fetch = async (url, options) => {
   const target = new URL(url);
@@ -45,6 +46,7 @@ global.fetch = async (url, options) => {
   const image = lastBody.delivererSignature && Buffer.from(lastBody.delivererSignature, 'base64');
   return { ok: true, json: async () => ({ fileName: 'acta-TEST-001.pdf',
     pdfBase64: Buffer.from('%PDF-ficticio').toString('base64'), discountSignatureCount: 1,
+    directorSnapshotSupported: directorSupported,
     delivererSignatureApplied: Boolean(image) && !incompatible,
     delivererSignatureSha256: image ? createHash('sha256').update(image).digest('hex') : null }) };
 };
@@ -109,6 +111,17 @@ async function main() {
   await assert.rejects(() => functions.generateActPdf.run({ auth: { uid: 'william' }, data: { actId: 'incompatible' } }), (error) => error.code === 'failed-precondition');
   assert.equal((await db.doc('acts/incompatible').get()).data().status, 'draft');
   incompatible = false;
+  const splitAct = act('fab', 'Fabián Méndez');
+  splitAct.recipient = { fullName: 'Colaboradora ficticia' };
+  splitAct.documentDetails.directorSnapshot = { fullName: 'Directora ficticia' };
+  await db.doc('acts/split').set(splitAct);
+  directorSupported = false;
+  await assert.rejects(() => functions.generateActPdf.run({ auth: { uid: 'william' }, data: { actId: 'split' } }), (error) => error.code === 'failed-precondition');
+  assert.equal((await db.doc('acts/split').get()).data().status, 'draft');
+  directorSupported = true;
+  await functions.generateActPdf.run({ auth: { uid: 'william' }, data: { actId: 'split' } });
+  assert.equal(lastBody.act.recipient.fullName, 'Colaboradora ficticia');
+  assert.equal(lastBody.act.documentDetails.directorSnapshot.fullName, 'Directora ficticia');
   await db.doc('acts/revoked').set(act('fab', 'Fabián Méndez'));
   revokeDuringRender = true;
   await assert.rejects(() => functions.generateActPdf.run({ auth: { uid: 'william' }, data: { actId: 'revoked' } }), (error) => error.code === 'failed-precondition');
