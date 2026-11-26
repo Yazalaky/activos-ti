@@ -551,6 +551,9 @@ def fill_act_docx(
 
     issue_date = issue_date or datetime.now(ZoneInfo("America/Bogota")).strftime("%d/%m/%Y")
     signatures = tables[3]
+    for column, old, new in ((0, "RECIBE", "DIRECTOR DE UNIDAD"), (1, "ENTREGA", "SISTEMAS")):
+        _replace_paragraph_pattern(signatures.cell(3, column).paragraphs[0],
+                                   rf"\b{old}\b", new, label=old)
     if deliverer_signature is not None:
         image, width, height = _signature_image(deliverer_signature)
         paragraph = signatures.cell(5, 1).paragraphs[0]
