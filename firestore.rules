@@ -1086,7 +1086,9 @@ service cloud.firestore {
         && !exists(revisionPath)
         && existsAfter(revisionPath)
         && changed.hasAny(['recipient', 'observations', 'documentDetails'])
-        && changed.hasAll(['contentRevision', 'lastEditId', 'lastEditedAt', 'lastEditedByUid', 'lastEditReason', 'updatedAt', 'updatedByUid'])
+        // El usuario y el motivo pueden coincidir con la edición anterior;
+        // su presencia e identidad se comprueban abajo y en auditUpdateValid().
+        && changed.hasAll(['contentRevision', 'lastEditId', 'lastEditedAt', 'updatedAt'])
         && changed.hasOnly(editFields)
         && next.contentRevision is int
         && next.contentRevision == currentRevision + 1
@@ -1095,6 +1097,7 @@ service cloud.firestore {
         && next.lastEditId.size() <= 150
         && next.lastEditedAt is int
         && next.lastEditedAt > 0
+        && next.updatedAt == next.lastEditedAt
         && next.lastEditedByUid == request.auth.uid
         && next.lastEditReason is string
         && next.lastEditReason.size() >= 5
