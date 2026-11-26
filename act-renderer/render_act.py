@@ -572,7 +572,8 @@ def fill_act_docx(
     director_name = _text(director_snapshot.get("fullName")) if director_snapshot is not None else _text(recipient.get("fullName"))
     for cell, value in ((signatures.cell(4, 0), director_name), (signatures.cell(4, 1), _text(deliverer_name))):
         paragraph = cell.paragraphs[0]
-        paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(0.92), WD_TAB_ALIGNMENT.LEFT)
+        # Centro de la columna, alineado visualmente con la fecha sin mover «Nombre».
+        paragraph.paragraph_format.tab_stops.add_tab_stop(Inches(1.68), WD_TAB_ALIGNMENT.CENTER)
         run = paragraph.add_run(f"\t{value}")
         run.font.name = FONT_NAME
         run.font.size = Pt(8.3)
